@@ -157,6 +157,7 @@
   <p class="caption" role="heading"><span class="caption-text">Guides</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../guides/getting-started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../guides/ci-cd.html">CI/CD Operations Guide</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../contributing.html">Contributing to Docs</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Concepts</span></p>
@@ -345,11 +346,31 @@
 </pre></div>
 </div>
 </section>
+<section id="governance-playbook">
+<h2>Governance Playbook<a class="headerlink" href="#governance-playbook" title="Link to this heading">#</a></h2>
+<p>All CI/CD changes follow a structured workflow:</p>
+<ol class="arabic simple">
+<li><p><strong>Conversation → Issue</strong> - Use CI/CD Change issue template with ADR-0003 label</p></li>
+<li><p><strong>Issue → PR</strong> - Complete governance checklist in PR template</p></li>
+<li><p><strong>Review → Merge</strong> - Branch protection enforces review and status checks</p></li>
+<li><p><strong>Documentation</strong> - Keep guides/ci-cd.md and this ADR synchronized</p></li>
+</ol>
+<section id="deployment-safety-gates">
+<h3>Deployment Safety Gates<a class="headerlink" href="#deployment-safety-gates" title="Link to this heading">#</a></h3>
+<ul class="simple">
+<li><p><strong>Environment Variables:</strong> <code class="docutils literal notranslate"><span class="pre">DEPLOY_ENABLED_DEV/STAGING/PROD</span></code> control deployment execution</p></li>
+<li><p><strong>GitHub Environments:</strong> Provide secret isolation and approval requirements</p></li>
+<li><p><strong>Branch Protection:</strong> Production deploys require human review and passing tests</p></li>
+</ul>
+<p>See <a class="reference internal" href="../guides/ci-cd.html"><span class="doc std std-doc">CI/CD Operations Guide</span></a> for detailed procedures.</p>
+</section>
+</section>
 <section id="status-history">
 <h2>Status History<a class="headerlink" href="#status-history" title="Link to this heading">#</a></h2>
 <ul class="simple">
 <li><p>2025-09-05: Proposed during repository setup</p></li>
 <li><p>2025-09-05: Accepted and implemented with GitHub Actions workflow</p></li>
+<li><p>2025-09-05: Enhanced with governance playbook and deployment safety gates</p></li>
 </ul>
 </section>
 </section>
@@ -417,6 +438,10 @@
 </ul>
 </li>
 <li><a class="reference internal" href="#implementation">Implementation</a></li>
+<li><a class="reference internal" href="#governance-playbook">Governance Playbook</a><ul>
+<li><a class="reference internal" href="#deployment-safety-gates">Deployment Safety Gates</a></li>
+</ul>
+</li>
 <li><a class="reference internal" href="#status-history">Status History</a></li>
 </ul>
 </li>

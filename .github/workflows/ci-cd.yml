@@ -115,7 +115,7 @@ jobs:
   deploy-dev:
     needs: build
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/dev'
+    if: github.ref == 'refs/heads/dev' && vars.DEPLOY_ENABLED_DEV == 'true'
     environment: development
     
     steps:
@@ -139,7 +139,7 @@ jobs:
   deploy-staging:
     needs: build
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/staging'
+    if: github.ref == 'refs/heads/staging' && vars.DEPLOY_ENABLED_STAGING == 'true'
     environment: staging
     
     steps:
@@ -163,7 +163,7 @@ jobs:
   deploy-production:
     needs: build
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED_PROD == 'true'
     environment: production
     
     steps:

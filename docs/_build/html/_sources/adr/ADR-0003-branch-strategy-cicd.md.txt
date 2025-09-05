@@ -84,7 +84,25 @@ jobs:
   deploy-production: # ECS update (main branch)
 ```
 
+## Governance Playbook
+
+All CI/CD changes follow a structured workflow:
+
+1. **Conversation → Issue** - Use CI/CD Change issue template with ADR-0003 label
+2. **Issue → PR** - Complete governance checklist in PR template  
+3. **Review → Merge** - Branch protection enforces review and status checks
+4. **Documentation** - Keep guides/ci-cd.md and this ADR synchronized
+
+### Deployment Safety Gates
+
+- **Environment Variables:** `DEPLOY_ENABLED_DEV/STAGING/PROD` control deployment execution
+- **GitHub Environments:** Provide secret isolation and approval requirements
+- **Branch Protection:** Production deploys require human review and passing tests
+
+See [CI/CD Operations Guide](../guides/ci-cd) for detailed procedures.
+
 ## Status History
 
 - 2025-09-05: Proposed during repository setup
 - 2025-09-05: Accepted and implemented with GitHub Actions workflow
+- 2025-09-05: Enhanced with governance playbook and deployment safety gates

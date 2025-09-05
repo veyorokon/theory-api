@@ -8,6 +8,7 @@ A universal, event-driven framework to achieve complex goals under budget and po
 :caption: Guides
 
 guides/getting-started
+guides/ci-cd
 contributing
 ```
 

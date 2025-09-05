@@ -1,0 +1,51 @@
+name: "CI/CD Change"
+description: Propose or modify CI/CD per ADR-0003
+labels: ["adr-0003", "ci-cd"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What change to CI/CD is proposed? Why now?
+      placeholder: "E.g., enable deploy on dev branch; add staging env gate"
+    validations:
+      required: true
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: Workflow files (.github/workflows)
+        - label: GitHub Environments (development/staging/production)
+        - label: Secrets/variables (repository or environment)
+        - label: Terraform or infra references
+        - label: Docs updates (ADR-0003, runbooks)
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: Concrete outcomes that prove this is done
+      placeholder: |
+        - CI builds docs on PR/merge
+        - CD remains gated unless DEPLOY_ENABLED_* true
+        - Environments created with reviewers (if enabling CD)
+    validations:
+      required: true
+  - type: textarea
+    id: rollout
+    attributes:
+      label: Rollout/Backout
+      description: How to enable (flags/envs) and how to disable safely
+      placeholder: |
+        Rollout: Set DEPLOY_ENABLED_DEV=true, create development environment
+        Backout: Set DEPLOY_ENABLED_DEV=false
+    validations:
+      required: true
+  - type: textarea
+    id: links
+    attributes:
+      label: Links
+      description: ADRs, related issues/PRs
+      placeholder: "ADR-0003: https://github.com/veyorokon/visureel-api/blob/main/docs/source/adr/ADR-0003-branch-strategy-cicd.md"
+    validations:
+      required: true
