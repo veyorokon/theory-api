@@ -1,0 +1,508 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../">
+  <head><meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="index" title="Index" href="../genindex.html" /><link rel="search" title="Search" href="../search.html" /><link rel="next" title="Glossary" href="../glossary.html" /><link rel="prev" title="Registry &amp; Adapters" href="registry-and-adapters.html" />
+
+    <!-- Generated with Sphinx 7.2.6 and Furo 2024.01.29 -->
+        <title>Agents &amp; Cognition - Visureel Orchestrator</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=135e06be" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=36a5483c" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f8f8f8;
+  --color-code-foreground: black;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-half" viewBox="0 0 24 24">
+    <title>Auto light/dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-shadow">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M13 12h5" />
+      <path d="M13 15h4" />
+      <path d="M13 18h1" />
+      <path d="M13 9h4" />
+      <path d="M13 6h1" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc">
+<label class="overlay sidebar-overlay" for="__navigation">
+  <div class="visually-hidden">Hide navigation sidebar</div>
+</label>
+<label class="overlay toc-overlay" for="__toc">
+  <div class="visually-hidden">Hide table of contents sidebar</div>
+</label>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <div class="visually-hidden">Toggle site navigation sidebar</div>
+        <i class="icon"><svg><use href="#svg-menu"></use></svg></i>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../index.html"><div class="brand">Visureel Orchestrator</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle">
+          <div class="visually-hidden">Toggle Light / Dark / Auto color theme</div>
+          <svg class="theme-icon-when-auto"><use href="#svg-sun-half"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
+        <div class="visually-hidden">Toggle table of contents sidebar</div>
+        <i class="icon"><svg><use href="#svg-toc"></use></svg></i>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../index.html">
+  
+  
+  <span class="sidebar-brand-text">Visureel Orchestrator</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <p class="caption" role="heading"><span class="caption-text">Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../guides/getting-started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../contributing.html">Contributing to Docs</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Concepts</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="world-plan-ledger.html">World, Plan, and Ledger</a></li>
+<li class="toctree-l1"><a class="reference internal" href="facets-and-paths.html">Facets &amp; WorldPath</a></li>
+<li class="toctree-l1"><a class="reference internal" href="predicates.html">Predicates</a></li>
+<li class="toctree-l1"><a class="reference internal" href="registry-and-adapters.html">Registry &amp; Adapters</a></li>
+<li class="toctree-l1"><a class="reference internal" href="registry-and-adapters.html#registry-documentation">Registry Documentation</a></li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Agents &amp; Cognition</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../glossary.html">Glossary</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Applications</span></p>
+<ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../apps/index.html">Applications</a><input class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><div class="visually-hidden">Toggle navigation of Applications</div><i class="icon"><svg><use href="#svg-arrow-right"></use></svg></i></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../apps/storage.html">Storage App</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../apps/storage.html#storage-api-documentation">Storage API Documentation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../apps/core.html">Core App</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../apps/storage.html">Storage App</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../apps/storage.html#storage-api-documentation">Storage API Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../apps/core.html">Core App</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Use Cases</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../use-cases/media-generation.html">Media Generation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-cases/media-generation.html#media-generation-pipeline">Media Generation Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-cases/ci-cd.html">CI/CD &amp; Deployment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-cases/ci-cd.html#ci-cd-pipeline">CI/CD Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-cases/realtime-facetime.html">Real-time FaceTime Agent</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-cases/realtime-facetime.html#real-time-agent-sequence">Real-time Agent Sequence</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Architecture Decisions</span></p>
+<ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../adr/index.html">Architecture Decision Records</a><input class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" role="switch" type="checkbox"/><label for="toctree-checkbox-2"><div class="visually-hidden">Toggle navigation of Architecture Decision Records</div><i class="icon"><svg><use href="#svg-arrow-right"></use></svg></i></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../adr/ADR-template.html">ADR-XXXX — Title</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../adr/ADR-0001-docs-as-contracts.html">ADR-0001 — Docs as Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../adr/ADR-0002-storage-adapter-pattern.html">ADR-0002 — Storage Adapter Pattern</a></li>
+</ul>
+</li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          
+<div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle">
+              <div class="visually-hidden">Toggle Light / Dark / Auto color theme</div>
+              <svg class="theme-icon-when-auto"><use href="#svg-sun-half"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
+            <div class="visually-hidden">Toggle table of contents sidebar</div>
+            <i class="icon"><svg><use href="#svg-toc"></use></svg></i>
+          </label>
+        </div>
+        <article role="main">
+          <section id="agents-cognition">
+<h1>Agents &amp; Cognition<a class="headerlink" href="#agents-cognition" title="Link to this heading">#</a></h1>
+<p>Agents are just processors that may:</p>
+<ul class="simple">
+<li><p>subscribe to world deltas,</p></li>
+<li><p>choose tools (plan) and/or act,</p></li>
+<li><p>optionally follow cognition graphs defining tool availability per “stage”.</p></li>
+</ul>
+<p><strong>No special casing</strong>: agents use the same Transition + Predicate machinery.</p>
+<section id="agents-as-processors">
+<h2>Agents as Processors<a class="headerlink" href="#agents-as-processors" title="Link to this heading">#</a></h2>
+<p>An :term:<code class="docutils literal notranslate"><span class="pre">Agent</span></code> is simply a :term:<code class="docutils literal notranslate"><span class="pre">Processor</span></code> with additional capabilities:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># registry/tools/agent.dialogue.yaml</span>
+<span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;agent.dialogue@1&quot;</span>
+<span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Conversational</span><span class="nv"> </span><span class="s">Agent&quot;</span>
+<span class="nt">adapter</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;modal&quot;</span>
+<span class="nt">entry_point</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;agents.dialogue_agent&quot;</span>
+<span class="nt">capabilities</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;subscribe_to_world_deltas&quot;</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;propose_transitions&quot;</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;multi_stage_cognition&quot;</span>
+</pre></div>
+</div>
+<p>Unlike simple tools, agents can:</p>
+<ol class="arabic simple">
+<li><p><strong>React to Events</strong> - Subscribe to world changes and decide when to act</p></li>
+<li><p><strong>Plan Ahead</strong> - Propose new transitions based on current state</p></li>
+<li><p><strong>Multi-modal</strong> - Process text, audio, video through unified interfaces</p></li>
+<li><p><strong>Stateful</strong> - Maintain context across multiple interactions</p></li>
+</ol>
+</section>
+<section id="cognition-stages">
+<h2>Cognition Stages<a class="headerlink" href="#cognition-stages" title="Link to this heading">#</a></h2>
+<p>Agents can follow cognition graphs that define available tools per stage:</p>
+<div class="mermaid">
+            stateDiagram-v2
+  [*] --&gt; Observe
+  Observe --&gt; Plan: new_world_delta
+  Plan --&gt; Act: transition_ready
+  Act --&gt; Observe: action_complete
+  Observe --&gt; NoOp: no_action_needed
+  NoOp --&gt; Observe: wait
+        </div><section id="stage-based-tool-access">
+<h3>Stage-based Tool Access<a class="headerlink" href="#stage-based-tool-access" title="Link to this heading">#</a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># Agent cognition configuration</span>
+<span class="nt">stages</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">observe</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">tools</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;sense.vision@1&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;sense.audio@1&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;memory.recall@1&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">predicates</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">admission</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span><span class="w">  </span><span class="c1"># Always available</span>
+<span class="w">      </span>
+<span class="w">  </span><span class="nt">plan</span><span class="p">:</span><span class="w"> </span>
+<span class="w">    </span><span class="nt">tools</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;reason.chain@1&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;plan.propose@1&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;memory.store@1&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">predicates</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">admission</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;cognition.stage_ready@1&quot;</span>
+<span class="w">          </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">required_inputs</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;observations&quot;</span><span class="p p-Indicator">]}</span>
+<span class="w">          </span>
+<span class="w">  </span><span class="nt">act</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">tools</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;speech.generate@1&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;vision.generate@1&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;world.write@1&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">predicates</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">admission</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;plan.exists@1&quot;</span>
+<span class="w">          </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">min_confidence</span><span class="p">:</span><span class="w"> </span><span class="nv">0.7</span><span class="p p-Indicator">}</span>
+</pre></div>
+</div>
+</section>
+<section id="stage-transitions">
+<h3>Stage Transitions<a class="headerlink" href="#stage-transitions" title="Link to this heading">#</a></h3>
+<p>Agents move between stages based on:</p>
+<ul class="simple">
+<li><p><strong>World events</strong> - New messages, sensor data, external triggers</p></li>
+<li><p><strong>Internal state</strong> - Confidence levels, memory thresholds</p></li>
+<li><p><strong>Policy</strong> - Time limits, resource constraints</p></li>
+</ul>
+</section>
+</section>
+<section id="conversational-agents">
+<h2>Conversational Agents<a class="headerlink" href="#conversational-agents" title="Link to this heading">#</a></h2>
+<p>Real-time conversational agents demonstrate the pattern:</p>
+<section id="world-layout">
+<h3>World Layout<a class="headerlink" href="#world-layout" title="Link to this heading">#</a></h3>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>world://acme/conversation-123/
+├── streams/
+│   ├── mic/audio/          # Input audio chunks
+│   └── speaker/audio/      # Output audio chunks
+├── artifacts/  
+│   ├── messages/           # Persistent conversation history
+│   └── summaries/          # Periodic conversation summaries
+└── plan/
+    └── transitions/
+        ├── process-audio/  # Real-time audio processing
+        └── generate-reply/ # Response generation
+</pre></div>
+</div>
+</section>
+<section id="agent-flow">
+<h3>Agent Flow<a class="headerlink" href="#agent-flow" title="Link to this heading">#</a></h3>
+<ol class="arabic simple">
+<li><p><strong>Audio chunk arrives</strong> → <code class="docutils literal notranslate"><span class="pre">artifact.produced</span></code> event</p></li>
+<li><p><strong>Agent observes</strong> → processes audio, updates internal state</p></li>
+<li><p><strong>Agent plans</strong> → decides whether to respond based on conversation context</p></li>
+<li><p><strong>Agent acts</strong> → generates speech, writes to output stream</p></li>
+<li><p><strong>Streams flow</strong> → audio delivered to user via WebRTC</p></li>
+</ol>
+</section>
+<section id="multi-agent-coordination">
+<h3>Multi-Agent Coordination<a class="headerlink" href="#multi-agent-coordination" title="Link to this heading">#</a></h3>
+<p>Multiple agents can coordinate through the same World:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">agents</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">dialogue_agent</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">subscribes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;streams/mic/*&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;artifacts/messages/*&quot;</span><span class="p p-Indicator">]</span><span class="w"> </span>
+<span class="w">    </span><span class="nt">produces</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;streams/speaker/*&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">    </span>
+<span class="w">  </span><span class="nt">memory_agent</span><span class="p">:</span><span class="w">  </span>
+<span class="w">    </span><span class="nt">subscribes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;artifacts/messages/*&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="nt">produces</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;artifacts/summaries/*&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;artifacts/memories/*&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">    </span>
+<span class="w">  </span><span class="nt">emotion_agent</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">subscribes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;streams/camera/*&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;streams/mic/*&quot;</span><span class="p p-Indicator">]</span><span class="w">  </span>
+<span class="w">    </span><span class="nt">produces</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;artifacts/emotional_state/*&quot;</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<p>Each agent operates independently but coordinates through shared World state and events.</p>
+</section>
+</section>
+<section id="implementation-example">
+<h2>Implementation Example<a class="headerlink" href="#implementation-example" title="Link to this heading">#</a></h2>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">DialogueAgent</span><span class="p">(</span><span class="n">BaseProcessor</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">stage</span> <span class="o">=</span> <span class="s2">&quot;observe&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">context_buffer</span> <span class="o">=</span> <span class="p">[]</span>
+        
+    <span class="k">def</span><span class="w"> </span><span class="nf">process</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">ExpandedContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ProcessorResult</span><span class="p">:</span>
+        <span class="c1"># Stage-based processing</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">stage</span> <span class="o">==</span> <span class="s2">&quot;observe&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">observe</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">stage</span> <span class="o">==</span> <span class="s2">&quot;plan&quot;</span><span class="p">:</span>  
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">plan</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">stage</span> <span class="o">==</span> <span class="s2">&quot;act&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">act</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
+            
+    <span class="k">def</span><span class="w"> </span><span class="nf">observe</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">ExpandedContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ProcessorResult</span><span class="p">:</span>
+        <span class="c1"># Process new world deltas</span>
+        <span class="n">new_messages</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_new_messages</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">context_buffer</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">new_messages</span><span class="p">)</span>
+        
+        <span class="c1"># Decide next stage</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">should_respond</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">stage</span> <span class="o">=</span> <span class="s2">&quot;plan&quot;</span>
+            <span class="k">return</span> <span class="n">ProcessorResult</span><span class="p">(</span>
+                <span class="n">success</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                <span class="n">next_stage</span><span class="o">=</span><span class="s2">&quot;plan&quot;</span><span class="p">,</span>
+                <span class="n">internal_state</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">get_state</span><span class="p">()</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">ProcessorResult</span><span class="p">(</span><span class="n">success</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s2">&quot;no_op&quot;</span><span class="p">)</span>
+            
+    <span class="k">def</span><span class="w"> </span><span class="nf">plan</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">ExpandedContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ProcessorResult</span><span class="p">:</span>
+        <span class="c1"># Generate response plan</span>
+        <span class="n">response_plan</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">generate_response_plan</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">context_buffer</span><span class="p">)</span>
+        
+        <span class="bp">self</span><span class="o">.</span><span class="n">stage</span> <span class="o">=</span> <span class="s2">&quot;act&quot;</span> 
+        <span class="k">return</span> <span class="n">ProcessorResult</span><span class="p">(</span>
+            <span class="n">success</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">next_stage</span><span class="o">=</span><span class="s2">&quot;act&quot;</span><span class="p">,</span>
+            <span class="n">proposed_transitions</span><span class="o">=</span><span class="p">[</span><span class="n">response_plan</span><span class="p">]</span>
+        <span class="p">)</span>
+        
+    <span class="k">def</span><span class="w"> </span><span class="nf">act</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">ExpandedContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ProcessorResult</span><span class="p">:</span>
+        <span class="c1"># Execute the planned response</span>
+        <span class="n">audio_response</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">synthesize_speech</span><span class="p">(</span><span class="n">context</span><span class="o">.</span><span class="n">inputs</span><span class="p">[</span><span class="s2">&quot;response_text&quot;</span><span class="p">])</span>
+        
+        <span class="bp">self</span><span class="o">.</span><span class="n">stage</span> <span class="o">=</span> <span class="s2">&quot;observe&quot;</span>
+        <span class="k">return</span> <span class="n">ProcessorResult</span><span class="p">(</span>
+            <span class="n">success</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">artifacts</span><span class="o">=</span><span class="p">[</span>
+                <span class="n">Artifact</span><span class="p">(</span><span class="n">path</span><span class="o">=</span><span class="s2">&quot;streams/speaker/audio&quot;</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">audio_response</span><span class="p">)</span>
+            <span class="p">]</span>
+        <span class="p">)</span>
+</pre></div>
+</div>
+<p>This demonstrates how agents integrate seamlessly with Visureel’s execution model while providing sophisticated, multi-stage behaviors.</p>
+</section>
+</section>
+
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          <a class="next-page" href="../glossary.html">
+              <div class="page-info">
+                <div class="context">
+                  <span>Next</span>
+                </div>
+                <div class="title">Glossary</div>
+              </div>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+            </a>
+          <a class="prev-page" href="registry-and-adapters.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">Registry &amp; Adapters</div>
+                
+              </div>
+            </a>
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; 2025, Visureel
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer">
+      
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">Agents &amp; Cognition</a><ul>
+<li><a class="reference internal" href="#agents-as-processors">Agents as Processors</a></li>
+<li><a class="reference internal" href="#cognition-stages">Cognition Stages</a><ul>
+<li><a class="reference internal" href="#stage-based-tool-access">Stage-based Tool Access</a></li>
+<li><a class="reference internal" href="#stage-transitions">Stage Transitions</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#conversational-agents">Conversational Agents</a><ul>
+<li><a class="reference internal" href="#world-layout">World Layout</a></li>
+<li><a class="reference internal" href="#agent-flow">Agent Flow</a></li>
+<li><a class="reference internal" href="#multi-agent-coordination">Multi-Agent Coordination</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#implementation-example">Implementation Example</a></li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
+      
+      
+    </aside>
+  </div>
+</div><script src="../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../_static/doctools.js?v=888ff710"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/scripts/furo.js?v=32e29ea5"></script>
+    <script src="https://unpkg.com/mermaid@10.9.1/dist/mermaid.min.js"></script>
+    <script>mermaid.initialize({startOnLoad:true});</script>
+    </body>
+</html>

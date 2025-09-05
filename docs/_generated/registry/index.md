@@ -1,0 +1,15 @@
+# Registry Documentation
+
+*Generated registry documentation will appear here when the registry system is implemented.*
+
+## Tool Specifications
+
+Coming soon: Auto-generated documentation for all registered tools.
+
+## Schema Definitions
+
+Coming soon: JSON schemas for all data structures.
+
+## Policy Documents
+
+Coming soon: Budget policies and execution constraints.

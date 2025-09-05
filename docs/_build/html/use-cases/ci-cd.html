@@ -1,0 +1,546 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../">
+  <head><meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="index" title="Index" href="../genindex.html" /><link rel="search" title="Search" href="../search.html" /><link rel="next" title="Real-time FaceTime Agent" href="realtime-facetime.html" /><link rel="prev" title="Media Generation" href="media-generation.html" />
+
+    <!-- Generated with Sphinx 7.2.6 and Furo 2024.01.29 -->
+        <title>CI/CD &amp; Deployment - Visureel Orchestrator</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=135e06be" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=36a5483c" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f8f8f8;
+  --color-code-foreground: black;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-half" viewBox="0 0 24 24">
+    <title>Auto light/dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-shadow">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M13 12h5" />
+      <path d="M13 15h4" />
+      <path d="M13 18h1" />
+      <path d="M13 9h4" />
+      <path d="M13 6h1" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc">
+<label class="overlay sidebar-overlay" for="__navigation">
+  <div class="visually-hidden">Hide navigation sidebar</div>
+</label>
+<label class="overlay toc-overlay" for="__toc">
+  <div class="visually-hidden">Hide table of contents sidebar</div>
+</label>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <div class="visually-hidden">Toggle site navigation sidebar</div>
+        <i class="icon"><svg><use href="#svg-menu"></use></svg></i>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../index.html"><div class="brand">Visureel Orchestrator</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle">
+          <div class="visually-hidden">Toggle Light / Dark / Auto color theme</div>
+          <svg class="theme-icon-when-auto"><use href="#svg-sun-half"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
+        <div class="visually-hidden">Toggle table of contents sidebar</div>
+        <i class="icon"><svg><use href="#svg-toc"></use></svg></i>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../index.html">
+  
+  
+  <span class="sidebar-brand-text">Visureel Orchestrator</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <p class="caption" role="heading"><span class="caption-text">Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../guides/getting-started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../contributing.html">Contributing to Docs</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Concepts</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../concepts/world-plan-ledger.html">World, Plan, and Ledger</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../concepts/facets-and-paths.html">Facets &amp; WorldPath</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../concepts/predicates.html">Predicates</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../concepts/registry-and-adapters.html">Registry &amp; Adapters</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../concepts/registry-and-adapters.html#registry-documentation">Registry Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../concepts/agents-and-cognition.html">Agents &amp; Cognition</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../glossary.html">Glossary</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Applications</span></p>
+<ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../apps/index.html">Applications</a><input class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><div class="visually-hidden">Toggle navigation of Applications</div><i class="icon"><svg><use href="#svg-arrow-right"></use></svg></i></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../apps/storage.html">Storage App</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../apps/storage.html#storage-api-documentation">Storage API Documentation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../apps/core.html">Core App</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../apps/storage.html">Storage App</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../apps/storage.html#storage-api-documentation">Storage API Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../apps/core.html">Core App</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Use Cases</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="media-generation.html">Media Generation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="media-generation.html#media-generation-pipeline">Media Generation Pipeline</a></li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">CI/CD &amp; Deployment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#ci-cd-pipeline">CI/CD Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="realtime-facetime.html">Real-time FaceTime Agent</a></li>
+<li class="toctree-l1"><a class="reference internal" href="realtime-facetime.html#real-time-agent-sequence">Real-time Agent Sequence</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Architecture Decisions</span></p>
+<ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../adr/index.html">Architecture Decision Records</a><input class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" role="switch" type="checkbox"/><label for="toctree-checkbox-2"><div class="visually-hidden">Toggle navigation of Architecture Decision Records</div><i class="icon"><svg><use href="#svg-arrow-right"></use></svg></i></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../adr/ADR-template.html">ADR-XXXX — Title</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../adr/ADR-0001-docs-as-contracts.html">ADR-0001 — Docs as Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../adr/ADR-0002-storage-adapter-pattern.html">ADR-0002 — Storage Adapter Pattern</a></li>
+</ul>
+</li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          
+<div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle">
+              <div class="visually-hidden">Toggle Light / Dark / Auto color theme</div>
+              <svg class="theme-icon-when-auto"><use href="#svg-sun-half"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
+            <div class="visually-hidden">Toggle table of contents sidebar</div>
+            <i class="icon"><svg><use href="#svg-toc"></use></svg></i>
+          </label>
+        </div>
+        <article role="main">
+          <section id="ci-cd-deployment">
+<h1>CI/CD &amp; Deployment<a class="headerlink" href="#ci-cd-deployment" title="Link to this heading">#</a></h1>
+<p><strong>Goal:</strong> Deploy <code class="docutils literal notranslate"><span class="pre">webapp</span></code> to production.</p>
+<p><strong>Transitions:</strong></p>
+<ul class="simple">
+<li><p>clone → test → build → deploy → healthcheck</p></li>
+</ul>
+<p><strong>Predicates:</strong> <code class="docutils literal notranslate"><span class="pre">tests.pass</span></code>, <code class="docutils literal notranslate"><span class="pre">http.200</span></code>.</p>
+<p><strong>Adapters:</strong> CLI wrappers (git, pytest, docker, kubectl/modal).</p>
+<section id="scenario">
+<h2>Scenario<a class="headerlink" href="#scenario" title="Link to this heading">#</a></h2>
+<p>Development team pushes code to the main branch. The system should automatically:</p>
+<ul class="simple">
+<li><p>Clone the latest code</p></li>
+<li><p>Run test suite</p></li>
+<li><p>Build container image</p></li>
+<li><p>Deploy to production</p></li>
+<li><p>Verify deployment health</p></li>
+</ul>
+</section>
+<section id="plan-structure">
+<h2>Plan Structure<a class="headerlink" href="#plan-structure" title="Link to this heading">#</a></h2>
+<div class="mermaid">
+            graph TD
+    A[git-clone] --&gt; B[run-tests]
+    B --&gt; C[build-image]
+    C --&gt; D[deploy-app] 
+    D --&gt; E[health-check]
+    
+    A --&gt; F[world://artifacts/source/]
+    B --&gt; G[world://artifacts/test-results.xml]
+    C --&gt; H[world://artifacts/image.tag]
+    D --&gt; I[world://artifacts/deployment.yaml]
+    E --&gt; J[world://artifacts/health-status.json]
+        </div></section>
+<section id="transitions">
+<h2>Transitions<a class="headerlink" href="#transitions" title="Link to this heading">#</a></h2>
+<section id="source-code-checkout">
+<h3>1. Source Code Checkout<a class="headerlink" href="#source-code-checkout" title="Link to this heading">#</a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">git-clone</span>
+<span class="nt">processor_ref</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tool:git.clone@1</span>
+<span class="nt">inputs</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">repository</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://github.com/company/webapp&quot;</span>
+<span class="w">  </span><span class="nt">branch</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;main&quot;</span>
+<span class="w">  </span><span class="nt">commit_sha</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;${trigger.commit_sha}&quot;</span>
+<span class="nt">write_set</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prefix</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">world://artifacts/source/</span>
+<span class="nt">predicates</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">success</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">file.exists@1</span>
+<span class="w">      </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="nv">world</span><span class="p p-Indicator">:</span><span class="nv">//artifacts/source/requirements.txt</span><span class="p p-Indicator">}</span>
+</pre></div>
+</div>
+</section>
+<section id="test-execution">
+<h3>2. Test Execution<a class="headerlink" href="#test-execution" title="Link to this heading">#</a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">run-tests</span>
+<span class="nt">processor_ref</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tool:pytest.run@1</span><span class="w">  </span>
+<span class="nt">dependencies</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">git-clone</span><span class="p p-Indicator">]</span>
+<span class="nt">inputs</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">source_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">world://artifacts/source/</span>
+<span class="w">  </span><span class="nt">output_format</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;junit&quot;</span>
+<span class="nt">write_set</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">exact</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">world://artifacts/test-results.xml</span>
+<span class="nt">predicates</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">admission</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">file.exists@1</span>
+<span class="w">      </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="nv">world</span><span class="p p-Indicator">:</span><span class="nv">//artifacts/source/requirements.txt</span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="nt">success</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tests.pass@1</span>
+<span class="w">      </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span>
+<span class="w">        </span><span class="nt">results_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">world://artifacts/test-results.xml</span>
+<span class="w">        </span><span class="nt">min_coverage</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">80</span>
+</pre></div>
+</div>
+</section>
+<section id="container-build">
+<h3>3. Container Build<a class="headerlink" href="#container-build" title="Link to this heading">#</a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build-image</span>
+<span class="nt">processor_ref</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tool:docker.build@1</span>
+<span class="nt">dependencies</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">run-tests</span><span class="p p-Indicator">]</span>
+<span class="nt">inputs</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">source_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">world://artifacts/source/</span>
+<span class="w">  </span><span class="nt">dockerfile</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Dockerfile&quot;</span>
+<span class="w">  </span><span class="nt">tag</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;webapp:${trigger.commit_sha}&quot;</span>
+<span class="nt">write_set</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">exact</span><span class="w">  </span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">world://artifacts/image.tag</span>
+<span class="nt">predicates</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">admission</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tests.pass@1</span>
+<span class="w">      </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">results_path</span><span class="p">:</span><span class="w"> </span><span class="nv">world</span><span class="p p-Indicator">:</span><span class="nv">//artifacts/test-results.xml</span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="nt">success</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">docker.image_exists@1</span>
+<span class="w">      </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">tag</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;webapp:${trigger.commit_sha}&quot;</span><span class="p p-Indicator">}</span>
+</pre></div>
+</div>
+</section>
+<section id="production-deployment">
+<h3>4. Production Deployment<a class="headerlink" href="#production-deployment" title="Link to this heading">#</a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">deploy-app</span>
+<span class="nt">processor_ref</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tool:k8s.apply@1</span>
+<span class="nt">dependencies</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">build-image</span><span class="p p-Indicator">]</span>
+<span class="nt">inputs</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">manifest_template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">world://artifacts/source/k8s/deployment.yaml</span>
+<span class="w">  </span><span class="nt">image_tag</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;webapp:${trigger.commit_sha}&quot;</span>
+<span class="w">  </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;production&quot;</span>
+<span class="nt">write_set</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">exact</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">world://artifacts/deployment.yaml</span>
+<span class="nt">predicates</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">admission</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">docker.image_exists@1</span>
+<span class="w">      </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">tag</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;webapp:${trigger.commit_sha}&quot;</span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="nt">success</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">k8s.deployment_ready@1</span>
+<span class="w">      </span><span class="nt">args</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;production&quot;</span>
+<span class="w">        </span><span class="nt">deployment</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;webapp&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="health-verification">
+<h3>5. Health Verification<a class="headerlink" href="#health-verification" title="Link to this heading">#</a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">health-check</span>
+<span class="nt">processor_ref</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tool:http.check@1</span>
+<span class="nt">dependencies</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">deploy-app</span><span class="p p-Indicator">]</span>
+<span class="nt">inputs</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://webapp.company.com/health&quot;</span>
+<span class="w">  </span><span class="nt">timeout_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
+<span class="w">  </span><span class="nt">retry_count</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
+<span class="nt">write_set</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">exact</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">world://artifacts/health-status.json</span>
+<span class="nt">predicates</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">admission</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">k8s.deployment_ready@1</span>
+<span class="w">      </span><span class="nt">args</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;production&quot;</span><span class="w"> </span>
+<span class="w">        </span><span class="nt">deployment</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;webapp&quot;</span>
+<span class="w">  </span><span class="nt">success</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http.get.200@1</span>
+<span class="w">      </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span>
+<span class="w">        </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://webapp.company.com/health&quot;</span>
+<span class="w">        </span><span class="nt">timeout_ms</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5000</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="flow-high-level">
+<h2>Flow (High Level)<a class="headerlink" href="#flow-high-level" title="Link to this heading">#</a></h2>
+<ol class="arabic simple">
+<li><p><strong>Git webhook triggers</strong> - Push to main branch creates new plan</p></li>
+<li><p><strong>Source checkout</strong> - Latest code pulled into world artifacts</p></li>
+<li><p><strong>Test validation</strong> - Full test suite must pass before proceeding</p></li>
+<li><p><strong>Image building</strong> - Docker container built with commit SHA tag</p></li>
+<li><p><strong>Deployment</strong> - Kubernetes manifests applied to production</p></li>
+<li><p><strong>Health verification</strong> - Endpoint checks confirm successful deployment</p></li>
+</ol>
+</section>
+<section id="error-handling">
+<h2>Error Handling<a class="headerlink" href="#error-handling" title="Link to this heading">#</a></h2>
+<section id="test-failures">
+<h3>Test Failures<a class="headerlink" href="#test-failures" title="Link to this heading">#</a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">on_failure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">run-tests</span>
+<span class="nt">actions</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">notify_team</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;slack://dev-channel&quot;</span><span class="w"> </span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">block_deployment</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">create_issue</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;github://company/webapp&quot;</span>
+</pre></div>
+</div>
+</section>
+<section id="deployment-issues">
+<h3>Deployment Issues<a class="headerlink" href="#deployment-issues" title="Link to this heading">#</a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">on_failure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">deploy-app</span>
+<span class="nt">actions</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">rollback_deployment</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;previous_version&quot;</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">notify_oncall</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;pagerduty://webapp-alerts&quot;</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">preserve_artifacts</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;logs/&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;metrics/&quot;</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="monitoring-observability">
+<h2>Monitoring &amp; Observability<a class="headerlink" href="#monitoring-observability" title="Link to this heading">#</a></h2>
+<p>All transitions emit detailed events:</p>
+<ul class="simple">
+<li><p><strong>Build metrics</strong> - Test coverage, build time, image size</p></li>
+<li><p><strong>Deployment progress</strong> - Rollout status, resource usage</p></li>
+<li><p><strong>Health indicators</strong> - Response times, error rates</p></li>
+</ul>
+</section>
+<section id="budget-controls">
+<h2>Budget Controls<a class="headerlink" href="#budget-controls" title="Link to this heading">#</a></h2>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">budget</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">max_usd_micro</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100000</span><span class="w">  </span><span class="c1"># $0.10 per deployment</span>
+<span class="w">  </span><span class="nt">timeout_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1800</span><span class="w">        </span><span class="c1"># 30 minute max</span>
+<span class="nt">resources</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">cpu_limit</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2000m&quot;</span><span class="w">     </span><span class="c1"># 2 CPU cores max</span>
+<span class="w">  </span><span class="nt">memory_limit</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;4Gi&quot;</span><span class="w">    </span><span class="c1"># 4GB RAM max</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="ci-cd-pipeline">
+<h1>CI/CD Pipeline<a class="headerlink" href="#ci-cd-pipeline" title="Link to this heading">#</a></h1>
+<p><em>Clone → Test → Build → Deploy → Verify</em></p>
+<div class="mermaid">
+            graph LR
+    A[Start] --&gt; B[Process]
+    B --&gt; C[Complete]
+    style A fill:#e1f5fe
+    style C fill:#e8f5e8
+        </div><p><em>Detailed workflow diagram will be generated when the system is implemented.</em></p>
+</section>
+
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          <a class="next-page" href="realtime-facetime.html">
+              <div class="page-info">
+                <div class="context">
+                  <span>Next</span>
+                </div>
+                <div class="title">Real-time FaceTime Agent</div>
+              </div>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+            </a>
+          <a class="prev-page" href="media-generation.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">Media Generation</div>
+                
+              </div>
+            </a>
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; 2025, Visureel
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer">
+      
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">CI/CD &amp; Deployment</a><ul>
+<li><a class="reference internal" href="#scenario">Scenario</a></li>
+<li><a class="reference internal" href="#plan-structure">Plan Structure</a></li>
+<li><a class="reference internal" href="#transitions">Transitions</a><ul>
+<li><a class="reference internal" href="#source-code-checkout">1. Source Code Checkout</a></li>
+<li><a class="reference internal" href="#test-execution">2. Test Execution</a></li>
+<li><a class="reference internal" href="#container-build">3. Container Build</a></li>
+<li><a class="reference internal" href="#production-deployment">4. Production Deployment</a></li>
+<li><a class="reference internal" href="#health-verification">5. Health Verification</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#flow-high-level">Flow (High Level)</a></li>
+<li><a class="reference internal" href="#error-handling">Error Handling</a><ul>
+<li><a class="reference internal" href="#test-failures">Test Failures</a></li>
+<li><a class="reference internal" href="#deployment-issues">Deployment Issues</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#monitoring-observability">Monitoring &amp; Observability</a></li>
+<li><a class="reference internal" href="#budget-controls">Budget Controls</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#ci-cd-pipeline">CI/CD Pipeline</a></li>
+</ul>
+
+          </div>
+        </div>
+      </div>
+      
+      
+    </aside>
+  </div>
+</div><script src="../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../_static/doctools.js?v=888ff710"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/scripts/furo.js?v=32e29ea5"></script>
+    <script src="https://unpkg.com/mermaid@10.9.1/dist/mermaid.min.js"></script>
+    <script>mermaid.initialize({startOnLoad:true});</script>
+    </body>
+</html>

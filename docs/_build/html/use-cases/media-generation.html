@@ -1,0 +1,511 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../">
+  <head><meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="index" title="Index" href="../genindex.html" /><link rel="search" title="Search" href="../search.html" /><link rel="next" title="CI/CD &amp; Deployment" href="ci-cd.html" /><link rel="prev" title="Core App" href="../apps/core.html" />
+
+    <!-- Generated with Sphinx 7.2.6 and Furo 2024.01.29 -->
+        <title>Media Generation - Visureel Orchestrator</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=135e06be" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=36a5483c" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f8f8f8;
+  --color-code-foreground: black;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-half" viewBox="0 0 24 24">
+    <title>Auto light/dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-shadow">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M13 12h5" />
+      <path d="M13 15h4" />
+      <path d="M13 18h1" />
+      <path d="M13 9h4" />
+      <path d="M13 6h1" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc">
+<label class="overlay sidebar-overlay" for="__navigation">
+  <div class="visually-hidden">Hide navigation sidebar</div>
+</label>
+<label class="overlay toc-overlay" for="__toc">
+  <div class="visually-hidden">Hide table of contents sidebar</div>
+</label>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <div class="visually-hidden">Toggle site navigation sidebar</div>
+        <i class="icon"><svg><use href="#svg-menu"></use></svg></i>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../index.html"><div class="brand">Visureel Orchestrator</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle">
+          <div class="visually-hidden">Toggle Light / Dark / Auto color theme</div>
+          <svg class="theme-icon-when-auto"><use href="#svg-sun-half"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
+        <div class="visually-hidden">Toggle table of contents sidebar</div>
+        <i class="icon"><svg><use href="#svg-toc"></use></svg></i>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../index.html">
+  
+  
+  <span class="sidebar-brand-text">Visureel Orchestrator</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <p class="caption" role="heading"><span class="caption-text">Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../guides/getting-started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../contributing.html">Contributing to Docs</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Concepts</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../concepts/world-plan-ledger.html">World, Plan, and Ledger</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../concepts/facets-and-paths.html">Facets &amp; WorldPath</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../concepts/predicates.html">Predicates</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../concepts/registry-and-adapters.html">Registry &amp; Adapters</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../concepts/registry-and-adapters.html#registry-documentation">Registry Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../concepts/agents-and-cognition.html">Agents &amp; Cognition</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../glossary.html">Glossary</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Applications</span></p>
+<ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../apps/index.html">Applications</a><input class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><div class="visually-hidden">Toggle navigation of Applications</div><i class="icon"><svg><use href="#svg-arrow-right"></use></svg></i></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../apps/storage.html">Storage App</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../apps/storage.html#storage-api-documentation">Storage API Documentation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../apps/core.html">Core App</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../apps/storage.html">Storage App</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../apps/storage.html#storage-api-documentation">Storage API Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../apps/core.html">Core App</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Use Cases</span></p>
+<ul class="current">
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Media Generation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#media-generation-pipeline">Media Generation Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ci-cd.html">CI/CD &amp; Deployment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ci-cd.html#ci-cd-pipeline">CI/CD Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="realtime-facetime.html">Real-time FaceTime Agent</a></li>
+<li class="toctree-l1"><a class="reference internal" href="realtime-facetime.html#real-time-agent-sequence">Real-time Agent Sequence</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Architecture Decisions</span></p>
+<ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../adr/index.html">Architecture Decision Records</a><input class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" role="switch" type="checkbox"/><label for="toctree-checkbox-2"><div class="visually-hidden">Toggle navigation of Architecture Decision Records</div><i class="icon"><svg><use href="#svg-arrow-right"></use></svg></i></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../adr/ADR-template.html">ADR-XXXX — Title</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../adr/ADR-0001-docs-as-contracts.html">ADR-0001 — Docs as Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../adr/ADR-0002-storage-adapter-pattern.html">ADR-0002 — Storage Adapter Pattern</a></li>
+</ul>
+</li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          
+<div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle">
+              <div class="visually-hidden">Toggle Light / Dark / Auto color theme</div>
+              <svg class="theme-icon-when-auto"><use href="#svg-sun-half"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
+            <div class="visually-hidden">Toggle table of contents sidebar</div>
+            <i class="icon"><svg><use href="#svg-toc"></use></svg></i>
+          </label>
+        </div>
+        <article role="main">
+          <section id="media-generation">
+<h1>Media Generation<a class="headerlink" href="#media-generation" title="Link to this heading">#</a></h1>
+<p><strong>Goal:</strong> Produce a 60s marketing video.</p>
+<p><strong>Plan facet:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">transitions/script</span></code>: <code class="docutils literal notranslate"><span class="pre">tool:text.llm&#64;1</span></code> → <code class="docutils literal notranslate"><span class="pre">world://artifacts/script.json</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">transitions/shotlist</span></code>: <code class="docutils literal notranslate"><span class="pre">tool:media.shotlist&#64;1</span></code> (depends on script)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">transitions/render</span></code>: <code class="docutils literal notranslate"><span class="pre">tool:media.render&#64;1</span></code> → <code class="docutils literal notranslate"><span class="pre">world://artifacts/final.mp4</span></code></p></li>
+</ul>
+<p><strong>Predicates:</strong></p>
+<ul class="simple">
+<li><p>admission: <code class="docutils literal notranslate"><span class="pre">artifact.exists(script.json)</span></code></p></li>
+<li><p>success: <code class="docutils literal notranslate"><span class="pre">file.exists(final.mp4)</span></code></p></li>
+</ul>
+<section id="scenario">
+<h2>Scenario<a class="headerlink" href="#scenario" title="Link to this heading">#</a></h2>
+<p>A marketing team needs to produce a 60-second promotional video for a new product launch. The video should include:</p>
+<ul class="simple">
+<li><p>Engaging script tailored to target audience</p></li>
+<li><p>Shot list with visual descriptions</p></li>
+<li><p>Rendered video with transitions and audio</p></li>
+</ul>
+</section>
+<section id="plan-structure">
+<h2>Plan Structure<a class="headerlink" href="#plan-structure" title="Link to this heading">#</a></h2>
+<div class="mermaid">
+            graph TD
+    A[write-script] --&gt; B[generate-shotlist]
+    B --&gt; C[render-frames]
+    C --&gt; D[compose-video]
+    
+    A --&gt; E[world://artifacts/script.json]
+    B --&gt; F[world://artifacts/shotlist.json]
+    C --&gt; G[world://artifacts/frames/]
+    D --&gt; H[world://artifacts/final.mp4]
+        </div></section>
+<section id="transitions">
+<h2>Transitions<a class="headerlink" href="#transitions" title="Link to this heading">#</a></h2>
+<section id="script-generation">
+<h3>1. Script Generation<a class="headerlink" href="#script-generation" title="Link to this heading">#</a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">write-script</span>
+<span class="nt">processor_ref</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tool:text.llm@1</span>
+<span class="nt">inputs</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">prompt</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Write</span><span class="nv"> </span><span class="s">a</span><span class="nv"> </span><span class="s">60-second</span><span class="nv"> </span><span class="s">marketing</span><span class="nv"> </span><span class="s">script</span><span class="nv"> </span><span class="s">for</span><span class="nv"> </span><span class="s">${product_description}&quot;</span>
+<span class="w">  </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;gpt-4&quot;</span>
+<span class="nt">write_set</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">exact</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">world://artifacts/script.json</span>
+<span class="nt">predicates</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">admission</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">budget.available@1</span>
+<span class="w">      </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">required_usd_micro</span><span class="p">:</span><span class="w"> </span><span class="nv">5000</span><span class="p p-Indicator">}</span><span class="w">  </span><span class="c1"># $0.05</span>
+<span class="w">  </span><span class="nt">success</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">json.schema_ok@1</span>
+<span class="w">      </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span>
+<span class="w">        </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">world://artifacts/script.json</span>
+<span class="w">        </span><span class="nt">schema_ref</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">media.script@1</span>
+</pre></div>
+</div>
+</section>
+<section id="shot-list-generation">
+<h3>2. Shot List Generation<a class="headerlink" href="#shot-list-generation" title="Link to this heading">#</a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">generate-shotlist</span>
+<span class="nt">processor_ref</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tool:media.shotlist@1</span>
+<span class="nt">dependencies</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">write-script</span><span class="p p-Indicator">]</span>
+<span class="nt">inputs</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">script_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">world://artifacts/script.json</span>
+<span class="nt">write_set</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">exact</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">world://artifacts/shotlist.json</span>
+<span class="nt">predicates</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">admission</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">artifact.exists@1</span>
+<span class="w">      </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="nv">world</span><span class="p p-Indicator">:</span><span class="nv">//artifacts/script.json</span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="nt">success</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">json.schema_ok@1</span>
+<span class="w">      </span><span class="nt">args</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">world://artifacts/shotlist.json</span>
+<span class="w">        </span><span class="nt">schema_ref</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">media.shotlist@1</span>
+</pre></div>
+</div>
+</section>
+<section id="frame-rendering">
+<h3>3. Frame Rendering<a class="headerlink" href="#frame-rendering" title="Link to this heading">#</a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">render-frames</span>
+<span class="nt">processor_ref</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tool:img.generate@1</span>
+<span class="nt">dependencies</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">generate-shotlist</span><span class="p p-Indicator">]</span>
+<span class="nt">inputs</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">shotlist_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">world://artifacts/shotlist.json</span>
+<span class="w">  </span><span class="nt">style</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;professional</span><span class="nv"> </span><span class="s">marketing&quot;</span>
+<span class="nt">write_set</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">prefix</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">world://artifacts/frames/</span>
+<span class="nt">predicates</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">admission</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">artifact.exists@1</span>
+<span class="w">      </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="nv">world</span><span class="p p-Indicator">:</span><span class="nv">//artifacts/shotlist.json</span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="nt">success</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">file.count_min@1</span>
+<span class="w">      </span><span class="nt">args</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">world://artifacts/frames/</span>
+<span class="w">        </span><span class="nt">min_files</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+</pre></div>
+</div>
+</section>
+<section id="video-composition">
+<h3>4. Video Composition<a class="headerlink" href="#video-composition" title="Link to this heading">#</a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">compose-video</span>
+<span class="nt">processor_ref</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tool:ffmpeg.render@1</span>
+<span class="nt">dependencies</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">render-frames</span><span class="p p-Indicator">]</span>
+<span class="nt">inputs</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">frames_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">world://artifacts/frames/</span>
+<span class="w">  </span><span class="nt">script_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">world://artifacts/script.json</span>
+<span class="w">  </span><span class="nt">output_format</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;mp4&quot;</span>
+<span class="w">  </span><span class="nt">duration_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span>
+<span class="nt">write_set</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">exact</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">world://artifacts/final.mp4</span>
+<span class="nt">predicates</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">admission</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">file.count_min@1</span>
+<span class="w">      </span><span class="nt">args</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">world://artifacts/frames/</span>
+<span class="w">        </span><span class="nt">min_files</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+<span class="w">  </span><span class="nt">success</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">file.exists@1</span>
+<span class="w">      </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="nv">world</span><span class="p p-Indicator">:</span><span class="nv">//artifacts/final.mp4</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">media.duration_between@1</span>
+<span class="w">      </span><span class="nt">args</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">world://artifacts/final.mp4</span>
+<span class="w">        </span><span class="nt">min_ms</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">58000</span>
+<span class="w">        </span><span class="nt">max_ms</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">62000</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="flow-high-level">
+<h2>Flow (High Level)<a class="headerlink" href="#flow-high-level" title="Link to this heading">#</a></h2>
+<ol class="arabic simple">
+<li><p><strong>Propose transitions</strong> - Marketing team creates plan with product details</p></li>
+<li><p><strong>Script generation</strong> - LLM generates compelling marketing copy</p></li>
+<li><p><strong>Shot planning</strong> - AI creates visual shot list based on script</p></li>
+<li><p><strong>Frame rendering</strong> - Image generation creates individual frames</p></li>
+<li><p><strong>Video composition</strong> - FFmpeg combines frames with timing and transitions</p></li>
+<li><p><strong>Quality checks</strong> - Success predicates validate output quality</p></li>
+</ol>
+</section>
+<section id="artifacts-produced">
+<h2>Artifacts Produced<a class="headerlink" href="#artifacts-produced" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">script.json</span></code> - Marketing script with timing and dialogue</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">shotlist.json</span></code> - Visual descriptions for each scene</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">frames/</span></code> - Individual rendered images</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">final.mp4</span></code> - Completed 60-second marketing video</p></li>
+</ul>
+</section>
+<section id="budget-resources">
+<h2>Budget &amp; Resources<a class="headerlink" href="#budget-resources" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><strong>Script generation</strong>: ~$0.05 (5,000 tokens &#64; $0.01/1k)</p></li>
+<li><p><strong>Image generation</strong>: ~$2.00 (20 images &#64; $0.10 each)</p></li>
+<li><p><strong>Rendering</strong>: ~$0.10 (compute time)</p></li>
+<li><p><strong>Total estimate</strong>: ~$2.15</p></li>
+</ul>
+</section>
+<section id="error-handling">
+<h2>Error Handling<a class="headerlink" href="#error-handling" title="Link to this heading">#</a></h2>
+<p>If any transition fails:</p>
+<ul class="simple">
+<li><p><strong>Script issues</strong>: Retry with refined prompt</p></li>
+<li><p><strong>Image generation</strong>: Fall back to stock imagery</p></li>
+<li><p><strong>Rendering failures</strong>: Adjust parameters and retry</p></li>
+<li><p><strong>Budget exceeded</strong>: Pause and require approval</p></li>
+</ul>
+</section>
+</section>
+<section id="media-generation-pipeline">
+<h1>Media Generation Pipeline<a class="headerlink" href="#media-generation-pipeline" title="Link to this heading">#</a></h1>
+<p><em>Script → Shots → Frames → Video</em></p>
+<div class="mermaid">
+            graph LR
+    A[Start] --&gt; B[Process]
+    B --&gt; C[Complete]
+    style A fill:#e1f5fe
+    style C fill:#e8f5e8
+        </div><p><em>Detailed workflow diagram will be generated when the system is implemented.</em></p>
+</section>
+
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          <a class="next-page" href="ci-cd.html">
+              <div class="page-info">
+                <div class="context">
+                  <span>Next</span>
+                </div>
+                <div class="title">CI/CD &amp; Deployment</div>
+              </div>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+            </a>
+          <a class="prev-page" href="../apps/core.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">Core App</div>
+                
+              </div>
+            </a>
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; 2025, Visureel
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer">
+      
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">Media Generation</a><ul>
+<li><a class="reference internal" href="#scenario">Scenario</a></li>
+<li><a class="reference internal" href="#plan-structure">Plan Structure</a></li>
+<li><a class="reference internal" href="#transitions">Transitions</a><ul>
+<li><a class="reference internal" href="#script-generation">1. Script Generation</a></li>
+<li><a class="reference internal" href="#shot-list-generation">2. Shot List Generation</a></li>
+<li><a class="reference internal" href="#frame-rendering">3. Frame Rendering</a></li>
+<li><a class="reference internal" href="#video-composition">4. Video Composition</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#flow-high-level">Flow (High Level)</a></li>
+<li><a class="reference internal" href="#artifacts-produced">Artifacts Produced</a></li>
+<li><a class="reference internal" href="#budget-resources">Budget &amp; Resources</a></li>
+<li><a class="reference internal" href="#error-handling">Error Handling</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#media-generation-pipeline">Media Generation Pipeline</a></li>
+</ul>
+
+          </div>
+        </div>
+      </div>
+      
+      
+    </aside>
+  </div>
+</div><script src="../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../_static/doctools.js?v=888ff710"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/scripts/furo.js?v=32e29ea5"></script>
+    <script src="https://unpkg.com/mermaid@10.9.1/dist/mermaid.min.js"></script>
+    <script>mermaid.initialize({startOnLoad:true});</script>
+    </body>
+</html>

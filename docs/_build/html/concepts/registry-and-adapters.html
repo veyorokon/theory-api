@@ -1,0 +1,529 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../">
+  <head><meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="index" title="Index" href="../genindex.html" /><link rel="search" title="Search" href="../search.html" /><link rel="next" title="Agents &amp; Cognition" href="agents-and-cognition.html" /><link rel="prev" title="Predicates" href="predicates.html" />
+
+    <!-- Generated with Sphinx 7.2.6 and Furo 2024.01.29 -->
+        <title>Registry &amp; Adapters - Visureel Orchestrator</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=135e06be" />
+    <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=36a5483c" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f8f8f8;
+  --color-code-foreground: black;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-half" viewBox="0 0 24 24">
+    <title>Auto light/dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-shadow">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M13 12h5" />
+      <path d="M13 15h4" />
+      <path d="M13 18h1" />
+      <path d="M13 9h4" />
+      <path d="M13 6h1" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc">
+<label class="overlay sidebar-overlay" for="__navigation">
+  <div class="visually-hidden">Hide navigation sidebar</div>
+</label>
+<label class="overlay toc-overlay" for="__toc">
+  <div class="visually-hidden">Hide table of contents sidebar</div>
+</label>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <div class="visually-hidden">Toggle site navigation sidebar</div>
+        <i class="icon"><svg><use href="#svg-menu"></use></svg></i>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../index.html"><div class="brand">Visureel Orchestrator</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle">
+          <div class="visually-hidden">Toggle Light / Dark / Auto color theme</div>
+          <svg class="theme-icon-when-auto"><use href="#svg-sun-half"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
+        <div class="visually-hidden">Toggle table of contents sidebar</div>
+        <i class="icon"><svg><use href="#svg-toc"></use></svg></i>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../index.html">
+  
+  
+  <span class="sidebar-brand-text">Visureel Orchestrator</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <p class="caption" role="heading"><span class="caption-text">Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../guides/getting-started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../contributing.html">Contributing to Docs</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Concepts</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="world-plan-ledger.html">World, Plan, and Ledger</a></li>
+<li class="toctree-l1"><a class="reference internal" href="facets-and-paths.html">Facets &amp; WorldPath</a></li>
+<li class="toctree-l1"><a class="reference internal" href="predicates.html">Predicates</a></li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Registry &amp; Adapters</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#registry-documentation">Registry Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="agents-and-cognition.html">Agents &amp; Cognition</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../glossary.html">Glossary</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Applications</span></p>
+<ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../apps/index.html">Applications</a><input class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><div class="visually-hidden">Toggle navigation of Applications</div><i class="icon"><svg><use href="#svg-arrow-right"></use></svg></i></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../apps/storage.html">Storage App</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../apps/storage.html#storage-api-documentation">Storage API Documentation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../apps/core.html">Core App</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../apps/storage.html">Storage App</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../apps/storage.html#storage-api-documentation">Storage API Documentation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../apps/core.html">Core App</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Use Cases</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../use-cases/media-generation.html">Media Generation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-cases/media-generation.html#media-generation-pipeline">Media Generation Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-cases/ci-cd.html">CI/CD &amp; Deployment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-cases/ci-cd.html#ci-cd-pipeline">CI/CD Pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-cases/realtime-facetime.html">Real-time FaceTime Agent</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../use-cases/realtime-facetime.html#real-time-agent-sequence">Real-time Agent Sequence</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Architecture Decisions</span></p>
+<ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../adr/index.html">Architecture Decision Records</a><input class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" role="switch" type="checkbox"/><label for="toctree-checkbox-2"><div class="visually-hidden">Toggle navigation of Architecture Decision Records</div><i class="icon"><svg><use href="#svg-arrow-right"></use></svg></i></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../adr/ADR-template.html">ADR-XXXX — Title</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../adr/ADR-0001-docs-as-contracts.html">ADR-0001 — Docs as Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../adr/ADR-0002-storage-adapter-pattern.html">ADR-0002 — Storage Adapter Pattern</a></li>
+</ul>
+</li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          
+<div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle">
+              <div class="visually-hidden">Toggle Light / Dark / Auto color theme</div>
+              <svg class="theme-icon-when-auto"><use href="#svg-sun-half"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
+            <div class="visually-hidden">Toggle table of contents sidebar</div>
+            <i class="icon"><svg><use href="#svg-toc"></use></svg></i>
+          </label>
+        </div>
+        <article role="main">
+          <section id="registry-adapters">
+<h1>Registry &amp; Adapters<a class="headerlink" href="#registry-adapters" title="Link to this heading">#</a></h1>
+<ul class="simple">
+<li><p><strong>Registry</strong>: versioned specs for tools, schemas, prompts, and policies.</p></li>
+<li><p><strong>Adapters</strong>: map <code class="docutils literal notranslate"><span class="pre">processor_ref</span></code> → runnable function (e.g., Modal). The executor only speaks a thin adapter API.</p></li>
+<li><p><strong>ExpandedContext</strong> is passed to processors (never raw DB access).</p></li>
+</ul>
+<section id="registry-system">
+<h2>Registry System<a class="headerlink" href="#registry-system" title="Link to this heading">#</a></h2>
+<p>The registry provides versioned, immutable specifications for all system components:</p>
+<section id="tool-specifications">
+<h3>Tool Specifications<a class="headerlink" href="#tool-specifications" title="Link to this heading">#</a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># registry/tools/text.llm.yaml</span>
+<span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;text.llm@1&quot;</span>
+<span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Large</span><span class="nv"> </span><span class="s">Language</span><span class="nv"> </span><span class="s">Model</span><span class="nv"> </span><span class="s">Text</span><span class="nv"> </span><span class="s">Generation&quot;</span>
+<span class="nt">adapter</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;modal&quot;</span>
+<span class="nt">entry_point</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;modal_functions.llm_generate&quot;</span>
+<span class="nt">inputs</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;prompt&quot;</span><span class="w">  </span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;string&quot;</span>
+<span class="w">    </span><span class="nt">required</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;model&quot;</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;string&quot;</span><span class="w"> </span>
+<span class="w">    </span><span class="nt">default</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;gpt-4&quot;</span>
+<span class="nt">outputs</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;text&quot;</span>
+<span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;string&quot;</span>
+<span class="nt">predicates</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">admission</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;budget.available@1&quot;</span>
+<span class="w">      </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">required_usd_micro</span><span class="p">:</span><span class="w"> </span><span class="nv">1000</span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="nt">success</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;artifact.exists@1&quot;</span><span class="w"> </span>
+<span class="w">      </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;${outputs.text_path}&quot;</span><span class="p p-Indicator">}</span>
+</pre></div>
+</div>
+</section>
+<section id="schema-definitions">
+<h3>Schema Definitions<a class="headerlink" href="#schema-definitions" title="Link to this heading">#</a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># registry/schemas/media.metadata.yaml  </span>
+<span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;media.metadata@1&quot;</span>
+<span class="nt">schema</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;object&quot;</span>
+<span class="w">  </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">title</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;string&quot;</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="nt">duration_ms</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;integer&quot;</span><span class="p p-Indicator">,</span><span class="nt"> minimum</span><span class="p">:</span><span class="w"> </span><span class="nv">0</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="nt">resolution</span><span class="p">:</span><span class="w"> </span>
+<span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;object&quot;</span>
+<span class="w">      </span><span class="nt">properties</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">width</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;integer&quot;</span><span class="p p-Indicator">,</span><span class="nt"> minimum</span><span class="p">:</span><span class="w"> </span><span class="nv">1</span><span class="p p-Indicator">}</span>
+<span class="w">        </span><span class="nt">height</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;integer&quot;</span><span class="p p-Indicator">,</span><span class="nt"> minimum</span><span class="p">:</span><span class="w"> </span><span class="nv">1</span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="nt">required</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;title&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;duration_ms&quot;</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+</section>
+<section id="policies">
+<h3>Policies<a class="headerlink" href="#policies" title="Link to this heading">#</a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># registry/policies/default.yaml</span>
+<span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;default@1&quot;</span><span class="w">  </span>
+<span class="nt">budget</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">max_usd_micro</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1000000</span><span class="w">  </span><span class="c1"># $1 max per plan</span>
+<span class="nt">retry</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">max_attempts</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
+<span class="w">  </span><span class="nt">backoff_ms</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">1000</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">5000</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">15000</span><span class="p p-Indicator">]</span>
+<span class="nt">leases</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">default_ttl_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3600</span>
+<span class="w">  </span><span class="nt">enable_path_leases</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="adapter-system">
+<h2>Adapter System<a class="headerlink" href="#adapter-system" title="Link to this heading">#</a></h2>
+<p>Adapters translate abstract <code class="docutils literal notranslate"><span class="pre">processor_ref</span></code> identifiers into concrete execution:</p>
+<section id="modal-adapter">
+<h3>Modal Adapter<a class="headerlink" href="#modal-adapter" title="Link to this heading">#</a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">ModalAdapter</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">invoke</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">processor_ref</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">ExpandedContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ProcessorResult</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Invoke a Modal function with the given context.&quot;&quot;&quot;</span>
+        <span class="n">tool_spec</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">registry_snapshot</span><span class="o">.</span><span class="n">get_tool</span><span class="p">(</span><span class="n">processor_ref</span><span class="p">)</span>
+        
+        <span class="c1"># Map to Modal function</span>
+        <span class="n">function</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_modal_function</span><span class="p">(</span><span class="n">tool_spec</span><span class="o">.</span><span class="n">entry_point</span><span class="p">)</span>
+        
+        <span class="c1"># Execute with timeout and resource limits</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">function</span><span class="o">.</span><span class="n">remote</span><span class="p">(</span>
+            <span class="n">inputs</span><span class="o">=</span><span class="n">context</span><span class="o">.</span><span class="n">inputs</span><span class="p">,</span>
+            <span class="n">world_mount</span><span class="o">=</span><span class="n">context</span><span class="o">.</span><span class="n">world_mount</span><span class="p">,</span>
+            <span class="n">write_paths</span><span class="o">=</span><span class="n">context</span><span class="o">.</span><span class="n">write_set_resolved</span>
+        <span class="p">)</span>
+        
+        <span class="k">return</span> <span class="n">ProcessorResult</span><span class="p">(</span>
+            <span class="n">success</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">outputs</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">outputs</span><span class="p">,</span>
+            <span class="n">receipt</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">usage</span><span class="p">,</span>
+            <span class="n">artifacts</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">produced_artifacts</span>
+        <span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="local-adapter">
+<h3>Local Adapter<a class="headerlink" href="#local-adapter" title="Link to this heading">#</a></h3>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">LocalAdapter</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">invoke</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">processor_ref</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">context</span><span class="p">:</span> <span class="n">ExpandedContext</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ProcessorResult</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Run a local tool/script with sandboxed filesystem access.&quot;&quot;&quot;</span>
+        <span class="n">tool_spec</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">registry_snapshot</span><span class="o">.</span><span class="n">get_tool</span><span class="p">(</span><span class="n">processor_ref</span><span class="p">)</span>
+        
+        <span class="c1"># Execute in subprocess with restricted permissions</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
+            <span class="p">[</span><span class="n">tool_spec</span><span class="o">.</span><span class="n">entry_point</span><span class="p">]</span> <span class="o">+</span> <span class="n">context</span><span class="o">.</span><span class="n">inputs</span><span class="p">,</span>
+            <span class="n">cwd</span><span class="o">=</span><span class="n">context</span><span class="o">.</span><span class="n">scratch_dir</span><span class="p">,</span>
+            <span class="n">timeout</span><span class="o">=</span><span class="n">tool_spec</span><span class="o">.</span><span class="n">timeout_s</span><span class="p">,</span>
+            <span class="n">capture_output</span><span class="o">=</span><span class="kc">True</span>
+        <span class="p">)</span>
+        
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">parse_result</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="expandedcontext">
+<h2>ExpandedContext<a class="headerlink" href="#expandedcontext" title="Link to this heading">#</a></h2>
+<p>Every :term:<code class="docutils literal notranslate"><span class="pre">Processor</span></code> receives the same structured context:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ExpandedContext</span><span class="p">:</span>
+    <span class="c1"># Identity</span>
+    <span class="n">plan_id</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">transition_id</span><span class="p">:</span> <span class="nb">str</span>  
+    <span class="n">execution_id</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">attempt_idx</span><span class="p">:</span> <span class="nb">int</span>
+    
+    <span class="c1"># Configuration</span>
+    <span class="n">registry_snapshot</span><span class="p">:</span> <span class="n">RegistrySnapshot</span>
+    <span class="n">policy</span><span class="p">:</span> <span class="n">PolicyDoc</span>
+    
+    <span class="c1"># Inputs &amp; Constraints  </span>
+    <span class="n">inputs</span><span class="p">:</span> <span class="nb">dict</span>
+    <span class="n">write_set_resolved</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Selector</span><span class="p">]</span>
+    <span class="n">budget_reserved</span><span class="p">:</span> <span class="n">Receipt</span>
+    
+    <span class="c1"># World Access</span>
+    <span class="n">world_mount</span><span class="p">:</span> <span class="nb">str</span>        <span class="c1"># Read-only world root</span>
+    <span class="n">scratch_dir</span><span class="p">:</span> <span class="nb">str</span>        <span class="c1"># Writable temporary space</span>
+    
+    <span class="c1"># Determinism</span>
+    <span class="n">seed</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">memo_key</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">env_fingerprint</span><span class="p">:</span> <span class="nb">str</span>
+</pre></div>
+</div>
+<section id="world-mount">
+<h3>World Mount<a class="headerlink" href="#world-mount" title="Link to this heading">#</a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">world_mount</span></code> provides read-only access to world state:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>/tmp/world-mount-abc123/
+├── artifacts/
+│   ├── script.json
+│   └── scenes/001/
+└── streams/  
+    └── camera/frames/ (latest chunks)
+</pre></div>
+</div>
+<p>Processors read inputs but never write directly - all outputs go through the adapter API.</p>
+</section>
+</section>
+<section id="registry-snapshots">
+<h2>Registry Snapshots<a class="headerlink" href="#registry-snapshots" title="Link to this heading">#</a></h2>
+<p>For reproducibility, each :term:<code class="docutils literal notranslate"><span class="pre">Plan</span></code> pins a specific registry snapshot:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;snapshot_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sha256:abc123...&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;created_at&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2025-01-01T12:00:00Z&quot;</span><span class="p">,</span><span class="w"> </span>
+<span class="w">  </span><span class="nt">&quot;tools&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;text.llm@1&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="cm">/* tool spec */</span><span class="w"> </span><span class="p">},</span>
+<span class="w">    </span><span class="nt">&quot;media.render@1&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="cm">/* tool spec */</span><span class="w"> </span><span class="p">}</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;schemas&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="cm">/* ... */</span><span class="w"> </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;policies&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="cm">/* ... */</span><span class="w"> </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>This ensures that a plan can be re-executed months later with identical behavior, even if the registry has evolved.</p>
+<p>Hybrid inserts:</p>
+</section>
+</section>
+<section id="registry-documentation">
+<h1>Registry Documentation<a class="headerlink" href="#registry-documentation" title="Link to this heading">#</a></h1>
+<p><em>Generated registry documentation will appear here when the registry system is implemented.</em></p>
+<section id="id1">
+<h2>Tool Specifications<a class="headerlink" href="#id1" title="Link to this heading">#</a></h2>
+<p>Coming soon: Auto-generated documentation for all registered tools.</p>
+</section>
+<section id="id2">
+<h2>Schema Definitions<a class="headerlink" href="#id2" title="Link to this heading">#</a></h2>
+<p>Coming soon: JSON schemas for all data structures.</p>
+</section>
+<section id="policy-documents">
+<h2>Policy Documents<a class="headerlink" href="#policy-documents" title="Link to this heading">#</a></h2>
+<p>Coming soon: Budget policies and execution constraints.</p>
+</section>
+</section>
+
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          <a class="next-page" href="agents-and-cognition.html">
+              <div class="page-info">
+                <div class="context">
+                  <span>Next</span>
+                </div>
+                <div class="title">Agents &amp; Cognition</div>
+              </div>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+            </a>
+          <a class="prev-page" href="predicates.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">Predicates</div>
+                
+              </div>
+            </a>
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; 2025, Visureel
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer">
+      
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">Registry &amp; Adapters</a><ul>
+<li><a class="reference internal" href="#registry-system">Registry System</a><ul>
+<li><a class="reference internal" href="#tool-specifications">Tool Specifications</a></li>
+<li><a class="reference internal" href="#schema-definitions">Schema Definitions</a></li>
+<li><a class="reference internal" href="#policies">Policies</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#adapter-system">Adapter System</a><ul>
+<li><a class="reference internal" href="#modal-adapter">Modal Adapter</a></li>
+<li><a class="reference internal" href="#local-adapter">Local Adapter</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#expandedcontext">ExpandedContext</a><ul>
+<li><a class="reference internal" href="#world-mount">World Mount</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#registry-snapshots">Registry Snapshots</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#registry-documentation">Registry Documentation</a><ul>
+<li><a class="reference internal" href="#id1">Tool Specifications</a></li>
+<li><a class="reference internal" href="#id2">Schema Definitions</a></li>
+<li><a class="reference internal" href="#policy-documents">Policy Documents</a></li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
+      
+      
+    </aside>
+  </div>
+</div><script src="../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../_static/doctools.js?v=888ff710"></script>
+    <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/scripts/furo.js?v=32e29ea5"></script>
+    </body>
+</html>

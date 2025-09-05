@@ -1,0 +1,100 @@
+{
+  "core.User": {
+    "type": "object",
+    "title": "User",
+    "description": "User(id, password, last_login, is_superuser, username, first_name, last_name, is_staff, is_active, date_joined, email, bio, date_of_birth, phone_number, is_profile_complete, created_at, updated_at)",
+    "properties": {
+      "id": {
+        "type": "string",
+        "description": "ID"
+      },
+      "password": {
+        "type": "string",
+        "description": "password",
+        "maxLength": 128
+      },
+      "last_login": {
+        "type": "string",
+        "description": "last login",
+        "format": "date-time"
+      },
+      "is_superuser": {
+        "type": "boolean",
+        "description": "Designates that this user has all permissions without explicitly assigning them."
+      },
+      "username": {
+        "type": "string",
+        "description": "Required. 150 characters or fewer. Letters, digits and @/./+/-/_ only.",
+        "maxLength": 150
+      },
+      "first_name": {
+        "type": "string",
+        "description": "first name",
+        "maxLength": 150
+      },
+      "last_name": {
+        "type": "string",
+        "description": "last name",
+        "maxLength": 150
+      },
+      "is_staff": {
+        "type": "boolean",
+        "description": "Designates whether the user can log into this admin site."
+      },
+      "is_active": {
+        "type": "boolean",
+        "description": "Designates whether this user should be treated as active. Unselect this instead of deleting accounts."
+      },
+      "date_joined": {
+        "type": "string",
+        "description": "date joined",
+        "format": "date-time"
+      },
+      "email": {
+        "type": "string",
+        "description": "email address",
+        "maxLength": 254,
+        "format": "email"
+      },
+      "bio": {
+        "type": "string",
+        "description": "bio",
+        "maxLength": 500
+      },
+      "date_of_birth": {
+        "type": "string",
+        "description": "date of birth",
+        "format": "date"
+      },
+      "phone_number": {
+        "type": "string",
+        "description": "phone number",
+        "maxLength": 20
+      },
+      "is_profile_complete": {
+        "type": "boolean",
+        "description": "is profile complete"
+      },
+      "created_at": {
+        "type": "string",
+        "description": "created at",
+        "format": "date-time"
+      },
+      "updated_at": {
+        "type": "string",
+        "description": "updated at",
+        "format": "date-time"
+      }
+    },
+    "required": [
+      "password",
+      "is_superuser",
+      "username",
+      "is_staff",
+      "is_active",
+      "date_joined",
+      "email",
+      "is_profile_complete"
+    ]
+  }
+}
