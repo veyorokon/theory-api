@@ -13,4 +13,4 @@ Unified, event-driven orchestration: Plans propose Transitions to mutate the Wor
 
 ## 🧪 Status
 ![CI](https://github.com/veyorokon/theory-api/actions/workflows/ci-cd.yml/badge.svg)
-![Docs](https://github.com/veyorokon/theory-api/actions/workflows/docs.yml/badge.svg)
+![Docs](https://github.com/veyorokon/theory-api/actions/workflows/docs.yml/badge.svg)# Test CI after disabling deployments
