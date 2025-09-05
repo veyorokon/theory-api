@@ -86,4 +86,4 @@ flowchart TD
 3. Create your first plan and transitions
 4. Watch the executor apply changes to the World
 
-See [Getting Started](guides/getting-started) for detailed setup instructions.
+See [Getting Started](guides/getting-started) for detailed setup instructions.# Documentation trigger Thu Sep  4 22:52:49 EDT 2025
