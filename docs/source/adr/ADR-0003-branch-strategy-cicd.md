@@ -7,7 +7,7 @@
 
 ## Context
 
-Visureel API requires:
+Theory API requires:
 - Safe production deployments with review gates
 - Environment isolation (dev/staging/prod) 
 - Integration with existing AWS ECS + Terraform infrastructure

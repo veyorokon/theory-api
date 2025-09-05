@@ -17,7 +17,7 @@ flowchart TD
 
 ## The World
 
-The :term:`World` is Visureel's unified state substrate. Everything exists as addressable resources:
+The :term:`World` is Theory's unified state substrate. Everything exists as addressable resources:
 
 - **Artifacts** (`world://artifacts/*`) - Immutable files and JSON data
 - **Streams** (`world://streams/*`) - Real-time data flows  

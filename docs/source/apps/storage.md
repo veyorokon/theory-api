@@ -4,7 +4,7 @@ Manages vendor-neutral file storage that seamlessly switches between MinIO (deve
 
 ## Purpose
 
-Provide a unified interface for file storage operations while maintaining flexibility to switch between different storage backends based on configuration. This app demonstrates Visureel's adapter pattern in practice.
+Provide a unified interface for file storage operations while maintaining flexibility to switch between different storage backends based on configuration. This app demonstrates Theory's adapter pattern in practice.
 
 ## Data Model & API
 

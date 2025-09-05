@@ -181,4 +181,4 @@ class DialogueAgent(BaseProcessor):
         )
 ```
 
-This demonstrates how agents integrate seamlessly with Visureel's execution model while providing sophisticated, multi-stage behaviors.
+This demonstrates how agents integrate seamlessly with Theory's execution model while providing sophisticated, multi-stage behaviors.

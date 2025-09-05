@@ -46,6 +46,6 @@ body:
     attributes:
       label: Links
       description: ADRs, related issues/PRs
-      placeholder: "ADR-0003: https://github.com/veyorokon/visureel-api/blob/main/docs/source/adr/ADR-0003-branch-strategy-cicd.md"
+      placeholder: "ADR-0003: https://github.com/veyorokon/theory-api/blob/main/docs/source/adr/ADR-0003-branch-strategy-cicd.md"
     validations:
       required: true

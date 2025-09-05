@@ -20,8 +20,8 @@ Predicates gate admission/success; Leases ensure safe parallel writes.
 
 1. **Clone and setup environment:**
    ```bash
-   git clone https://github.com/veyorokon/visureel-api.git
-   cd visureel-api/
+   git clone https://github.com/veyorokon/theory-api.git
+   cd theory-api/
    conda env create -f conda/environment.yml
    conda activate base  # or whatever name you chose
    ```

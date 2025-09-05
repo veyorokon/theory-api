@@ -8,7 +8,7 @@ on:
 
 env:
   REGISTRY: public.ecr.aws
-  IMAGE_NAME: visureel-api
+  IMAGE_NAME: theory-api
 
 jobs:
   test:
@@ -19,7 +19,7 @@ jobs:
         image: postgres:15
         env:
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: visureel_test
+          POSTGRES_DB: theory_test
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -58,7 +58,7 @@ jobs:
     
     - name: Run Django tests
       env:
-        DATABASE_URL: postgres://postgres:postgres@localhost:5432/visureel_test
+        DATABASE_URL: postgres://postgres:postgres@localhost:5432/theory_test
         REDIS_URL: redis://localhost:6379/0
       run: |
         cd code
@@ -149,8 +149,8 @@ jobs:
     - name: Deploy to ECS Development
       run: |
         aws ecs update-service \
-          --cluster visureel-dev-cluster \
-          --service visureel-api-dev \
+          --cluster theory-dev-cluster \
+          --service theory-api-dev \
           --force-new-deployment \
           --desired-count 1
 
@@ -173,8 +173,8 @@ jobs:
     - name: Deploy to ECS Staging  
       run: |
         aws ecs update-service \
-          --cluster visureel-staging-cluster \
-          --service visureel-api-staging \
+          --cluster theory-staging-cluster \
+          --service theory-api-staging \
           --force-new-deployment \
           --desired-count 1
 
@@ -197,7 +197,7 @@ jobs:
     - name: Deploy to ECS Production
       run: |
         aws ecs update-service \
-          --cluster visureel-prod-cluster \
-          --service visureel-api-prod \
+          --cluster theory-prod-cluster \
+          --service theory-api-prod \
           --force-new-deployment \
           --desired-count 2

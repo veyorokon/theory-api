@@ -13,14 +13,14 @@
 GH_USER_ID=$(gh api user --jq '.id')
 
 # Configure environments
-gh api --method PUT repos/veyorokon/visureel-api/environments/development \
+gh api --method PUT repos/veyorokon/theory-api/environments/development \
   -F wait_timer=0
 
-gh api --method PUT repos/veyorokon/visureel-api/environments/staging \
+gh api --method PUT repos/veyorokon/theory-api/environments/staging \
   -F wait_timer=0 \
   -F reviewers="[{\"type\":\"User\",\"id\":$GH_USER_ID}]"
 
-gh api --method PUT repos/veyorokon/visureel-api/environments/production \
+gh api --method PUT repos/veyorokon/theory-api/environments/production \
   -F wait_timer=30 \
   -F reviewers="[{\"type\":\"User\",\"id\":$GH_USER_ID}]"
 ```
@@ -34,20 +34,20 @@ When a deployment is waiting for approval:
 RUN_ID=$(gh run list --limit 1 --json databaseId -q '.[0].databaseId')
 
 # Get environment ID (staging or production)
-STAGING_ENV_ID=$(gh api repos/veyorokon/visureel-api/environments --jq '.environments[] | select(.name=="staging") | .id')
-PROD_ENV_ID=$(gh api repos/veyorokon/visureel-api/environments --jq '.environments[] | select(.name=="production") | .id')
+STAGING_ENV_ID=$(gh api repos/veyorokon/theory-api/environments --jq '.environments[] | select(.name=="staging") | .id')
+PROD_ENV_ID=$(gh api repos/veyorokon/theory-api/environments --jq '.environments[] | select(.name=="production") | .id')
 
 # View pending deployments
-gh api repos/veyorokon/visureel-api/actions/runs/$RUN_ID/pending_deployments | jq
+gh api repos/veyorokon/theory-api/actions/runs/$RUN_ID/pending_deployments | jq
 
 # Approve staging deployment
-gh api -X POST repos/veyorokon/visureel-api/actions/runs/$RUN_ID/pending_deployments \
+gh api -X POST repos/veyorokon/theory-api/actions/runs/$RUN_ID/pending_deployments \
   -f state=approved \
   -F environment_ids="[$STAGING_ENV_ID]" \
   -f comment='self-approval by sole maintainer'
 
 # Approve production deployment  
-gh api -X POST repos/veyorokon/visureel-api/actions/runs/$RUN_ID/pending_deployments \
+gh api -X POST repos/veyorokon/theory-api/actions/runs/$RUN_ID/pending_deployments \
   -f state=approved \
   -F environment_ids="[$PROD_ENV_ID]" \
   -f comment='self-approval by sole maintainer'

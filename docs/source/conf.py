@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.abspath('../../code'))
 sys.path.insert(0, os.path.abspath('../../code/apps'))
 
 # Setup Django
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings.development')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'theory_api.settings.development')
 try:
     import django
     django.setup()
@@ -15,10 +15,10 @@ except Exception as e:
     print(f"Warning: Django setup failed: {e}")
     # Continue without Django setup for basic documentation build
 
-project = "Visureel Orchestrator"
-author = "Visureel"
+project = "Theory Orchestrator"
+author = "Theory"
 copyright = f"{datetime.now().year}, {author}"
-html_title = "Visureel Orchestrator"
+html_title = "Theory Orchestrator"
 html_theme = "furo"
 
 extensions = [

@@ -8,7 +8,7 @@ def main():
     """Run administrative tasks."""
     base_dir = Path(__file__).resolve().parent
     sys.path.insert(0, str(base_dir))
-    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings.development')
+    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'theory_api.settings.development')
     try:
         from django.core.management import execute_from_command_line
     except ImportError as exc:

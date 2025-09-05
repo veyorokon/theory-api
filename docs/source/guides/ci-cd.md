@@ -38,7 +38,7 @@ All deployments are controlled by environment variables and GitHub Environment p
 1. **Create GitHub Environment:**
    ```bash
    # Via GitHub CLI (if available)
-   gh api repos/veyorokon/visureel-api/environments/development -X PUT
+   gh api repos/veyorokon/theory-api/environments/development -X PUT
    
    # Or via web interface: Settings → Environments → New environment
    ```
@@ -67,9 +67,9 @@ All deployments are controlled by environment variables and GitHub Environment p
 5. **Verify ECS Infrastructure:**
    Ensure these resources exist via Terraform:
    ```
-   visureel-dev-cluster / visureel-api-dev
-   visureel-staging-cluster / visureel-api-staging  
-   visureel-prod-cluster / visureel-api-prod
+   theory-dev-cluster / theory-api-dev
+   theory-staging-cluster / theory-api-staging  
+   theory-prod-cluster / theory-api-prod
    ```
 
 6. **Test First Deployment:**
@@ -149,6 +149,41 @@ Use the standard PR template with CI/CD governance checklist:
 - **ECS Console:** Service health and deployment status  
 - **CloudWatch:** Application logs and metrics
 - **GitHub Environments:** Deployment history and approvals
+
+## GitHub Pages (Documentation Publishing)
+
+Our documentation is automatically built and published to GitHub Pages on every merge to `main`.
+
+### Troubleshooting Pages Deployment
+
+**404 Error on Deploy (most common):**
+If the workflow build succeeds but deploy fails with "404" or "Not Found":
+
+1. **Disable and re-enable Pages:**
+   - Go to Settings → Pages in the repository
+   - Click "Disable" if Pages is currently enabled
+   - Click "Enable" and set Source = "GitHub Actions"
+   - Save settings
+
+2. **Verify workflow configuration:**
+   ```bash
+   # Our workflow uses the canonical pattern
+   # configure-pages → upload-pages-artifact → deploy-pages
+   # with environment name exactly "github-pages"
+   ```
+
+3. **Manual workflow trigger:**
+   ```bash
+   # Test deployment after fixing Pages settings
+   gh workflow run docs.yml
+   gh run watch --exit-status
+   ```
+
+**Common Issues:**
+- Environment name must be `github-pages` (not "pages" or "Docs")
+- Upload path points to built site: `docs/_build/html`
+- Permissions include `pages: write` and `id-token: write`
+- Pages source is "GitHub Actions," not branch/folder
 
 ## Security Considerations
 

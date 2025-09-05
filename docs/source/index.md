@@ -1,4 +1,4 @@
-# Visureel Orchestrator
+# Theory Orchestrator
 
 A universal, event-driven framework to achieve complex goals under budget and policy.  
 **Core ontology:** the **World** (state), **Plan** (proposed transitions), **Ledger** (history), with **Processors** (tools/agents) acting under **Predicates** (rules).
@@ -58,7 +58,7 @@ runbooks/deployments
 
 ## Overview
 
-Visureel provides a unified substrate for:
+Theory provides a unified substrate for:
 - **Media Pipelines** - Automated content generation
 - **Real-time Agents** - Persistent conversations and streaming  
 - **CI/CD Workflows** - Software deployment automation

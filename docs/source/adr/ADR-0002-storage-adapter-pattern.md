@@ -7,7 +7,7 @@
 
 ## Context
 
-Visureel needs file storage that works across different environments:
+Theory needs file storage that works across different environments:
 - **Development**: Local MinIO for fast iteration  
 - **Production**: AWS S3 for reliability and scale
 - **Testing**: In-memory or local filesystem for speed
@@ -64,7 +64,7 @@ The service automatically switches adapters based on `STORAGE_BACKEND` setting w
 ### Option C: Django-storages Only
 - **Pros:** Existing solution, well-tested, supports many backends
 - **Cons:** Django-specific, less control over interface, heavyweight
-- **Rejected because:** Want custom interface aligned with Visureel patterns
+- **Rejected because:** Want custom interface aligned with Theory patterns
 
 ## Implementation
 
