@@ -1,42 +1,27 @@
-# Pull Request
-
 ## Summary
-Brief description of the changes made.
+<!-- One-liner: smallest correct change -->
 
-## Links
-- **Related Issue:** Fixes #
-- **ADR (if applicable):** 
+## Traceability
+- Issue: <!-- #123 or link (required) -->
+- ADR: <!-- ADR-XXXX or n/a (explain why) -->
 
-## Type of Change
-- [ ] Bug fix (non-breaking change)
-- [ ] New feature (non-breaking change)
-- [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
-- [ ] Documentation only changes
-- [ ] CI/CD change (governed by ADR-0003)
+## Docs (required)
+- [ ] Guides updated
+- [ ] Concepts updated
+- [ ] API/autodoc updated (models/services)
+- Touched files:
+  - `docs/source/...`
 
-## CI/CD Changes (if applicable)
-*Complete this section only if "CI/CD change" is checked above*
+## Risk & Rollout
+- Risk: <!-- low/med/high + why -->
+- Backout: <!-- exact steps -->
 
-### Governance Checklist (must all pass)
-- [ ] Workflows updated AND docs build passes in CI
-- [ ] Docs updated (guides/ci-cd.md or ADR-0003 Status) if behavior changed
-- [ ] Deploy remains gated unless enabling CD intentionally
-- [ ] If enabling CD:
-  - [ ] GitHub Environment exists (development/staging/production)
-  - [ ] Reviewers/approvals configured
-  - [ ] Required secrets present (documented)
-- [ ] Rollout/backout steps documented in the PR
+## Local Verification
+```bash
+cd code && python manage.py docs_export --out ../docs/_generated --erd --api --schemas
+sphinx-build -n -W -b html docs/source docs/_build/html
+sphinx-build -b linkcheck docs/source docs/_build/linkcheck
+```
 
-### Environment Flags
-- [ ] Any environment flags toggled? (`DEPLOY_ENABLED_DEV`, `DEPLOY_ENABLED_STAGING`, `DEPLOY_ENABLED_PROD`)
-- [ ] Any Terraform/ECS identifiers referenced?
-
-## Testing
-- [ ] Tests pass locally
-- [ ] Documentation builds successfully
-- [ ] Changes tested in appropriate environment
-
-## Documentation
-- [ ] Code changes include relevant documentation updates
-- [ ] Generated documentation refreshed (if applicable)
-- [ ] ADR updated (if architectural change)
+## Screenshots / Artifacts
+<!-- optional -->
