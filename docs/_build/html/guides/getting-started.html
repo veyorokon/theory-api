@@ -196,6 +196,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../adr/ADR-template.html">ADR-XXXX — Title</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../adr/ADR-0001-docs-as-contracts.html">ADR-0001 — Docs as Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../adr/ADR-0002-storage-adapter-pattern.html">ADR-0002 — Storage Adapter Pattern</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../adr/ADR-0003-branch-strategy-cicd.html">ADR-0003 — Branch Strategy and CI/CD Pipeline</a></li>
 </ul>
 </li>
 </ul>
@@ -255,8 +256,8 @@ Predicates gate admission/success; Leases ensure safe parallel writes.</p>
 <h3>Installation<a class="headerlink" href="#installation" title="Link to this heading">#</a></h3>
 <ol class="arabic">
 <li><p><strong>Clone and setup environment:</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>&lt;repository-url&gt;
-<span class="nb">cd</span><span class="w"> </span>backend/
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/veyorokon/visureel-api.git
+<span class="nb">cd</span><span class="w"> </span>visureel-api/
 conda<span class="w"> </span>env<span class="w"> </span>create<span class="w"> </span>-f<span class="w"> </span>conda/environment.yml
 conda<span class="w"> </span>activate<span class="w"> </span>base<span class="w">  </span><span class="c1"># or whatever name you chose</span>
 </pre></div>
@@ -311,6 +312,50 @@ python<span class="w"> </span>manage.py<span class="w"> </span>migrate
 <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;File uploaded: </span><span class="si">{</span><span class="n">url</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
+</section>
+<section id="branch-workflow">
+<h2>Branch Workflow<a class="headerlink" href="#branch-workflow" title="Link to this heading">#</a></h2>
+<p>The repository uses a three-tier branch strategy:</p>
+<ul class="simple">
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">dev</span></code></strong> — Active development, deploys automatically to dev environment</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">staging</span></code></strong> — Integration testing, deploys to staging environment</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">main</span></code></strong> — Production releases, protected branch with required reviews</p></li>
+</ul>
+<section id="contributing-workflow">
+<h3>Contributing Workflow<a class="headerlink" href="#contributing-workflow" title="Link to this heading">#</a></h3>
+<ol class="arabic">
+<li><p><strong>Create feature branch from <code class="docutils literal notranslate"><span class="pre">dev</span></code>:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>checkout<span class="w"> </span>dev
+git<span class="w"> </span>pull<span class="w"> </span>origin<span class="w"> </span>dev
+git<span class="w"> </span>checkout<span class="w"> </span>-b<span class="w"> </span>feat/area-description
+</pre></div>
+</div>
+</li>
+<li><p><strong>Make changes and commit:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>add<span class="w"> </span>.
+git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;Add feature: description</span>
+
+<span class="s2">🤖 Generated with Claude Code</span>
+<span class="s2">Co-Authored-By: Claude &lt;noreply@anthropic.com&gt;&quot;</span>
+</pre></div>
+</div>
+</li>
+<li><p><strong>Push and create PR:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>push<span class="w"> </span>-u<span class="w"> </span>origin<span class="w"> </span>feat/area-description
+<span class="c1"># Create PR via GitHub web interface targeting `dev`</span>
+</pre></div>
+</div>
+</li>
+<li><p><strong>Merge progression:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">feat/area-description</span></code> → <code class="docutils literal notranslate"><span class="pre">dev</span></code> (automatic deployment)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">dev</span></code> → <code class="docutils literal notranslate"><span class="pre">staging</span></code> (integration testing)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">staging</span></code> → <code class="docutils literal notranslate"><span class="pre">main</span></code> (production deployment)</p></li>
+</ul>
+</li>
+</ol>
+<p>See <a class="reference internal" href="../adr/ADR-0003-branch-strategy-cicd.html"><span class="doc std std-doc">ADR-0003</span></a> for complete branching and CI/CD details.</p>
+</section>
 </section>
 <section id="next-steps">
 <h2>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading">#</a></h2>
@@ -387,6 +432,10 @@ python<span class="w"> </span>manage.py<span class="w"> </span>migrate
 </li>
 <li><a class="reference internal" href="#smallest-flow">Smallest Flow</a></li>
 <li><a class="reference internal" href="#storage-example">Storage Example</a></li>
+<li><a class="reference internal" href="#branch-workflow">Branch Workflow</a><ul>
+<li><a class="reference internal" href="#contributing-workflow">Contributing Workflow</a></li>
+</ul>
+</li>
 <li><a class="reference internal" href="#next-steps">Next Steps</a></li>
 </ul>
 </li>

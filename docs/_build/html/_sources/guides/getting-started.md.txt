@@ -20,8 +20,8 @@ Predicates gate admission/success; Leases ensure safe parallel writes.
 
 1. **Clone and setup environment:**
    ```bash
-   git clone <repository-url>
-   cd backend/
+   git clone https://github.com/veyorokon/visureel-api.git
+   cd visureel-api/
    conda env create -f conda/environment.yml
    conda activate base  # or whatever name you chose
    ```
@@ -71,6 +71,45 @@ url = storage_service.upload_file(
 )
 print(f"File uploaded: {url}")
 ```
+
+## Branch Workflow
+
+The repository uses a three-tier branch strategy:
+
+- **`dev`** — Active development, deploys automatically to dev environment
+- **`staging`** — Integration testing, deploys to staging environment  
+- **`main`** — Production releases, protected branch with required reviews
+
+### Contributing Workflow
+
+1. **Create feature branch from `dev`:**
+   ```bash
+   git checkout dev
+   git pull origin dev
+   git checkout -b feat/area-description
+   ```
+
+2. **Make changes and commit:**
+   ```bash
+   git add .
+   git commit -m "Add feature: description
+   
+   🤖 Generated with Claude Code
+   Co-Authored-By: Claude <noreply@anthropic.com>"
+   ```
+
+3. **Push and create PR:**
+   ```bash
+   git push -u origin feat/area-description
+   # Create PR via GitHub web interface targeting `dev`
+   ```
+
+4. **Merge progression:**
+   - `feat/area-description` → `dev` (automatic deployment)
+   - `dev` → `staging` (integration testing)  
+   - `staging` → `main` (production deployment)
+
+See [ADR-0003](../adr/ADR-0003-branch-strategy-cicd) for complete branching and CI/CD details.
 
 ## Next Steps
 

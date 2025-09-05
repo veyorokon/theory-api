@@ -6,6 +6,7 @@
 ADR-template
 ADR-0001-docs-as-contracts
 ADR-0002-storage-adapter-pattern
+ADR-0003-branch-strategy-cicd
 ```
 
 ## Overview
@@ -25,6 +26,9 @@ Establishes that reference documentation must be generated from source of truth 
 
 ### [ADR-0002: Storage Adapter Pattern](ADR-0002-storage-adapter-pattern) 
 Defines the vendor-neutral storage abstraction using the adapter pattern.
+
+### [ADR-0003: Branch Strategy and CI/CD Pipeline](ADR-0003-branch-strategy-cicd)
+Establishes branching workflow and automated deployment pipeline for safe production releases.
 
 ## Writing ADRs
 

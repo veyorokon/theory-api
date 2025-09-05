@@ -3,10 +3,10 @@
   <head><meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width,initial-scale=1"/>
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="../genindex.html" /><link rel="search" title="Search" href="../search.html" /><link rel="next" title="ADR-0002 — Storage Adapter Pattern" href="ADR-0002-storage-adapter-pattern.html" /><link rel="prev" title="ADR-XXXX — Title" href="ADR-template.html" />
+<link rel="index" title="Index" href="../genindex.html" /><link rel="search" title="Search" href="../search.html" /><link rel="prev" title="ADR-0002 — Storage Adapter Pattern" href="ADR-0002-storage-adapter-pattern.html" />
 
     <!-- Generated with Sphinx 7.2.6 and Furo 2024.01.29 -->
-        <title>ADR-0001 — Docs as Contracts - Visureel Orchestrator</title>
+        <title>ADR-0003 — Branch Strategy and CI/CD Pipeline - Visureel Orchestrator</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=135e06be" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo-extensions.css?v=36a5483c" />
@@ -194,9 +194,9 @@
 <ul class="current">
 <li class="toctree-l1 current has-children"><a class="reference internal" href="index.html">Architecture Decision Records</a><input checked="" class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" role="switch" type="checkbox"/><label for="toctree-checkbox-2"><div class="visually-hidden">Toggle navigation of Architecture Decision Records</div><i class="icon"><svg><use href="#svg-arrow-right"></use></svg></i></label><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="ADR-template.html">ADR-XXXX — Title</a></li>
-<li class="toctree-l2 current current-page"><a class="current reference internal" href="#">ADR-0001 — Docs as Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ADR-0001-docs-as-contracts.html">ADR-0001 — Docs as Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ADR-0002-storage-adapter-pattern.html">ADR-0002 — Storage Adapter Pattern</a></li>
-<li class="toctree-l2"><a class="reference internal" href="ADR-0003-branch-strategy-cicd.html">ADR-0003 — Branch Strategy and CI/CD Pipeline</a></li>
+<li class="toctree-l2 current current-page"><a class="current reference internal" href="#">ADR-0003 — Branch Strategy and CI/CD Pipeline</a></li>
 </ul>
 </li>
 </ul>
@@ -233,119 +233,123 @@
           </label>
         </div>
         <article role="main">
-          <section id="adr-0001-docs-as-contracts">
-<h1>ADR-0001 — Docs as Contracts<a class="headerlink" href="#adr-0001-docs-as-contracts" title="Link to this heading">#</a></h1>
+          <section id="adr-0003-branch-strategy-and-ci-cd-pipeline">
+<h1>ADR-0003 — Branch Strategy and CI/CD Pipeline<a class="headerlink" href="#adr-0003-branch-strategy-and-ci-cd-pipeline" title="Link to this heading">#</a></h1>
 <ul class="simple">
 <li><p><strong>Status:</strong> Accepted</p></li>
 <li><p><strong>Date:</strong> 2025-09-05</p></li>
 <li><p><strong>Deciders:</strong> Engineering Team</p></li>
-<li><p><strong>Technical Story:</strong> Documentation framework implementation</p></li>
+<li><p><strong>Technical Story:</strong> Repository branching and deployment automation</p></li>
 </ul>
 <section id="context">
 <h2>Context<a class="headerlink" href="#context" title="Link to this heading">#</a></h2>
-<p>Reference documentation frequently becomes stale and inaccurate:</p>
+<p>Visureel API requires:</p>
 <ul class="simple">
-<li><p>Manual documentation drifts from actual implementation</p></li>
-<li><p>API docs don’t reflect current method signatures</p></li>
-<li><p>Database schemas in docs don’t match actual models</p></li>
-<li><p>Diagrams become outdated as system evolves</p></li>
-<li><p>No enforcement mechanism to catch drift</p></li>
+<li><p>Safe production deployments with review gates</p></li>
+<li><p>Environment isolation (dev/staging/prod)</p></li>
+<li><p>Integration with existing AWS ECS + Terraform infrastructure</p></li>
+<li><p>Enforcement of docs-as-contracts governance workflow</p></li>
 </ul>
-<p>This creates confusion for developers and reduces documentation trust. Teams stop consulting docs when they can’t rely on accuracy.</p>
+<p>Current state: Single <code class="docutils literal notranslate"><span class="pre">main</span></code> branch, no automated deployments, manual infrastructure management.</p>
 </section>
 <section id="decision">
 <h2>Decision<a class="headerlink" href="#decision" title="Link to this heading">#</a></h2>
-<p>We will implement <strong>Docs as Contracts</strong> where reference content is generated from source of truth:</p>
+<p><strong>Branch Strategy:</strong></p>
 <ul class="simple">
-<li><p><strong>API documentation</strong> generated from docstrings and type hints</p></li>
-<li><p><strong>Database schemas</strong> generated from Django models</p></li>
-<li><p><strong>Architecture diagrams</strong> generated from code structure</p></li>
-<li><p><strong>Registry documentation</strong> generated from YAML/JSON specifications</p></li>
-<li><p><strong>JSON schemas</strong> exported from model definitions</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">main</span></code> (production) - Protected, requires reviews, deploys to prod ECS</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">staging</span></code> - Integration testing, deploys to staging ECS</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">dev</span></code> - Active development, deploys to dev ECS</p></li>
+<li><p>Feature branches: <code class="docutils literal notranslate"><span class="pre">feat/area-description</span></code>, <code class="docutils literal notranslate"><span class="pre">fix/area-description</span></code></p></li>
 </ul>
-<p>Generated content lives in <code class="docutils literal notranslate"><span class="pre">docs/_generated/**</span></code> and is never manually edited. CI builds fail if generated content differs from what’s committed, preventing drift.</p>
+<p><strong>CI/CD Pipeline (GitHub Actions):</strong></p>
+<ul class="simple">
+<li><p>PR validation: tests + linting + docs build</p></li>
+<li><p>Branch deployments: <code class="docutils literal notranslate"><span class="pre">dev</span></code>→dev ECS, <code class="docutils literal notranslate"><span class="pre">staging</span></code>→staging ECS, <code class="docutils literal notranslate"><span class="pre">main</span></code>→prod ECS</p></li>
+<li><p>Docker build → ECR push → ECS service update</p></li>
+<li><p>Terraform state managed in S3 (per existing <code class="docutils literal notranslate"><span class="pre">infra/</span></code> structure)</p></li>
+</ul>
+<p><strong>Protection Rules:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">main</span></code>: Require 1+ reviews, status checks, no force push, linear history</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">staging</span></code>: Require status checks, allow fast-forward merges</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">dev</span></code>: Minimal restrictions, allow direct pushes for rapid iteration</p></li>
+</ul>
 </section>
 <section id="consequences">
 <h2>Consequences<a class="headerlink" href="#consequences" title="Link to this heading">#</a></h2>
 <section id="positive">
 <h3>Positive<a class="headerlink" href="#positive" title="Link to this heading">#</a></h3>
 <ul class="simple">
-<li><p><strong>Documentation never lies</strong> - Generated from actual implementation</p></li>
-<li><p><strong>Automatic updates</strong> - Changes to code automatically update docs</p></li>
-<li><p><strong>Consistent format</strong> - All API docs follow same structure</p></li>
-<li><p><strong>Comprehensive coverage</strong> - All documented code follows same standards</p></li>
-<li><p><strong>CI enforcement</strong> - Drift is caught automatically in builds</p></li>
+<li><p>Safe production deployments with human oversight</p></li>
+<li><p>Automated testing prevents regression</p></li>
+<li><p>Environment parity reduces deployment surprises</p></li>
+<li><p>Integration with existing infrastructure investment</p></li>
 </ul>
 </section>
 <section id="negative">
 <h3>Negative<a class="headerlink" href="#negative" title="Link to this heading">#</a></h3>
 <ul class="simple">
-<li><p><strong>Build complexity</strong> - Requires docs generation in CI pipeline</p></li>
-<li><p><strong>Contributor friction</strong> - Devs must run generators before committing</p></li>
-<li><p><strong>Limited flexibility</strong> - Generated content can’t be customized easily</p></li>
-<li><p><strong>Tool dependencies</strong> - Adds Sphinx, MyST, and other doc tools to build</p></li>
+<li><p>Additional CI/CD complexity and AWS costs</p></li>
+<li><p>Longer feedback cycles due to review requirements</p></li>
+<li><p>Initial setup overhead for workflows and secrets</p></li>
 </ul>
 </section>
 <section id="neutral">
 <h3>Neutral<a class="headerlink" href="#neutral" title="Link to this heading">#</a></h3>
 <ul class="simple">
-<li><p><strong>Hybrid approach</strong> - Manual pages for concepts, generated for reference</p></li>
-<li><p><strong>Storage overhead</strong> - Generated files are committed to repository</p></li>
-<li><p><strong>Process change</strong> - Team must adopt new documentation workflow</p></li>
+<li><p>Branch protection may slow emergency fixes (mitigate with hotfix process)</p></li>
+<li><p>GitHub Actions minutes usage (monitor and budget)</p></li>
 </ul>
 </section>
 </section>
 <section id="alternatives-considered">
 <h2>Alternatives Considered<a class="headerlink" href="#alternatives-considered" title="Link to this heading">#</a></h2>
-<section id="option-a-pure-manual-documentation">
-<h3>Option A: Pure Manual Documentation<a class="headerlink" href="#option-a-pure-manual-documentation" title="Link to this heading">#</a></h3>
+<section id="option-a-gitflow">
+<h3>Option A: GitFlow<a class="headerlink" href="#option-a-gitflow" title="Link to this heading">#</a></h3>
 <ul class="simple">
-<li><p><strong>Pros:</strong> Full control over content and formatting</p></li>
-<li><p><strong>Cons:</strong> High maintenance burden, inevitable drift</p></li>
-<li><p><strong>Rejected because:</strong> Historical evidence shows manual docs become stale</p></li>
+<li><p><strong>Pros:</strong> Well-established pattern with develop/release branches</p></li>
+<li><p><strong>Cons:</strong> Overkill for team size, conflicts with docs-governance simplicity</p></li>
+<li><p><strong>Rejected because:</strong> Additional complexity without benefit</p></li>
 </ul>
 </section>
-<section id="option-b-comments-only-documentation">
-<h3>Option B: Comments-only Documentation<a class="headerlink" href="#option-b-comments-only-documentation" title="Link to this heading">#</a></h3>
+<section id="option-b-trunk-based-development">
+<h3>Option B: Trunk-based Development<a class="headerlink" href="#option-b-trunk-based-development" title="Link to this heading">#</a></h3>
 <ul class="simple">
-<li><p><strong>Pros:</strong> Documentation stays close to code</p></li>
-<li><p><strong>Cons:</strong> Limited formatting, poor discoverability, no cross-references</p></li>
-<li><p><strong>Rejected because:</strong> Insufficient for complex system documentation</p></li>
+<li><p><strong>Pros:</strong> Simple workflow, direct commits to main with feature flags</p></li>
+<li><p><strong>Cons:</strong> Insufficient safety gates for production system</p></li>
+<li><p><strong>Rejected because:</strong> Lacks review process and deployment controls</p></li>
 </ul>
 </section>
-<section id="option-c-external-documentation-tools-notion-gitbook">
-<h3>Option C: External Documentation Tools (Notion, GitBook)<a class="headerlink" href="#option-c-external-documentation-tools-notion-gitbook" title="Link to this heading">#</a></h3>
+<section id="option-c-manual-deployments">
+<h3>Option C: Manual Deployments<a class="headerlink" href="#option-c-manual-deployments" title="Link to this heading">#</a></h3>
 <ul class="simple">
-<li><p><strong>Pros:</strong> Rich editing experience, collaboration features</p></li>
-<li><p><strong>Cons:</strong> Disconnected from code, still subject to drift</p></li>
-<li><p><strong>Rejected because:</strong> Doesn’t solve the core drift problem</p></li>
+<li><p><strong>Pros:</strong> Simple, no automation complexity</p></li>
+<li><p><strong>Cons:</strong> Doesn’t scale, error-prone, blocks automation</p></li>
+<li><p><strong>Rejected because:</strong> Manual process doesn’t support team growth</p></li>
 </ul>
 </section>
 </section>
 <section id="implementation">
 <h2>Implementation<a class="headerlink" href="#implementation" title="Link to this heading">#</a></h2>
-<ol class="arabic simple">
-<li><p><strong>Set up Sphinx with MyST</strong> - Markdown-based documentation system</p></li>
-<li><p><strong>Create docs_export command</strong> - Django management command to generate content</p></li>
-<li><p><strong>Structure documentation</strong> - Manual concepts + generated reference</p></li>
-<li><p><strong>CI integration</strong> - Build docs and check for drift on every PR</p></li>
-<li><p><strong>Team training</strong> - Onboard developers to new workflow</p></li>
-</ol>
-</section>
-<section id="notes">
-<h2>Notes<a class="headerlink" href="#notes" title="Link to this heading">#</a></h2>
-<ul class="simple">
-<li><p>Implementation demonstrates the pattern with storage app documentation</p></li>
-<li><p>Uses existing Django introspection capabilities</p></li>
-<li><p>Follows industry practices from projects like Django REST Framework</p></li>
-<li><p>Maintains human-readable source while ensuring accuracy</p></li>
-</ul>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># GitHub Actions workflow structure</span>
+<span class="nt">on</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">push</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">main</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">staging</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">dev</span><span class="p p-Indicator">]</span>
+<span class="w">  </span><span class="nt">pull_request</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">main</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">staging</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">dev</span><span class="p p-Indicator">]</span>
+
+<span class="nt">jobs</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">test</span><span class="p">:</span><span class="w"> </span><span class="c1"># Django tests + docs build</span>
+<span class="w">  </span><span class="nt">build</span><span class="p">:</span><span class="w"> </span><span class="c1"># Docker → ECR push  </span>
+<span class="w">  </span><span class="nt">deploy-dev</span><span class="p">:</span><span class="w"> </span><span class="c1"># ECS update (dev branch)</span>
+<span class="w">  </span><span class="nt">deploy-staging</span><span class="p">:</span><span class="w"> </span><span class="c1"># ECS update (staging branch)</span>
+<span class="w">  </span><span class="nt">deploy-production</span><span class="p">:</span><span class="w"> </span><span class="c1"># ECS update (main branch)</span>
+</pre></div>
+</div>
 </section>
 <section id="status-history">
 <h2>Status History<a class="headerlink" href="#status-history" title="Link to this heading">#</a></h2>
 <ul class="simple">
-<li><p>2025-09-05: Proposed during documentation framework design</p></li>
-<li><p>2025-09-05: Accepted and implemented with storage app example</p></li>
+<li><p>2025-09-05: Proposed during repository setup</p></li>
+<li><p>2025-09-05: Accepted and implemented with GitHub Actions workflow</p></li>
 </ul>
 </section>
 </section>
@@ -355,23 +359,15 @@
       <footer>
         
         <div class="related-pages">
-          <a class="next-page" href="ADR-0002-storage-adapter-pattern.html">
-              <div class="page-info">
-                <div class="context">
-                  <span>Next</span>
-                </div>
-                <div class="title">ADR-0002 — Storage Adapter Pattern</div>
-              </div>
-              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
-            </a>
-          <a class="prev-page" href="ADR-template.html">
+          
+          <a class="prev-page" href="ADR-0002-storage-adapter-pattern.html">
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
               <div class="page-info">
                 <div class="context">
                   <span>Previous</span>
                 </div>
                 
-                <div class="title">ADR-XXXX — Title</div>
+                <div class="title">ADR-0002 — Storage Adapter Pattern</div>
                 
               </div>
             </a>
@@ -405,7 +401,7 @@
         <div class="toc-tree-container">
           <div class="toc-tree">
             <ul>
-<li><a class="reference internal" href="#">ADR-0001 — Docs as Contracts</a><ul>
+<li><a class="reference internal" href="#">ADR-0003 — Branch Strategy and CI/CD Pipeline</a><ul>
 <li><a class="reference internal" href="#context">Context</a></li>
 <li><a class="reference internal" href="#decision">Decision</a></li>
 <li><a class="reference internal" href="#consequences">Consequences</a><ul>
@@ -415,13 +411,12 @@
 </ul>
 </li>
 <li><a class="reference internal" href="#alternatives-considered">Alternatives Considered</a><ul>
-<li><a class="reference internal" href="#option-a-pure-manual-documentation">Option A: Pure Manual Documentation</a></li>
-<li><a class="reference internal" href="#option-b-comments-only-documentation">Option B: Comments-only Documentation</a></li>
-<li><a class="reference internal" href="#option-c-external-documentation-tools-notion-gitbook">Option C: External Documentation Tools (Notion, GitBook)</a></li>
+<li><a class="reference internal" href="#option-a-gitflow">Option A: GitFlow</a></li>
+<li><a class="reference internal" href="#option-b-trunk-based-development">Option B: Trunk-based Development</a></li>
+<li><a class="reference internal" href="#option-c-manual-deployments">Option C: Manual Deployments</a></li>
 </ul>
 </li>
 <li><a class="reference internal" href="#implementation">Implementation</a></li>
-<li><a class="reference internal" href="#notes">Notes</a></li>
 <li><a class="reference internal" href="#status-history">Status History</a></li>
 </ul>
 </li>
