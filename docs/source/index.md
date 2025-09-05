@@ -39,6 +39,7 @@ apps/core
 :maxdepth: 2
 :caption: Use Cases
 
+use-cases/hello-llm
 use-cases/media-generation
 use-cases/ci-cd
 use-cases/realtime-facetime
