@@ -25,3 +25,6 @@ sphinx-build -b linkcheck docs/source docs/_build/linkcheck
 
 ## Screenshots / Artifacts
 <!-- optional -->
+
+## Deployment (Sole Maintainer)
+- [ ] If this PR deploys to staging/production, I will self-approve pending deployments per ADR-0003 runbook

@@ -151,7 +151,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/staging' && vars.DEPLOY_ENABLED_STAGING == 'true'
-    environment: staging
+    environment: staging  # Self-approval policy: gated by environment reviewers (see ADR-0003)
     
     steps:
     - uses: actions/checkout@v4
@@ -175,7 +175,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED_PROD == 'true'
-    environment: production
+    environment: production  # Self-approval policy: gated by environment reviewers (see ADR-0003)
     
     steps:
     - uses: actions/checkout@v4

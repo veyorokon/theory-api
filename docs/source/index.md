@@ -49,6 +49,13 @@ use-cases/realtime-facetime
 adr/index
 ```
 
+```{toctree}
+:maxdepth: 1
+:caption: Runbooks
+
+runbooks/deployments
+```
+
 ## Overview
 
 Visureel provides a unified substrate for:

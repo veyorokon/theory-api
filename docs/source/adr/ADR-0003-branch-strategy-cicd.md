@@ -34,6 +34,12 @@ Current state: Single `main` branch, no automated deployments, manual infrastruc
 - `staging`: Require status checks, allow fast-forward merges
 - `dev`: Minimal restrictions, allow direct pushes for rapid iteration
 
+### Environment Protection & Self-Approval (Sole Maintainer Mode)
+- **development**: no reviewers (auto-deploy)
+- **staging**: reviewer required → **sole maintainer self-approval**
+- **production**: reviewer required → **sole maintainer self-approval** (promote to two-person rule when team grows)
+- Approvals performed via GitHub UI or CLI (`gh api ... pending_deployments`) with full audit trail
+
 ## Consequences
 
 ### Positive
@@ -41,6 +47,7 @@ Current state: Single `main` branch, no automated deployments, manual infrastruc
 - Automated testing prevents regression
 - Environment parity reduces deployment surprises
 - Integration with existing infrastructure investment
+- Explicit self-approval policy avoids blocking solo workflows while preserving auditability
 
 ### Negative
 - Additional CI/CD complexity and AWS costs
