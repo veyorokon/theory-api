@@ -16,6 +16,8 @@ contributing
 :maxdepth: 2
 :caption: Concepts
 
+concepts/north-star
+concepts/storage-planes
 concepts/world-plan-ledger
 concepts/facets-and-paths
 concepts/predicates
