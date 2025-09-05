@@ -81,6 +81,13 @@ jobs:
     - name: Check docs links
       working-directory: docs
       run: make linkcheck
+    
+    - name: Upload docs artifact (PR preview)
+      if: github.event_name == 'pull_request'
+      uses: actions/upload-artifact@v4
+      with:
+        name: docs-html-preview
+        path: docs/_build/html
 
   build:
     needs: test
