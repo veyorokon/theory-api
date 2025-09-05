@@ -11,7 +11,9 @@ from unittest import mock
 from django.core.management import call_command
 from django.test import TestCase
 
-from apps.core.llm import MockLLM, LLMReply
+from apps.core.llm import LLMReply
+from apps.core.providers import get_llm_provider
+from apps.core.providers.mock import MockLLM
 
 
 class TestMockLLM(TestCase):
@@ -48,10 +50,13 @@ class TestMockLLM(TestCase):
         llm = MockLLM()
         reply = llm.chat("hello world")
         
-        assert "prompt_tokens" in reply.usage
-        assert "completion_tokens" in reply.usage
-        assert reply.usage["prompt_tokens"] > 0
-        assert reply.usage["completion_tokens"] > 0
+        assert "tokens_in" in reply.usage
+        assert "tokens_out" in reply.usage
+        assert "latency_ms" in reply.usage
+        assert "usd_micros" in reply.usage
+        assert reply.usage["tokens_in"] > 0
+        assert reply.usage["tokens_out"] > 0
+        assert reply.usage["usd_micros"] == 0  # Mock is free
 
 
 class TestLLMReply(TestCase):
@@ -59,19 +64,23 @@ class TestLLMReply(TestCase):
     
     def test_default_values(self):
         """LLMReply should have sensible defaults."""
-        reply = LLMReply(text="hello")
+        reply = LLMReply(text="hello", provider="mock", model="test")
         
         assert reply.text == "hello"
         assert reply.provider == "mock"
-        assert reply.usage == {}
+        assert reply.model == "test"
+        # Should have default usage structure
+        expected_usage = {'tokens_in': 0, 'tokens_out': 0, 'latency_ms': 0, 'usd_micros': 0}
+        assert reply.usage == expected_usage
     
     def test_custom_values(self):
-        """LLMReply should accept custom provider and usage."""
-        usage = {"tokens": 100}
-        reply = LLMReply(text="hello", provider="custom", usage=usage)
+        """LLMReply should accept custom provider, model, and usage."""
+        usage = {"tokens_in": 50, "tokens_out": 100, "latency_ms": 500, "usd_micros": 25}
+        reply = LLMReply(text="hello", provider="custom", model="custom-model", usage=usage)
         
         assert reply.text == "hello"
         assert reply.provider == "custom"
+        assert reply.model == "custom-model"
         assert reply.usage == usage
 
 
@@ -85,6 +94,22 @@ class TestHelloLLMCommand(TestCase):
         output = out.getvalue()
         
         self.assertIn("hello world", output)
+        self.assertIn("Hello from MockLLM!", output)
+    
+    def test_command_provider_flag(self):
+        """Command should accept provider flag."""
+        out = StringIO()
+        call_command('hello_llm', provider='mock', stdout=out)
+        output = out.getvalue()
+        
+        self.assertIn("Hello from MockLLM!", output)
+    
+    def test_command_model_flag(self):
+        """Command should accept model flag."""
+        out = StringIO()
+        call_command('hello_llm', provider='mock', model='custom-mock', stdout=out)
+        output = out.getvalue()
+        
         self.assertIn("Hello from MockLLM!", output)
     
     def test_command_custom_prompt(self):
@@ -110,6 +135,7 @@ class TestHelloLLMCommand(TestCase):
         self.assertIn("usage", data)
         self.assertIn("test", data["text"])
         self.assertEqual(data["provider"], "mock")
+        self.assertEqual(data["model"], "mock")  # Uses default model for mock provider
     
     def test_command_json_structure(self):
         """Command JSON output should have expected structure."""
@@ -120,8 +146,14 @@ class TestHelloLLMCommand(TestCase):
         data = json.loads(output)
         
         # Verify all expected fields are present
-        expected_fields = {"text", "provider", "usage"}
+        expected_fields = {"text", "provider", "model", "usage"}
         self.assertEqual(set(data.keys()), expected_fields)
+        self.assertEqual(data["provider"], "mock")
+        self.assertEqual(data["model"], "mock")
+        
+        # Verify usage has expected structure
+        usage_fields = {"tokens_in", "tokens_out", "latency_ms", "usd_micros"}
+        self.assertEqual(set(data["usage"].keys()), usage_fields)
 
 
 class TestLogging(TestCase):
@@ -129,7 +161,7 @@ class TestLogging(TestCase):
     
     def test_start_finish_logs(self):
         """MockLLM should log start and finish events."""
-        with self.assertLogs('apps.core.llm', level='INFO') as log:
+        with self.assertLogs('apps.core.providers.mock', level='INFO') as log:
             llm = MockLLM()
             llm.chat("hello")
             
@@ -141,7 +173,7 @@ class TestLogging(TestCase):
     
     def test_log_extra_data(self):
         """MockLLM should include extra data in log records."""
-        with self.assertLogs('apps.core.llm', level='INFO') as log:
+        with self.assertLogs('apps.core.providers.mock', level='INFO') as log:
             llm = MockLLM()
             llm.chat("hello world")
             
@@ -166,7 +198,7 @@ class TestLogging(TestCase):
     
     def test_logging_with_command(self):
         """Management command should trigger expected logging."""
-        with self.assertLogs('apps.core.llm', level='INFO') as log:
+        with self.assertLogs('apps.core.providers.mock', level='INFO') as log:
             out = StringIO()
             call_command('hello_llm', prompt='test logging', stdout=out)
             

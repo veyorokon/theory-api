@@ -21,6 +21,7 @@ concepts/storage-planes
 concepts/world-plan-ledger
 concepts/facets-and-paths
 concepts/predicates
+concepts/providers
 concepts/registry-and-adapters
 concepts/agents-and-cognition
 glossary
