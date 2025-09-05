@@ -1,48 +1,31 @@
-# Contributing to Docs
+# Contributing
 
-We follow **Docs-as-Contracts**:
-- Reference content is generated from source of truth (registry, schemas, models).
-- Human-written pages live in `docs/source/**`.
-- Generated pages live in `docs/_generated/**`. Do not edit by hand.
+This project is **docs-first**. Every change must update docs and link a GitHub Issue. Architectural changes also link an ADR.
 
-## Workflow
+## Workflow (Conversation → Issue → (ADR) → PR → Merge)
+1. **Open an Issue** describing the smallest correct change.
+2. If **architectural**, create/update an **ADR** (see `docs/source/adr/`).
+3. Implement the change and **update docs** (guides, concepts, API).
+4. Open a PR that **links the Issue/ADR** and lists doc files touched.
+5. CI must pass:
+   - Sphinx build: `-n -W` (warnings fail build)
+   - Linkcheck
+   - Generated docs up-to-date
 
-1. Write/edit Markdown (MyST) under `docs/source/**`.
-2. Run exporters to populate `_generated/**`:
-   ```bash
-   python manage.py docs_export --out docs/_generated --erd --api --schemas
-   ```
-3. Build docs:
-   ```bash
-   make -C docs html
-   ```
-4. Commit both `source/**` and `_generated/**`.
-
-## Style
-
-- Use clear, active voice.
-- Prefer examples and diagrams.
-- Link glossary terms with `:term:`World`` etc.
-- Follow MyST Markdown syntax for cross-references.
-
-## Page Types
-
-### Manual Pages
-Pure human writing for concepts, guides, and architectural decisions.
-
-### Hybrid Pages  
-Combine human context with generated content using `{include}` directives:
-
-```markdown
-## Data Model
-
-{automodule} apps.storage.models
-:members:
-
-## Architecture (Generated)
-
-{include} ../../_generated/diagrams/storage-architecture.md
+## Local Dev
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r docs/requirements.txt
+cd code && python manage.py docs_export --out ../docs/_generated --erd --api --schemas
+sphinx-build -n -W -b html docs/source docs/_build/html
+sphinx-build -b linkcheck docs/source docs/_build/linkcheck
 ```
 
-### Generated Pages
-Pure machine output in `_generated/` - never edit by hand.
+## PR Checklist
+- Linked Issue and (if applicable) ADR
+- Docs updated (guides/concepts/API)
+- Smoke commands included
+- Backout steps described
+
+## Why docs-first?
+Docs are contracts. They prevent drift, speed reviews, and make changes safe.

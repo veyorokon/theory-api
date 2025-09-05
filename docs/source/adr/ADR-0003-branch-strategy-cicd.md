@@ -34,6 +34,12 @@ Current state: Single `main` branch, no automated deployments, manual infrastruc
 - `staging`: Require status checks, allow fast-forward merges
 - `dev`: Minimal restrictions, allow direct pushes for rapid iteration
 
+### Environment Protection & Self-Approval (Sole Maintainer Mode)
+- **development**: no reviewers (auto-deploy)
+- **staging**: reviewer required → **sole maintainer self-approval**
+- **production**: reviewer required → **sole maintainer self-approval** (promote to two-person rule when team grows)
+- Approvals performed via GitHub UI or CLI (`gh api ... pending_deployments`) with full audit trail
+
 ## Consequences
 
 ### Positive
@@ -41,6 +47,7 @@ Current state: Single `main` branch, no automated deployments, manual infrastruc
 - Automated testing prevents regression
 - Environment parity reduces deployment surprises
 - Integration with existing infrastructure investment
+- Explicit self-approval policy avoids blocking solo workflows while preserving auditability
 
 ### Negative
 - Additional CI/CD complexity and AWS costs
@@ -84,7 +91,25 @@ jobs:
   deploy-production: # ECS update (main branch)
 ```
 
+## Governance Playbook
+
+All CI/CD changes follow a structured workflow:
+
+1. **Conversation → Issue** - Use CI/CD Change issue template with ADR-0003 label
+2. **Issue → PR** - Complete governance checklist in PR template  
+3. **Review → Merge** - Branch protection enforces review and status checks
+4. **Documentation** - Keep guides/ci-cd.md and this ADR synchronized
+
+### Deployment Safety Gates
+
+- **Environment Variables:** `DEPLOY_ENABLED_DEV/STAGING/PROD` control deployment execution
+- **GitHub Environments:** Provide secret isolation and approval requirements
+- **Branch Protection:** Production deploys require human review and passing tests
+
+See [CI/CD Operations Guide](../guides/ci-cd) for detailed procedures.
+
 ## Status History
 
 - 2025-09-05: Proposed during repository setup
 - 2025-09-05: Accepted and implemented with GitHub Actions workflow
+- 2025-09-05: Enhanced with governance playbook and deployment safety gates

@@ -54,7 +54,7 @@ jobs:
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r conda/environment.yml || pip install django psycopg2-binary redis channels
+        pip install -r requirements.txt
     
     - name: Run Django tests
       env:
@@ -65,11 +65,22 @@ jobs:
         python manage.py test apps.core apps.storage
         python manage.py makemigrations --check
     
-    - name: Build documentation
+    - name: Install docs dependencies
+      run: pip install -r docs/requirements.txt
+    
+    - name: Generate docs references
       run: |
-        pip install -r docs/requirements.txt
         cd code && python manage.py docs_export --out ../docs/_generated --erd --api --schemas
-        make -C docs html
+    
+    - name: Build docs (HTML)
+      working-directory: docs
+      env:
+        SPHINXOPTS: "-W"
+      run: make clean html
+    
+    - name: Check docs links
+      working-directory: docs
+      run: make linkcheck
 
   build:
     needs: test
@@ -115,7 +126,7 @@ jobs:
   deploy-dev:
     needs: build
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/dev'
+    if: github.ref == 'refs/heads/dev' && vars.DEPLOY_ENABLED_DEV == 'true'
     environment: development
     
     steps:
@@ -139,8 +150,8 @@ jobs:
   deploy-staging:
     needs: build
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/staging'
-    environment: staging
+    if: github.ref == 'refs/heads/staging' && vars.DEPLOY_ENABLED_STAGING == 'true'
+    environment: staging  # Self-approval policy: gated by environment reviewers (see ADR-0003)
     
     steps:
     - uses: actions/checkout@v4
@@ -163,8 +174,8 @@ jobs:
   deploy-production:
     needs: build
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    environment: production
+    if: github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED_PROD == 'true'
+    environment: production  # Self-approval policy: gated by environment reviewers (see ADR-0003)
     
     steps:
     - uses: actions/checkout@v4

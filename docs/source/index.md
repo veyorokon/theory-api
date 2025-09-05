@@ -8,6 +8,7 @@ A universal, event-driven framework to achieve complex goals under budget and po
 :caption: Guides
 
 guides/getting-started
+guides/ci-cd
 contributing
 ```
 
@@ -46,6 +47,13 @@ use-cases/realtime-facetime
 :caption: Architecture Decisions
 
 adr/index
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Runbooks
+
+runbooks/deployments
 ```
 
 ## Overview
