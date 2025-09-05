@@ -65,11 +65,22 @@ jobs:
         python manage.py test apps.core apps.storage
         python manage.py makemigrations --check
     
-    - name: Build documentation
+    - name: Install docs dependencies
+      run: pip install -r docs/requirements.txt
+    
+    - name: Generate docs references
       run: |
-        pip install -r docs/requirements.txt
         cd code && python manage.py docs_export --out ../docs/_generated --erd --api --schemas
-        make -C docs html
+    
+    - name: Build docs (HTML)
+      working-directory: docs
+      env:
+        SPHINXOPTS: "-W"
+      run: make clean html
+    
+    - name: Check docs links
+      working-directory: docs
+      run: make linkcheck
 
   build:
     needs: test
