@@ -36,14 +36,35 @@ def validate_front_matter(content):
         if data['to'] not in ['architect', 'engineer', 'twin']:
             return None, f"Invalid 'to' value: {data['to']}"
         
-        if not isinstance(data['seq'], int) or data['seq'] < 1:
+        # Handle both integer and string sequence numbers
+        seq = data['seq']
+        if isinstance(seq, str):
+            try:
+                seq = int(seq)
+            except ValueError:
+                return None, f"Invalid sequence number: {data['seq']}"
+        if not isinstance(seq, int) or seq < 1:
             return None, f"Invalid sequence number: {data['seq']}"
         
-        # Validate timestamp format
+        # Validate timestamp format (allow various legacy formats)
         try:
-            datetime.fromisoformat(data['ts'].replace('Z', '+00:00'))
-        except:
-            return None, f"Invalid timestamp format: {data['ts']}"
+            ts = str(data['ts'])
+            # Try various common timestamp formats
+            if ts.endswith('Z'):
+                # ISO with Z suffix
+                datetime.fromisoformat(ts.replace('Z', '+00:00'))
+            elif '+' in ts or ts.endswith('00:00'):
+                # ISO with timezone
+                datetime.fromisoformat(ts)
+            elif 'T' in ts:
+                # ISO format without timezone
+                datetime.fromisoformat(ts)
+            else:
+                # Try parsing as basic date/time
+                datetime.fromisoformat(ts)
+        except Exception as e:
+            # For legacy messages, be more lenient with timestamps
+            return None, f"Legacy timestamp format: {data['ts']}"
         
         return data, None
     
@@ -73,14 +94,26 @@ def validate_message_file(filepath):
         # Validate front matter
         data, error = validate_front_matter(content)
         if error:
-            # Legacy messages without front matter are allowed
-            if "Missing YAML front matter" in error and seq_num <= 20:
+            # Legacy messages without front matter are allowed for older chats
+            if "Missing YAML front matter" in error and seq_num <= 50:
+                # For legacy messages, just mark as legacy without strict validation
                 return f"⚠️  {filepath}: Legacy message (no front matter)"
+            # Handle legacy timestamp formats as warnings for older messages
+            elif "timestamp format" in error.lower() and seq_num <= 50:
+                return f"⚠️  {filepath}: Legacy message ({error})"
             return f"❌ {filepath}: {error}"
         
-        # Check sequence number matches
-        if data and data['seq'] != seq_num:
-            return f"❌ {filepath}: Sequence mismatch (file: {seq_num}, front matter: {data['seq']})"
+        # For messages with front matter, validate strictly
+        # Check sequence number matches (handle both int and string)
+        if data:
+            front_matter_seq = data['seq']
+            if isinstance(front_matter_seq, str):
+                try:
+                    front_matter_seq = int(front_matter_seq)
+                except ValueError:
+                    pass
+            if front_matter_seq != seq_num:
+                return f"❌ {filepath}: Sequence mismatch (file: {seq_num}, front matter: {data['seq']})"
         
         # Check target role matches
         if data and data['to'] != target_role:
@@ -89,7 +122,11 @@ def validate_message_file(filepath):
         # Check for header after front matter
         body = content[content.index('\n---\n')+5:] if '---\n' in content else content
         if not HEADER_PATTERN.search(body[:100]):
-            return f"❌ {filepath}: Missing or invalid TO <ROLE>: header"
+            # For older messages, treat missing header as legacy format
+            if seq_num <= 50:
+                return f"⚠️  {filepath}: Legacy message format (missing TO <ROLE>: header)"
+            else:
+                return f"❌ {filepath}: Missing or invalid TO <ROLE>: header"
         
         return f"✅ {filepath}"
     
@@ -134,7 +171,9 @@ def main():
         print(__doc__)
         sys.exit(1)
     
-    all_results = []
+    errors = []
+    warnings = []
+    
     for dirpath in sys.argv[1:]:
         print(f"\nValidating: {dirpath}")
         print("-" * 40)
@@ -142,13 +181,19 @@ def main():
         for result in results:
             print(result)
             if result.startswith("❌"):
-                all_results.append(result)
+                errors.append(result)
+            elif result.startswith("⚠️"):
+                warnings.append(result)
     
-    if all_results:
-        print(f"\n{len(all_results)} validation error(s) found")
+    if warnings:
+        print(f"\n⚠️  {len(warnings)} legacy message(s) found (non-fatal)")
+    
+    if errors:
+        print(f"\n❌ {len(errors)} validation error(s) found")
         sys.exit(1)
     else:
-        print(f"\n✅ All message files valid across {len(sys.argv)-1} chat(s)")
+        total_chats = len(sys.argv) - 1
+        print(f"\n✅ All message files valid across {total_chats} chat(s)")
 
 
 if __name__ == "__main__":

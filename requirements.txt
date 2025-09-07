@@ -20,3 +20,4 @@ litellm
 requests
 pytest
 pytest-django
+blake3>=0.4.1

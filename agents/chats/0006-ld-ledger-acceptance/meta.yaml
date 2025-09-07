@@ -3,7 +3,7 @@ area: ld
 slug: ledger-acceptance
 title: Prove ledger invariants (reserve→settle, seq, hash)
 owner: engineer
-state: open
+state: closed
 branch: feat/ld-ledger-acceptance-0006
 created: "2025-09-06T00:00:00Z"
 
@@ -32,7 +32,7 @@ outputs:
 
 gh:
   sync_mode: "issue-dryrun"
-  title_pattern: "^{id} \[{area}\] {slug}$"
+  title_pattern: "^{id} \\[{area}\\] {slug}$"
   labels: ["chat","area:ld"]
   issue_body_source: "SUMMARY.md"
 
@@ -42,4 +42,3 @@ ci_gates:
 
 notes: |
   Two-step plan: Step A scaffolds apps and constraints with LedgerWriter stub and event_hash util; Step B lands tests and docs. Chat message files are local-only (not committed). Docs CI enforces _generated/** drift. Hash spec to exclude ts for MVP unless otherwise agreed.
-

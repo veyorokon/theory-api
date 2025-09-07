@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.abspath('../../code'))
 sys.path.insert(0, os.path.abspath('../../code/apps'))
 
 # Setup Django
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'theory_api.settings.development')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings.development')
 try:
     import django
     django.setup()

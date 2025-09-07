@@ -20,6 +20,7 @@ concepts/north-star
 concepts/storage-planes
 concepts/world-plan-ledger
 concepts/facets-and-paths
+concepts/ledger-events
 concepts/predicates
 concepts/providers
 concepts/registry-and-adapters

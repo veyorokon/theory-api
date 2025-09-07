@@ -28,12 +28,11 @@ class LiteLLMProvider:
             timeout: Request timeout in seconds
         """
         self.model_default = model_default
-        self.api_base = api_base
         self.timeout = timeout
         
-        # Configure litellm settings
-        if api_base:
-            litellm.api_base = api_base
+        # IMPORTANT: never mutate global litellm.* state (test isolation + thread-safety)
+        # Keep api_base on the instance and pass it per-request only.
+        self._api_base = api_base.strip() if api_base else None
     
     def chat(self, prompt: str, *, model: str | None = None) -> LLMReply:
         """Generate a response using LiteLLM.
@@ -49,7 +48,7 @@ class LiteLLMProvider:
             RuntimeError: With friendly error messages for common issues
         """
         m = model or self.model_default
-        logger.info("litellm.start", extra={"model": m, "api_base": self.api_base})
+        logger.info("litellm.start", extra={"model": m, "api_base": self._api_base})
         
         start_time = time.time()
         
@@ -63,9 +62,9 @@ class LiteLLMProvider:
                 "timeout": self.timeout,
             }
             
-            # Add api_base if specified
-            if self.api_base:
-                kwargs["api_base"] = self.api_base
+            # Add api_base if specified (per-request isolation)
+            if self._api_base:
+                kwargs["api_base"] = self._api_base
             
             # Make the request
             resp = litellm.completion(**kwargs)
@@ -83,7 +82,7 @@ class LiteLLMProvider:
             if "ollama" in m:
                 if "connection" in error_msg or "refused" in error_msg:
                     raise RuntimeError(
-                        f"Ollama daemon unreachable at {self.api_base or 'default host'}. "
+                        f"Ollama daemon unreachable at {self._api_base or 'default host'}. "
                         f"Ensure 'ollama serve' is running and accessible."
                     ) from e
                 elif "model" in error_msg or "not found" in error_msg:
@@ -137,7 +136,7 @@ class LiteLLMProvider:
             Text chunks as they arrive from the model
         """
         m = model or self.model_default
-        logger.info("litellm.stream_start", extra={"model": m, "api_base": self.api_base})
+        logger.info("litellm.stream_start", extra={"model": m, "api_base": self._api_base})
         
         try:
             # Prepare streaming request
@@ -149,8 +148,8 @@ class LiteLLMProvider:
                 "timeout": self.timeout,
             }
             
-            if self.api_base:
-                kwargs["api_base"] = self.api_base
+            if self._api_base:
+                kwargs["api_base"] = self._api_base
             
             # Stream the response
             stream = litellm.completion(**kwargs)
@@ -185,7 +184,7 @@ class LiteLLMProvider:
             
             if "ollama" in m and ("connection" in error_msg or "refused" in error_msg):
                 raise RuntimeError(
-                    f"Ollama streaming error: Check daemon at {self.api_base}"
+                    f"Ollama streaming error: Check daemon at {self._api_base}"
                 ) from e
             
             raise
