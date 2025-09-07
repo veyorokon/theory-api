@@ -19,7 +19,7 @@ from apps.ledger.utils import event_hash
 
 
 @pytest.mark.ledger_acceptance
-class TestLedgerAcceptance(TestCase):
+class TestLedgerAcceptance(TransactionTestCase):
     """Acceptance tests for ledger invariants using Django models."""
     
     def setUp(self):
@@ -122,14 +122,14 @@ class TestLedgerAcceptance(TestCase):
             
             try:
                 with transaction.atomic():
-                    # Get current max sequence
-                    last_event = Event.objects.filter(plan=self.plan).order_by('-seq').first()
-                    next_seq = (last_event.seq if last_event else 0) + 1
+                    # Force all workers to try the same sequence number
+                    # This ensures they hit the unique constraint
+                    next_seq = 1
                     
                     Event.objects.create(
                         plan=self.plan,
                         seq=next_seq,
-                        prev_hash=last_event.this_hash if last_event else None,
+                        prev_hash=None,
                         this_hash=event_hash({
                             'event_type': 'test.concurrent',
                             'worker_id': worker_id,

@@ -81,3 +81,35 @@ AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
 ]
 ```
+
+## Leases (Façade)
+
+The Core app exposes a minimal, flag‑gated `LeaseManager` façade for future admission checks.
+It canonicalizes facet-root paths and provides overlap detection. Runtime enforcement is 
+disabled by default (`LEASES_ENABLED=False`).
+
+**Features:**
+- Facet-root paths only (`/plan`, `/artifacts`, `/streams`, `/scratch`)
+- Canonicalization: lowercase, collapse `//`, percent-decode once, Unicode NFC; forbid `.`/`..`
+- Trailing slash: exact → no slash; prefix → must end with slash
+- API: `LeaseManager.acquire(plan_id, selectors, *, reason=None) -> LeaseHandle`; `LeaseHandle.release()`; context-manager sugar
+- Flag: `LEASES_ENABLED`; current behavior is no-op
+- Future: scheduler/admission enforces plan-scoped leases using this façade
+
+```python
+from apps.core.leases import LeaseManager, paths_overlap, canonicalize_selector
+
+lm = LeaseManager(enabled=False)  # façade is a no‑op until enabled in future work
+handle = lm.acquire("plan-123", [
+    {"kind": "prefix", "path": "/artifacts/out/"},
+])
+
+# Context manager sugar
+with lm("plan-456", [{"kind": "exact", "path": "/artifacts/result.json"}]) as handle:
+    # lease held during block execution
+    pass
+
+# Overlap helpers (path-only; plan scoping handled by API callers)
+paths_overlap("/artifacts/out", "/artifacts/out/frames")  # True
+paths_overlap("/artifacts/foo", "/artifacts/foobar")      # False
+```

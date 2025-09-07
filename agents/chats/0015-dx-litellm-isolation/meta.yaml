@@ -1,0 +1,38 @@
+id: "0015"
+area: dx
+slug: litellm-isolation
+title: Remove LiteLLM global state; pass api_base per request
+owner: architect
+state: closed
+branch: chore/dx-litellm-isolation-0015
+created: "2025-09-07T14:45:30Z"
+
+scope:
+  - Eliminate global `litellm.api_base` mutation in provider
+  - Pass `api_base` per-request (stream and non-stream)
+  - Add isolation tests (no leakage; mixed-order runs stable)
+
+non_goals:
+  - No provider feature expansion or new backends
+  - No network calls in tests
+
+acceptance:
+  - make test-unit
+  - cd code && pytest -q apps/core/tests -k "litellm or providers"
+
+outputs:
+  - code/apps/core/providers/litellm_provider.py
+  - code/apps/core/tests/test_litellm_provider_isolation.py
+
+gh:
+  sync_mode: "issue-dryrun"
+  title_pattern: '^{id} \[{area}\] {slug}$'
+  labels: ["chat","area:dx"]
+  issue_body_source: "SUMMARY.md"
+
+ci_gates:
+  - meta-schema
+  - pr-title
+
+notes: |
+  Ensure order-independence of tests (OpenAI and Ollama back-to-back). No global mutable state in provider; kwargs-only override.

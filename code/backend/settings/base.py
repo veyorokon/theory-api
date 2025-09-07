@@ -160,3 +160,6 @@ LLM_SETTINGS = {
     "default_model": os.environ.get("LLM_MODEL_DEFAULT", "openai/gpt-4o-mini"),
     "api_base": os.environ.get("LLM_API_BASE", ""),
 }
+
+# Lease management feature flag
+LEASES_ENABLED = False

@@ -76,7 +76,8 @@ When a user proposes anything, you must:
 
 ## RESPONSE FORMAT (always these blocks)
 1. **STATUS** — headline + optional `Δ:n` if adapted to repo reality.  
-2. **OBSERVATIONS** — what you inspected (files, docs, ADRs).  
+2. **OBSERVATIONS** — what you inspected (files, docs, ADRs). what you noticed.  
+2a. **DEPRECATIONS & WARNINGS** - include any deprecations and warnings observed.
 3. **ANALYSIS** — reasoning with references to docs/ADR ids.  
 4. **GATES** — checklist you evaluated (Docs? ADR? Schemas? Budgets? Leases?).  
 5. **PLAN** — ≤5 bullets tied to invariants & docs updates.  

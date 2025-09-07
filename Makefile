@@ -20,22 +20,28 @@ makemigrations:
 
 # --- Tests ---
 test-unit:
-	cd code && DJANGO_SETTINGS_MODULE=backend.settings.development pytest -q -m unit
+	DJANGO_SETTINGS_MODULE=backend.settings.unittest \
+	pytest -q -m "unit and not integration and not requires_postgres"
 
 test-acceptance:
 	$(MAKE) compose-up
 	$(MAKE) wait-db
-	$(MAKE) migrate
-	cd code && pytest -q -k ledger_acceptance
+	DJANGO_SETTINGS_MODULE=backend.settings.test \
+	cd code && python manage.py migrate --noinput
+	DJANGO_SETTINGS_MODULE=backend.settings.test \
+	pytest -q -m "ledger_acceptance or requires_postgres"
 
 test-property:
 	$(MAKE) compose-up
 	$(MAKE) wait-db
-	$(MAKE) migrate
-	cd code && pytest -q tests/property
+	DJANGO_SETTINGS_MODULE=backend.settings.test \
+	cd code && python manage.py migrate --noinput
+	DJANGO_SETTINGS_MODULE=backend.settings.test \
+	pytest -q tests/property
 
 test-all:
-	cd code && pytest -q
+	DJANGO_SETTINGS_MODULE=backend.settings.unittest \
+	pytest -q
 
 # --- Docs as contracts ---
 docs-export:
