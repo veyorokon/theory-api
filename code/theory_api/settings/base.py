@@ -44,6 +44,10 @@ AUTH_USER_MODEL = 'core.User'
 LOCAL_APPS = [
     'apps.core',
     'apps.storage',
+    'apps.plans',
+    'apps.runtime',
+    'apps.ledger',
+    'apps.artifacts',
 ]
 THIRD_PARTY_APPS = [
     "rest_framework",
