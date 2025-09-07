@@ -56,14 +56,28 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     
-    - name: Run Django tests
+    - name: Unit tests (SQLite)
+      env:
+        DJANGO_SETTINGS_MODULE: backend.settings.unittest
+      run: |
+        pytest -q -m "unit and not integration and not requires_postgres"
+    
+    - name: Migrate database
       env:
         DATABASE_URL: postgres://postgres:postgres@localhost:5432/theory_test
         REDIS_URL: redis://localhost:6379/0
+        DJANGO_SETTINGS_MODULE: backend.settings.test
       run: |
-        cd code
-        python manage.py test apps.core apps.storage
-        python manage.py makemigrations --check
+        cd code && python manage.py migrate --noinput
+        cd code && python manage.py makemigrations --check
+    
+    - name: Acceptance tests (Postgres)
+      env:
+        DATABASE_URL: postgres://postgres:postgres@localhost:5432/theory_test
+        REDIS_URL: redis://localhost:6379/0
+        DJANGO_SETTINGS_MODULE: backend.settings.test
+      run: |
+        pytest -q -m "ledger_acceptance or requires_postgres"
     
     - name: Install docs dependencies
       run: pip install -r docs/requirements.txt
