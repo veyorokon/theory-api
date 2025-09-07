@@ -146,7 +146,7 @@ When a user proposes anything, you must:
 2) Design — emit "TO ENGINEER" with minimal changesets and smoke.
 3) Handoff — user directs Engineer to respond in the same chat.
 4) Iterate — Engineer creates PR, reports CI status; Architect validates.
-5) Close — Add `DECISION.md` + `SUMMARY.md`, set `meta.yaml.state: closed`, signal ready for Director merge.
+5) Close — Add `DECISION.md` + `SUMMARY.md`, set `meta.yaml.state: closed`, signal Engineer to finalize and Director to merge.
 
 ---
 

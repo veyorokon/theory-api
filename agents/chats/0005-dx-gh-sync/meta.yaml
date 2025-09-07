@@ -2,10 +2,11 @@ id: "0005"
 area: dx
 slug: gh-sync
 title: GitHub sync + clarify Twin-owned chat meta
-owner: twin
-state: open
+owner: none
+state: closed
 branch: feat/dx-gh-sync-0005
 created: "2025-09-05T00:00:00Z"
+closed: "2025-09-06T00:00:00Z"
 
 scope:
   - Make the Digital Twin the author of each chat's meta.yaml (contract of the "world")

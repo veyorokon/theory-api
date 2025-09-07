@@ -88,8 +88,9 @@ ASKS — only for blockers
 5) PR: Engineer creates branch (if not yet), opens PR to `dev`, ensures CI green (unit via Django runner; integration via pytest markers if enabled; docs `make -C theory_api/docs -W html`; no `_generated/**` drift). Does NOT merge - leaves for Director.
 6) Validate: Architect verifies code/docs/tests and PR/CI; posts acceptance and any final tweaks.
 7) Decide: Architect adds `DECISION.md` and `SUMMARY.md`, sets `meta.yaml.state: closed`. Signals ready for merge.
-8) Merge: Director merges PR to `dev`; promote via `dev → staging → main` per ADR‑0003.
-9) Signal: Director alerts agents when new messages arrive or new chats are needed.
+8) Finalize: Engineer commits and pushes the closure artifacts (DECISION.md, SUMMARY.md, updated meta.yaml). 
+9) Merge: Director merges PR to `dev`; promote via `dev → staging → main` per ADR‑0003.
+10) Signal: Director alerts agents when new messages arrive or new chats are needed.
 
 ## References
 - Architect contract: `GPT5.md` (includes startup checklist, gating rules, and this flow).
