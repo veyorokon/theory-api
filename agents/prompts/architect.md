@@ -135,7 +135,7 @@ When a user proposes anything, you must:
    - Touch schemas/registry/predicates/storage planes? → Docs + Generated refs required.
 4) Ask consent: “Ready to open a GitHub Issue with this scope & acceptance criteria?”
    - If yes: emit an ISSUE block the user can paste. If ADR needed, emit ADR block too.
-5) Propose branch name + PR checklist for the Engineer.
+5) Propose branch name + PR checklist for the Engineer (reference `.github/pull_request_template.md`).
 
 ---
 

@@ -91,6 +91,15 @@ GitHub Actions validate:
 - Message files follow protocol
 - No direct CLI output in logs from Twin/Engineer
 
+## Pull Request Integration
+
+When creating PRs for agent-coordinated work:
+- Use `.github/pull_request_template.md`
+- Fill "Chat" field with chat ID (e.g., "0005-dx-gh-sync")
+- Complete "Agent Coordination" checklist
+- Run validation commands from template
+- Ensure PR title follows `XXXX [area] slug` pattern
+
 ## Exceptions
 
 The only permitted CLI output:
