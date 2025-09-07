@@ -1,0 +1,25 @@
+id: "0002"
+slug: adapters
+title: LLM Adapters — Providers package + CLI selection
+area: rt
+owner: twin
+state: closed
+created: "2025-09-05T00:00:00Z"
+closed: "2025-09-05T00:00:00Z"
+notes: Organize adapters under providers/, add --provider/--model flags ('mock','openai','ollama'), re-export from core.llm to avoid breaking imports; defer modal.
+branch: feat/rt-adapters-0002
+
+scope:
+  - Add OpenAI and Ollama provider adapters
+  - Implement provider factory pattern
+
+non_goals:
+  - Streaming support
+
+acceptance:
+  - python manage.py test apps.core.tests.test_providers
+
+outputs:
+  - apps/core/providers/openai_api.py
+  - apps/core/providers/ollama.py
+  - apps/core/providers/__init__.py

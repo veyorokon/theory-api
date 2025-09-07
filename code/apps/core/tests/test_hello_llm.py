@@ -124,7 +124,7 @@ class TestHelloLLMCommand(TestCase):
     def test_command_json_output(self):
         """Command should output JSON when --json flag is used."""
         out = StringIO()
-        call_command('hello_llm', prompt='test', json=True, stdout=out)
+        call_command('hello_llm', prompt='test', json=True, provider='mock', model='mock', stdout=out)
         output = out.getvalue()
         
         # Should be valid JSON
@@ -135,12 +135,12 @@ class TestHelloLLMCommand(TestCase):
         self.assertIn("usage", data)
         self.assertIn("test", data["text"])
         self.assertEqual(data["provider"], "mock")
-        self.assertEqual(data["model"], "mock")  # Uses default model for mock provider
+        self.assertEqual(data["model"], "mock")  # Uses explicitly specified model
     
     def test_command_json_structure(self):
         """Command JSON output should have expected structure."""
         out = StringIO()
-        call_command('hello_llm', prompt='hello', json=True, stdout=out)
+        call_command('hello_llm', prompt='hello', json=True, provider='mock', model='mock', stdout=out)
         output = out.getvalue()
         
         data = json.loads(output)

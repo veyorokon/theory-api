@@ -25,17 +25,11 @@ This separation allows:
 - **Models**: `mock` (deterministic responses)
 - **Cost**: Free
 
-### OpenAI Provider  
-- **Purpose**: Cloud-based inference via OpenAI API
-- **Dependencies**: `OPENAI_API_KEY` environment variable
-- **Models**: `gpt-4o-mini`, `gpt-4`, `gpt-3.5-turbo`, etc.
-- **Cost**: Metered per token (tracked in `usd_micros`)
-
-### Ollama Provider
-- **Purpose**: Local inference with open models
-- **Dependencies**: Ollama daemon + pulled models
-- **Models**: `qwen2.5:0.5b`, `llama3:8b`, `mistral:7b`, etc.
-- **Cost**: Free (local compute)
+### LiteLLM Provider
+- **Purpose**: Unified substrate that talks to many backends (OpenAI, Ollama, Anthropic, etc.)
+- **Dependencies**: Provider-specific envs (e.g., `OPENAI_API_KEY` for OpenAI) or `--api-base` for local gateways
+- **Models**: Use vendor‑qualified strings (e.g., `openai/gpt-4o-mini`, `ollama/qwen2.5:0.5b`)
+- **Cost**: Metered for cloud; local compute for Ollama
 
 ## Usage Patterns
 
@@ -43,12 +37,10 @@ This separation allows:
 ```bash
 # Provider + default model
 python manage.py hello_llm --provider mock
-python manage.py hello_llm --provider openai  
-python manage.py hello_llm --provider ollama
+python manage.py hello_llm --provider litellm --model openai/gpt-4o-mini
 
-# Provider + specific model
-python manage.py hello_llm --provider openai --model gpt-4
-python manage.py hello_llm --provider ollama --model llama3:8b
+# Specific local gateway (Ollama)
+python manage.py hello_llm --provider litellm --model ollama/qwen2.5:0.5b --api-base http://127.0.0.1:11434
 ```
 
 ### Programmatic Usage
@@ -56,13 +48,8 @@ python manage.py hello_llm --provider ollama --model llama3:8b
 from apps.core.providers import get_llm_provider
 
 # Factory pattern
-llm = get_llm_provider('openai')
-reply = llm.chat("Hello", model="gpt-4o-mini")
-
-# Direct instantiation
-from apps.core.providers.openai_api import OpenAIProvider
-llm = OpenAIProvider(api_key="your-key")
-reply = llm.chat("Hello", model="gpt-4")
+llm = get_llm_provider('litellm', model_default='openai/gpt-4o-mini')
+reply = llm.chat("Hello")
 ```
 
 ## Configuration
@@ -72,18 +59,17 @@ reply = llm.chat("Hello", model="gpt-4")
 | Provider | Variable | Default | Required |
 |----------|----------|---------|----------|
 | Mock | — | — | No |
-| OpenAI | `OPENAI_API_KEY` | — | Yes |
-| Ollama | `OLLAMA_HOST` | `http://localhost:11434` | No |
+| LiteLLM (OpenAI) | `OPENAI_API_KEY` | — | Yes |
+| LiteLLM (Ollama) | `LLM_API_BASE` | `http://localhost:11434` | No |
 
 ### Model Defaults
 
-Each provider defines sensible defaults:
+Sensible defaults:
 
 ```python
 default_models = {
     'mock': 'mock',
-    'openai': 'gpt-4o-mini',  # Cost-effective
-    'ollama': 'qwen2.5:0.5b'  # Lightweight
+    'litellm': 'openai/gpt-4o-mini',  # cost-effective default
 }
 ```
 
@@ -117,23 +103,26 @@ The `usage` dict includes consistent keys:
 
 ### Provider Unavailable
 ```python
-# Missing dependency or configuration
-get_llm_provider('openai')  # No OPENAI_API_KEY
-# → ValueError: Provider 'openai' is unavailable
+# Missing dependency or configuration (OpenAI)
+llm = get_llm_provider('litellm', model_default='openai/gpt-4o-mini')
+llm.chat("hi")  # No OPENAI_API_KEY
+# → RuntimeError: OPENAI_API_KEY missing or OpenAI unreachable.
 ```
 
 ### Model Not Found
 ```python  
 # Ollama model not pulled
-llm.chat("Hello", model="missing-model")
-# → ValueError: Model 'missing-model' not found. Pull it with: ollama pull missing-model
+llm = get_llm_provider('litellm', model_default='ollama/qwen2.5:0.5b', api_base='http://127.0.0.1:11434')
+llm.chat("Hello")
+# → RuntimeError: Ollama unreachable. Ensure ollama serve is running and model is pulled (e.g., 'ollama pull qwen3:0.6b').
 ```
 
 ### Network Issues
 ```python
 # API unreachable
+llm = get_llm_provider('litellm', model_default='openai/gpt-4o-mini')
 llm.chat("Hello")
-# → requests.RequestException: OpenAI API unavailable
+# → RuntimeError: OPENAI_API_KEY missing or OpenAI unreachable.
 ```
 
 ## Extension Points
@@ -162,14 +151,8 @@ llm.chat("Hello")
 
 ### Streaming Support
 
-Future extension via `LLMStreamProvider` protocol:
-
-```python
-class StreamingProvider(LLMProvider):
-    def stream_chat(self, prompt: str, *, model: str | None = None) -> Iterable[str]:
-        # Yield incremental response chunks
-        pass
-```
+Providers may implement streaming via `stream_chat(prompt, *, model=None) -> Iterable[str]`.
+LiteLLM supports streaming; MockLLM yields deterministic chunks for demos and tests.
 
 ## Related Documentation
 

@@ -13,5 +13,5 @@ def _ollama_alive():
 @pytest.mark.skipif(not _ollama_alive(), reason="Ollama daemon not running")
 def test_ollama_cli(capsys):
     from django.core.management import call_command
-    call_command("hello_llm", provider="ollama", model="qwen3:0.6b", prompt="ping", json=True)
-    assert "qwen3:0.6b" in capsys.readouterr().out
+    call_command("hello_llm", provider="litellm", model="ollama/qwen3:0.6b", api_base=OLLAMA, prompt="ping", json=True)
+    assert "ollama/qwen3:0.6b" in capsys.readouterr().out

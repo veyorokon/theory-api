@@ -1,0 +1,25 @@
+id: "0001"
+slug: hello-world
+title: LLM Hello World — Minimal Processor Demo
+area: rt
+owner: twin
+state: closed
+created: "2025-09-05T00:00:00Z"
+closed: "2025-09-05T00:00:00Z"
+notes: Synthesized from user feedback — return LLMReply, add --json CLI, assert logs with caplog, keep deterministic and infra-free.
+branch: feat/rt-hello-world-0001
+
+scope:
+  - Implement hello_llm management command
+  - Add MockLLM provider for testing
+
+non_goals:
+  - Production LLM integration
+
+acceptance:
+  - python manage.py hello_llm --provider mock
+  - python manage.py test apps.core
+
+outputs:
+  - apps/core/management/commands/hello_llm.py
+  - apps/core/providers/mock.py

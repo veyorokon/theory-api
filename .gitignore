@@ -181,3 +181,8 @@ $RECYCLE.BIN/
 # Linux
 .directory
 .Trash-*
+
+# Agents: raw turns and local dumps (keep canonical files only)
+/agents/chats/*/turns/**
+*.harvest.json
+*.jsonl
