@@ -10,8 +10,7 @@ jobs:
           python-version: '3.11'
       - run: pip install pyyaml jsonschema
       - name: Validate meta files
-        run: python theory_api/agents/validate_chat_meta.py $(find theory_api/agents/chats -maxdepth 2 -name meta.yaml)
-        working-directory: .
+        run: python agents/validate_chat_meta.py $(find agents/chats -maxdepth 2 -name meta.yaml)
       - name: Check PR title pattern
         env:
           TITLE: ${{ github.event.pull_request.title }}
@@ -19,5 +18,4 @@ jobs:
           echo "$TITLE" | grep -Eq '^[0-9]{4} \[[a-z]{2}\] [a-z0-9-]+$' || (echo "PR title must match: 0005 [dx] gh-sync" && exit 1)
       - name: (Dry-run) list chats requesting issue sync
         run: |
-          grep -R --line-number "sync_mode: issue-dryrun" theory_api/agents/chats || true
-        working-directory: .
+          grep -R --line-number "sync_mode: issue-dryrun" agents/chats || true
