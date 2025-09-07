@@ -18,7 +18,7 @@ jobs:
       postgres:
         image: postgres:15
         env:
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_PASSWORD: postgres_password
           POSTGRES_DB: theory_test
         options: >-
           --health-cmd pg_isready
@@ -64,7 +64,7 @@ jobs:
     
     - name: Migrate database
       env:
-        DATABASE_URL: postgres://postgres:postgres@localhost:5432/theory_test
+        DATABASE_URL: postgres://postgres:postgres_password@localhost:5432/theory_test
         REDIS_URL: redis://localhost:6379/0
         DJANGO_SETTINGS_MODULE: backend.settings.test
       run: |
@@ -73,7 +73,7 @@ jobs:
     
     - name: Acceptance tests (Postgres)
       env:
-        DATABASE_URL: postgres://postgres:postgres@localhost:5432/theory_test
+        DATABASE_URL: postgres://postgres:postgres_password@localhost:5432/theory_test
         REDIS_URL: redis://localhost:6379/0
         DJANGO_SETTINGS_MODULE: backend.settings.test
       run: |
