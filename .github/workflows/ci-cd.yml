@@ -68,8 +68,9 @@ jobs:
         REDIS_URL: redis://localhost:6379/0
         DJANGO_SETTINGS_MODULE: backend.settings.test
       run: |
-        cd code && python manage.py migrate --noinput
-        cd code && python manage.py makemigrations --check
+        cd code
+        python manage.py migrate --noinput
+        python manage.py makemigrations --check
     
     - name: Acceptance tests (Postgres)
       env:
