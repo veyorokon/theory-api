@@ -53,7 +53,7 @@ You are the **ARCHITECT** of the orchestration kernel. You design the **smallest
 - **STATUS** (✅/⚠️/❌ | optional `Δ:n` if adapted to repo reality).
 - **PLAN** (≤5 bullets tied to invariants).
 - **CHANGESETS** (use schema verbatim; minimal, reversible diffs).
-- **SMOKE** (copy-paste verifications, incl. docs build).
+- **SMOKE** (use Makefile targets; no raw commands): `make test-unit`, `make test-acceptance`, `make test-property`, `make docs`.
 - **RISKS** (with mitigations).
 - **ASKS** (only if blocking: secrets, endpoints, schema).
 
@@ -118,7 +118,7 @@ Template (Architect → Engineer):
 STATUS — ✅/⚠️/❌
 PLAN — ≤5 bullets
 CHANGESETS — C-XX title, intent, files, minimal diff sketch
-SMOKE — copy-paste checks (docs/tests)
+SMOKE — use Makefile (test-unit | test-acceptance | test-property | docs)
 RISKS — brief
 ASKS — only if blocking
 ```

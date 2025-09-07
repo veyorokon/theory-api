@@ -52,7 +52,7 @@ CHANGESETS
 # Intent / Files / minimal diff sketch (if any)
 
 SMOKE
-- Copy-paste checks (tests/docs) as applicable
+- Use Makefile targets: make test-unit, make test-acceptance, make test-property, make docs
 
 RISKS
 - Brief
@@ -70,7 +70,7 @@ GATES — docs/ADR/safety checks
 PLAN — ≤5 bullets tied to invariants & docs updates
 CHANGESETS — minimal diffs (schema in CLAUDE.md)
 DOCS — pages to update + _generated/** to refresh
-SMOKE — commands to verify (tests/sphinx/linters)
+SMOKE — Makefile commands (make test-unit/test-acceptance/test-property/docs)
 RISKS — with mitigations
 ASKS — only for blockers
 ```
@@ -80,17 +80,50 @@ ASKS — only for blockers
 - Latest turn: `ls -1 theory_api/agents/chats/<id>-<area>-<slug> | tail -n1`
 - Read a turn: `sed -n '1,200p' theory_api/agents/chats/<id>-<area>-<slug>/00X-*.md`
 
+## Testing Conventions
+- Use Makefile targets as the canonical gates (CI and pre-PR): `make test-unit`, `make test-acceptance`, `make test-property`, `make docs`.
+- Direct `pytest ...` is fine for inner-loop iteration, but must be validated via Make targets before you report SMOKE or open a PR.
+
 ## Workflow
-1) Propose: Architect opens chat with `001-to-engineer.md` (TO ENGINEER) — smallest correct change.
-2) Refine: Director reviews; Meta‑Architect suggests micro‑refinements (new `*-to-architect.md`).
-3) Update: Architect integrates refinements; posts updated spec (next `*-to-engineer.md`).
-4) Implement: Engineer replies (`*-to-architect.md`) with STATUS/OBS/ANALYSIS/GATES/PLAN/CHANGESETS/SMOKE/RISKS/ASKS and lands changes.
-5) PR: Engineer creates branch (if not yet), opens PR to `dev`, ensures CI green (unit via Django runner; integration via pytest markers if enabled; docs `make -C theory_api/docs -W html`; no `_generated/**` drift). Does NOT merge - leaves for Director.
-6) Validate: Architect verifies code/docs/tests and PR/CI; posts acceptance and any final tweaks.
-7) Decide: Architect adds `DECISION.md` and `SUMMARY.md`, sets `meta.yaml.state: closed`. Signals ready for merge.
-8) Finalize: Engineer commits and pushes the closure artifacts (DECISION.md, SUMMARY.md, updated meta.yaml). 
-9) Merge: Director merges PR to `dev`; promote via `dev → staging → main` per ADR‑0003.
-10) Signal: Director alerts agents when new messages arrive or new chats are needed.
+
+```mermaid
+sequenceDiagram
+    participant A as Architect  
+    participant E as Engineer
+    participant D as Director
+    participant G as Git
+    
+    A->>E: 001-to-engineer.md (spec)
+    E->>E: Implement changes
+    E->>G: git add (stage only)
+    E->>A: 00X-to-architect.md (implementation)
+    A->>E: Review & approve/request changes
+    
+    alt Approved
+        E->>G: git commit & push
+        E->>D: Create PR (no merge)
+        A->>A: Add DECISION.md + SUMMARY.md
+        A->>A: Set meta.yaml.state: closed
+        E->>G: git commit closure artifacts
+        D->>G: Merge PR to dev
+    else Changes needed
+        A->>E: 00X-to-engineer.md (changes)
+        E->>E: Iterate on staged changes
+        E->>A: Updated response
+    end
+```
+
+**Critical Git Timing:**
+1) **Propose**: Architect opens chat with `001-to-engineer.md` (TO ENGINEER) — smallest correct change.
+2) **Refine**: Director reviews; Meta‑Architect suggests micro‑refinements (new `*-to-architect.md`).
+3) **Update**: Architect integrates refinements; posts updated spec (next `*-to-engineer.md`).
+4) **Implement**: Engineer implements and stages (`git add`) but **does NOT commit**. Replies with STATUS/OBS/ANALYSIS/GATES/PLAN/CHANGESETS/SMOKE/RISKS/ASKS.
+5) **Validate**: Architect verifies staged changes and posts acceptance or requests modifications.
+6) **Commit**: Only after architect approval, Engineer commits and pushes to feature branch.
+7) **PR**: Engineer creates PR to `dev`, ensures CI green. Does NOT merge - leaves for Director.
+8) **Decide**: Architect adds `DECISION.md` and `SUMMARY.md`, sets `meta.yaml.state: closed`. Signals ready for merge.
+9) **Finalize**: Engineer commits and pushes the closure artifacts (DECISION.md, SUMMARY.md, updated meta.yaml).
+10) **Merge**: Director merges PR to `dev`; promote via `dev → staging → main` per ADR‑0003.
 
 ## References
 - Architect contract: `GPT5.md` (includes startup checklist, gating rules, and this flow).

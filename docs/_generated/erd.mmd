@@ -18,3 +18,50 @@ boolean is_profile_complete
 datetime created_at
 datetime updated_at
     }
+    Plan {
+string id PK
+string key UK
+bigint reserved_micro
+bigint spent_micro
+    }
+    Transition {
+string id PK
+fk plan
+string key
+string status
+    }
+    Transition ||--|{ Plan : plan
+    Execution {
+string id PK
+fk transition
+string attempt_idx
+    }
+    Execution ||--|{ Transition : transition
+    Event {
+string id PK
+fk plan
+string seq
+string prev_hash NULL
+string this_hash
+json payload
+datetime created_at
+    }
+    Event ||--|{ Plan : plan
+    Artifact {
+string id PK
+fk plan
+string uri
+string content_hash
+string content_type
+bigint size_bytes
+datetime created_at
+    }
+    Artifact ||--|{ Plan : plan
+    ArtifactSeries {
+string id PK
+fk plan
+string series_key
+string total_chunks NULL
+datetime created_at
+    }
+    ArtifactSeries ||--|{ Plan : plan

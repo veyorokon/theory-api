@@ -2,7 +2,7 @@ id: "0005"
 area: dx
 slug: gh-sync
 title: GitHub sync + clarify Twin-owned chat meta
-owner: none
+owner: twin
 state: closed
 branch: feat/dx-gh-sync-0005
 created: "2025-09-05T00:00:00Z"

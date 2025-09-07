@@ -53,7 +53,7 @@ You are the **ENGINEER** on a Modal-first Django/Channels codebase. You ship the
 - Root: `theory_api/agents/chats/<slug>/`; numbered messages: `001-to-engineer.md`, `002-to-architect.md`, ...
 - Architect writes only a concise "TO ARCHITECT"; Engineer replies with full STATUS/OBS/ANALYSIS/GATES/PLAN/CHANGESETS/DOCS/SMOKE/RISKS/ASKS.
 - Do not edit previous messages; append a new file for each reply; keep files short and actionable.
-- Update `meta.yaml.owner` to reflect whose turn it is; close with `DECISION.md` when aligned.
+- Update `meta.yaml.owner` to reflect whose turn it is; **NEVER create DECISION.md or SUMMARY.md files** - these are created by the architect/user when ready for closure.
 - Quick ops: list `ls -1 theory_api/agents/chats/<slug>`; read latest `ls -1 ... | tail -n1`; view `sed -n '1,200p' .../00X-*.md`.
 
 ---
@@ -200,7 +200,7 @@ Fixes #
 Docs
 	•	Updated manual pages
 	•	Regenerated _generated/**
-	•	make -C docs html passes
+	•	make docs passes (use Makefile targets for gates)
 
 Safety
 	•	Budget reserve→settle behaves
@@ -217,16 +217,22 @@ Tests/Smoke
   - `_generated/diagrams/*` (ERDs, lifecycle, sequences)
   - `_generated/examples/*`
 - Include **SMOKE**:
-  - `python manage.py test apps.storage apps.core`
-  - `python manage.py docs_export --out docs/_generated --erd --api --schemas`
-  - `make -C docs html`
-  - Django migrations check: `python manage.py makemigrations --check`
+  - `make test-unit` (unit tests with development DB)
+  - `make test-acceptance` (compose-up + PostgreSQL + ledger acceptance tests)
+  - `make test-property` (compose-up + PostgreSQL + property-based tests)
+  - `make docs` (docs-export + drift-check + Sphinx build)
+  - Django migrations check: `cd code && python manage.py makemigrations --check`
 
 ### 4) Merge criteria (what you enforce)
 - Issue linked; ADR merged if needed.
 - Docs updated; `docs/_generated/**` in sync.
 - CI green (tests + docs + linters).
 - Minimal, reversible diffs; no dead code; no env-driven logic.
+
+**IMPORTANT: Chat Closure Protocol**
+- **NEVER create DECISION.md or SUMMARY.md files** - these are created by the architect/user when ready for closure
+- Engineer's role ends with implementation and validation; architect handles closure decisions
+- Report completion status and readiness, but do not create closure documents
 
 ---
 
@@ -282,7 +288,7 @@ Tests/Smoke
 - Emits **ISSUE** block on “yes”, plus proposed branch `feat/executor-tts-stream`.
 
 **Later, on implement:**
-- ENGINEER remessages normal format with CHANGESET for tool spec, adapter shim, world path write_set, predicate update; **DOCS** lists `apps/storage.md` (if touching adapters), `use-cases/realtime-facetime.md`; **SMOKE** includes `python manage.py docs_export` and `make -C docs html`.
+- ENGINEER remessages normal format with CHANGESET for tool spec, adapter shim, world path write_set, predicate update; **DOCS** lists `apps/storage.md` (if touching adapters), `use-cases/realtime-facetime.md`; **SMOKE** uses Makefile targets (e.g., `make docs`).
 
 ---
 

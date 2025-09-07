@@ -96,5 +96,209 @@
       "email",
       "is_profile_complete"
     ]
+  },
+  "plans.Plan": {
+    "type": "object",
+    "title": "Plan",
+    "description": "Plan(id, key, reserved_micro, spent_micro)",
+    "properties": {
+      "id": {
+        "type": "string",
+        "description": "ID"
+      },
+      "key": {
+        "type": "string",
+        "description": "key",
+        "maxLength": 128
+      },
+      "reserved_micro": {
+        "type": "integer",
+        "description": "reserved micro"
+      },
+      "spent_micro": {
+        "type": "integer",
+        "description": "spent micro"
+      }
+    },
+    "required": [
+      "key",
+      "reserved_micro",
+      "spent_micro"
+    ]
+  },
+  "runtime.Transition": {
+    "type": "object",
+    "title": "Transition",
+    "description": "Transition(id, plan, key, status)",
+    "properties": {
+      "id": {
+        "type": "string",
+        "description": "ID"
+      },
+      "plan": {
+        "type": "string",
+        "description": "plan"
+      },
+      "key": {
+        "type": "string",
+        "description": "key",
+        "maxLength": 128
+      },
+      "status": {
+        "type": "string",
+        "description": "status",
+        "maxLength": 16
+      }
+    },
+    "required": [
+      "plan",
+      "key",
+      "status"
+    ]
+  },
+  "runtime.Execution": {
+    "type": "object",
+    "title": "Execution",
+    "description": "Execution(id, transition, attempt_idx)",
+    "properties": {
+      "id": {
+        "type": "string",
+        "description": "ID"
+      },
+      "transition": {
+        "type": "string",
+        "description": "transition"
+      },
+      "attempt_idx": {
+        "type": "string",
+        "description": "attempt idx"
+      }
+    },
+    "required": [
+      "transition",
+      "attempt_idx"
+    ]
+  },
+  "ledger.Event": {
+    "type": "object",
+    "title": "Event",
+    "description": "Event(id, plan, seq, prev_hash, this_hash, payload, created_at)",
+    "properties": {
+      "id": {
+        "type": "string",
+        "description": "ID"
+      },
+      "plan": {
+        "type": "string",
+        "description": "plan"
+      },
+      "seq": {
+        "type": "string",
+        "description": "seq"
+      },
+      "prev_hash": {
+        "type": "string",
+        "description": "prev hash",
+        "maxLength": 128
+      },
+      "this_hash": {
+        "type": "string",
+        "description": "this hash",
+        "maxLength": 128
+      },
+      "payload": {
+        "type": "object",
+        "description": "payload"
+      },
+      "created_at": {
+        "type": "string",
+        "description": "created at",
+        "format": "date-time"
+      }
+    },
+    "required": [
+      "plan",
+      "seq",
+      "this_hash",
+      "payload"
+    ]
+  },
+  "artifacts.Artifact": {
+    "type": "object",
+    "title": "Artifact",
+    "description": "Artifact(id, plan, uri, content_hash, content_type, size_bytes, created_at)",
+    "properties": {
+      "id": {
+        "type": "string",
+        "description": "ID"
+      },
+      "plan": {
+        "type": "string",
+        "description": "plan"
+      },
+      "uri": {
+        "type": "string",
+        "description": "uri",
+        "maxLength": 512
+      },
+      "content_hash": {
+        "type": "string",
+        "description": "content hash",
+        "maxLength": 128
+      },
+      "content_type": {
+        "type": "string",
+        "description": "content type",
+        "maxLength": 128
+      },
+      "size_bytes": {
+        "type": "integer",
+        "description": "size bytes"
+      },
+      "created_at": {
+        "type": "string",
+        "description": "created at",
+        "format": "date-time"
+      }
+    },
+    "required": [
+      "plan",
+      "uri",
+      "content_hash",
+      "size_bytes"
+    ]
+  },
+  "artifacts.ArtifactSeries": {
+    "type": "object",
+    "title": "ArtifactSeries",
+    "description": "Series of related artifacts (e.g., streaming data, chunked files).",
+    "properties": {
+      "id": {
+        "type": "string",
+        "description": "ID"
+      },
+      "plan": {
+        "type": "string",
+        "description": "plan"
+      },
+      "series_key": {
+        "type": "string",
+        "description": "series key",
+        "maxLength": 256
+      },
+      "total_chunks": {
+        "type": "string",
+        "description": "total chunks"
+      },
+      "created_at": {
+        "type": "string",
+        "description": "created at",
+        "format": "date-time"
+      }
+    },
+    "required": [
+      "plan",
+      "series_key"
+    ]
   }
 }

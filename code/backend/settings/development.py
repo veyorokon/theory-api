@@ -27,7 +27,7 @@ ALLOWED_HOSTS = ["*"]
 
 # Graphene settings
 GRAPHENE = {
-    'SCHEMA': 'theory_api.schema.schema',
+    'SCHEMA': 'backend.schema.schema',
     'MIDDLEWARE': [
         'graphene_django.debug.DjangoDebugMiddleware',
     ],

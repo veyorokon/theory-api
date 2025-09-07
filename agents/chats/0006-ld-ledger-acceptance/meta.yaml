@@ -1,0 +1,44 @@
+id: "0006"
+area: ld
+slug: ledger-acceptance
+title: Prove ledger invariants (reserve→settle, seq, hash)
+owner: engineer
+state: closed
+branch: feat/ld-ledger-acceptance-0006
+created: "2025-09-06T00:00:00Z"
+
+scope:
+  - Step A — scaffold apps plans/runtime/ledger/artifacts with minimal models and constraints
+  - Step A — add ledger.services.LedgerWriter skeleton and utils.event_hash() (BLAKE3 over JCS bytes)
+  - Step B — add acceptance tests for reserve→settle, per-plan seq monotonicity, hash-chain continuity
+  - Step B — add property test (budget never negative); add hashing spec doc with 1 worked example
+  - Step B — add blake3 as dev/test dependency and wire CI commands
+
+non_goals:
+  - No scheduler/lease work in this chat
+  - Tenancy deferred to 0011-dc-tenancy-contract (Plan.tenant later)
+  - No runtime semantics beyond model constraints and service stubs in Step A
+
+acceptance:
+  - cd code && pytest -q -k ledger_acceptance
+  - cd code && pytest -q tests/property
+  - make -C docs -W html
+
+outputs:
+  - code/tests/acceptance/test_ledger_acceptance.py
+  - code/tests/property/test_budget_never_negative.py
+  - docs/source/concepts/ledger-events.md (Event Bytes & Hashing section)
+  - (optional) migration adding UNIQUE(plan_id, seq) and budget checks
+
+gh:
+  sync_mode: "issue-dryrun"
+  title_pattern: "^{id} \\[{area}\\] {slug}$"
+  labels: ["chat","area:ld"]
+  issue_body_source: "SUMMARY.md"
+
+ci_gates:
+  - meta-schema
+  - pr-title
+
+notes: |
+  Two-step plan: Step A scaffolds apps and constraints with LedgerWriter stub and event_hash util; Step B lands tests and docs. Chat message files are local-only (not committed). Docs CI enforces _generated/** drift. Hash spec to exclude ts for MVP unless otherwise agreed.

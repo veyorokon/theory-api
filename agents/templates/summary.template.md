@@ -3,6 +3,12 @@
 ## Scope
 What this chat accomplished in 1-2 sentences.
 
+## Conversation
+Key turns only (3–8 bullets) with seq, role, purpose:
+- 001-to-engineer: Short intent
+- 002-to-architect: Short intent
+- 00X-to-<role>: Short intent
+
 ## Key Changes
 - Change 1: Brief description
 - Change 2: Brief description

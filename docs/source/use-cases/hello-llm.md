@@ -191,7 +191,7 @@ for chunk in llm.stream_chat("Tell me about Theory"):
 print()  # Final newline
 ```
 
-## Command Options
+## CLI Flags
 
 | Option | Description | Default |
 | `--prompt` | Input prompt text | `"hello world"` |
