@@ -184,5 +184,6 @@ $RECYCLE.BIN/
 
 # Agents: raw turns and local dumps (keep canonical files only)
 /agents/chats/*/turns/**
+/agents/chats/*/*-to-*.md
 *.harvest.json
 *.jsonl
