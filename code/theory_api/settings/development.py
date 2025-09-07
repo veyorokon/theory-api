@@ -58,3 +58,10 @@ CACHES = {
         }
     }
 }
+
+# LLM settings - environment-driven defaults
+LLM_SETTINGS = {
+    "default_provider": os.environ.get("LLM_PROVIDER_DEFAULT", "mock"),
+    "default_model": os.environ.get("LLM_MODEL_DEFAULT", "openai/gpt-4o-mini"),
+    "api_base": os.environ.get("LLM_API_BASE", ""),
+}

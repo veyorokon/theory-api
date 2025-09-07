@@ -46,7 +46,8 @@ LOCAL_APPS = [
     'apps.storage',
 ]
 THIRD_PARTY_APPS = [
-    "rest_framework"
+    "rest_framework",
+    "channels",
 ]
 DJANGO_APPS = [
     'django.contrib.admin',
@@ -86,6 +87,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'theory_api.wsgi.application'
+ASGI_APPLICATION = 'theory_api.asgi.application'
 
 # Password validation
 # https://docs.djangoproject.com/en/4.2/ref/settings/#auth-password-validators
@@ -137,3 +139,20 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Channels / Channel layers (Redis)
+REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+CHANNELS_REDIS_URL = os.environ.get('CHANNELS_REDIS_URL') or REDIS_URL
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {"hosts": [CHANNELS_REDIS_URL]},
+    }
+}
+
+# LLM default settings (flags override at runtime)
+LLM_SETTINGS = {
+    "default_provider": os.environ.get("LLM_PROVIDER_DEFAULT", "mock"),
+    "default_model": os.environ.get("LLM_MODEL_DEFAULT", "openai/gpt-4o-mini"),
+    "api_base": os.environ.get("LLM_API_BASE", ""),
+}
