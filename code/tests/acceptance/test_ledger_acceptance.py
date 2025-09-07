@@ -19,7 +19,7 @@ from apps.ledger.utils import event_hash
 
 
 @pytest.mark.ledger_acceptance
-class TestLedgerAcceptance(TestCase):
+class TestLedgerAcceptance(TransactionTestCase):
     """Acceptance tests for ledger invariants using Django models."""
     
     def setUp(self):
