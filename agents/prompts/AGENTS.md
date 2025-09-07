@@ -85,10 +85,11 @@ ASKS — only for blockers
 2) Refine: Director reviews; Meta‑Architect suggests micro‑refinements (new `*-to-architect.md`).
 3) Update: Architect integrates refinements; posts updated spec (next `*-to-engineer.md`).
 4) Implement: Engineer replies (`*-to-architect.md`) with STATUS/OBS/ANALYSIS/GATES/PLAN/CHANGESETS/SMOKE/RISKS/ASKS and lands changes.
-5) Merge: Engineer creates branch (if not yet), opens PR to `dev`, ensures CI green (unit via Django runner; integration via pytest markers if enabled; docs `make -C theory_api/docs -W html`; no `_generated/**` drift). After review, merge to `dev`; promote via `dev → staging → main` per ADR‑0003.
+5) PR: Engineer creates branch (if not yet), opens PR to `dev`, ensures CI green (unit via Django runner; integration via pytest markers if enabled; docs `make -C theory_api/docs -W html`; no `_generated/**` drift). Does NOT merge - leaves for Director.
 6) Validate: Architect verifies code/docs/tests and PR/CI; posts acceptance and any final tweaks.
-7) Decide: Add `DECISION.md` and set `meta.yaml.state: closed`; add a concise `SUMMARY.md` (PR‑ready changelog) for context.
-8) Signal: Director alerts agents when new messages arrive or new chats are needed.
+7) Decide: Architect adds `DECISION.md` and `SUMMARY.md`, sets `meta.yaml.state: closed`. Signals ready for merge.
+8) Merge: Director merges PR to `dev`; promote via `dev → staging → main` per ADR‑0003.
+9) Signal: Director alerts agents when new messages arrive or new chats are needed.
 
 ## References
 - Architect contract: `GPT5.md` (includes startup checklist, gating rules, and this flow).
