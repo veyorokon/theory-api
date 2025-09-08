@@ -2,7 +2,7 @@
 
 ## Predicates
 
-See [predicates.json](predicates.json) for the full predicate registry.
+The predicate registry is available as `predicates.json` in this directory.
 
 ## Tool Specifications
 

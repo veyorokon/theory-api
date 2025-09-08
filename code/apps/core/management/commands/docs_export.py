@@ -338,7 +338,7 @@ class Command(BaseCommand):
         with open(registry_index, 'w') as f:
             f.write('# Registry Documentation\n\n')
             f.write('## Predicates\n\n')
-            f.write('See [predicates.json](predicates.json) for the full predicate registry.\n\n')
+            f.write('The predicate registry is available as `predicates.json` in this directory.\n\n')
             f.write('## Tool Specifications\n\n')
             f.write('Coming soon: Auto-generated documentation for all registered tools.\n\n')
             f.write('## Schema Definitions\n\n')
