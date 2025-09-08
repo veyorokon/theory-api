@@ -1,6 +1,8 @@
 # Registry Documentation
 
-*Generated registry documentation will appear here when the registry system is implemented.*
+## Predicates
+
+See [predicates.json](predicates.json) for the full predicate registry.
 
 ## Tool Specifications
 

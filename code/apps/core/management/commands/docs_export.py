@@ -295,6 +295,32 @@ class Command(BaseCommand):
         
         return schema
 
+    def generate_predicate_registry(self, registry_dir: Path):
+        """Generate predicate registry documentation"""
+        self.stdout.write('Generating predicate registry...')
+        
+        try:
+            from apps.core.predicates import PREDICATE_REGISTRY
+            
+            # Convert registry to JSON-serializable format
+            registry_data = {}
+            for name, entry in PREDICATE_REGISTRY.items():
+                registry_data[name] = {
+                    'params': entry['params'],
+                    'returns': entry['returns'],
+                    'description': entry['description'],
+                }
+            
+            # Write predicate registry
+            registry_file = registry_dir / 'predicates.json'
+            with open(registry_file, 'w') as f:
+                json.dump(registry_data, f, indent=2)
+            
+            self.stdout.write(self.style.SUCCESS(f'Predicate registry generated: {registry_file}'))
+            
+        except ImportError as e:
+            self.stdout.write(self.style.WARNING(f'Could not import predicates: {e}'))
+
     def generate_placeholders(self, output_dir: Path):
         """Generate placeholder content for hybrid page includes"""
         self.stdout.write('Generating placeholders...')
@@ -304,11 +330,15 @@ class Command(BaseCommand):
         (output_dir / 'examples').mkdir(exist_ok=True)
         (output_dir / 'diagrams').mkdir(exist_ok=True)
         
+        # Generate predicate registry
+        self.generate_predicate_registry(output_dir / 'registry')
+        
         # Registry placeholder
         registry_index = output_dir / 'registry' / 'index.md'
         with open(registry_index, 'w') as f:
             f.write('# Registry Documentation\n\n')
-            f.write('*Generated registry documentation will appear here when the registry system is implemented.*\n\n')
+            f.write('## Predicates\n\n')
+            f.write('See [predicates.json](predicates.json) for the full predicate registry.\n\n')
             f.write('## Tool Specifications\n\n')
             f.write('Coming soon: Auto-generated documentation for all registered tools.\n\n')
             f.write('## Schema Definitions\n\n')

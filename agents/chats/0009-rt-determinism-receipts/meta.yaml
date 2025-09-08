@@ -1,0 +1,40 @@
+id: "0009"
+area: rt
+slug: determinism-receipts
+title: Determinism receipts on settle + ledger reference
+owner: engineer
+state: open
+branch: feat/rt-determinism-receipts-0009
+created: "2025-09-07T16:31:30Z"
+
+scope:
+  - On settle, write execution/<id>/determinism.json with {seed, memo_key, env_fingerprint, output_cids[]}
+  - Append ledger event referencing the receipt
+  - Unit + acceptance tests
+
+non_goals:
+  - No caching or replay yet
+  - No scheduler changes
+
+acceptance:
+  - make test-unit
+  - cd code && pytest -q -k determinism
+  - make docs
+
+outputs:
+  - code/apps/runtime/execution/receipts.py
+  - code/apps/ledger/tests/test_determinism_receipts.py
+
+gh:
+  sync_mode: "issue-dryrun"
+  title_pattern: "^{id} \[{area}\] {slug}$"
+  labels: ["chat","area:rt"]
+  issue_body_source: "SUMMARY.md"
+
+ci_gates:
+  - meta-schema
+  - pr-title
+
+notes: |
+  Keep it deterministic and isolated; write artifacts under a predictable path so docs export can include examples later.
+
