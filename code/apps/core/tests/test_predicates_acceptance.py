@@ -16,7 +16,7 @@ from apps.core.predicates import (
     artifact_exists,
     series_has_new,
     json_schema_ok,
-    tests_pass,
+    artifact_jsonpath_eq,
 )
 from apps.core.predicates.builtins import (
     canon_path_facet_root,
@@ -222,62 +222,108 @@ class TestJsonSchemaAcceptance(TransactionTestCase):
             Path(schema_path).unlink()
 
 
-class TestTestsPassAcceptance(TransactionTestCase):
-    """Acceptance tests for tests.pass predicate."""
+class TestArtifactJsonPathEqAcceptance(TransactionTestCase):
+    """Acceptance tests for artifact.jsonpath_eq predicate."""
     
-    @patch('subprocess.run')
-    def test_tests_pass_sandbox_validation(self, mock_run):
-        """Test sandbox path validation."""
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_run.return_value = mock_result
+    @patch('apps.storage.service.storage_service')
+    def test_jsonpath_eq_complex_nested_structure(self, mock_service):
+        """Test JSONPath evaluation on complex nested structures."""
+        complex_data = {
+            "metadata": {
+                "version": "2.0",
+                "tags": ["prod", "api"],
+                "config": {
+                    "endpoints": [
+                        {"name": "health", "port": 8080},
+                        {"name": "metrics", "port": 9090}
+                    ]
+                }
+            },
+            "data": [
+                {"id": 1, "status": "active"},
+                {"id": 2, "status": "pending"}
+            ]
+        }
         
-        # Valid sandbox path (facet-root under artifacts)
-        result = tests_pass('/artifacts/plan1/tests/', 1000)
-        self.assertTrue(result)
-        mock_run.assert_called_once()  # Should be called for valid path
+        mock_service.read_file.return_value = json.dumps(complex_data).encode('utf-8')
         
-        # Reset mock for invalid path tests
-        mock_run.reset_mock()
+        # Test nested object access
+        self.assertTrue(artifact_jsonpath_eq('/artifacts/config.json', '$.metadata.version', '2.0'))
         
-        # Invalid paths (outside sandbox) - these should not call subprocess
-        self.assertFalse(tests_pass('/etc/passwd', 1000))
-        self.assertFalse(tests_pass('/tmp/bad', 1000))
-        self.assertFalse(tests_pass('../../../etc', 1000))
-        self.assertFalse(tests_pass('tests/unit/', 1000))
-        self.assertFalse(tests_pass('./tests/unit/', 1000))
+        # Test array index access  
+        self.assertTrue(artifact_jsonpath_eq('/artifacts/config.json', '$.metadata.tags[0]', 'prod'))
+        self.assertTrue(artifact_jsonpath_eq('/artifacts/config.json', '$.metadata.tags[1]', 'api'))
         
-        # Mock should not have been called for invalid paths
-        mock_run.assert_not_called()
+        # Test nested array with object access
+        self.assertTrue(artifact_jsonpath_eq('/artifacts/config.json', '$.metadata.config.endpoints[0].name', 'health'))
+        self.assertTrue(artifact_jsonpath_eq('/artifacts/config.json', '$.metadata.config.endpoints[0].port', 8080))
+        
+        # Test root array access
+        self.assertTrue(artifact_jsonpath_eq('/artifacts/config.json', '$.data[0].id', 1))
+        self.assertTrue(artifact_jsonpath_eq('/artifacts/config.json', '$.data[1].status', 'pending'))
     
-    @patch('subprocess.run')
-    def test_tests_pass_hermetic_env(self, mock_run):
-        """Test hermetic environment setup."""
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_run.return_value = mock_result
+    @patch('apps.storage.service.storage_service') 
+    def test_jsonpath_eq_edge_cases(self, mock_service):
+        """Test edge cases and error handling."""
+        mock_service.read_file.return_value = b'{"values": [null, "", 0, false, true]}'
         
-        tests_pass('/artifacts/plan1/tests/', 1000)
+        # Test null, empty string, zero, boolean values
+        self.assertTrue(artifact_jsonpath_eq('/artifacts/edge.json', '$.values[0]', None))
+        self.assertTrue(artifact_jsonpath_eq('/artifacts/edge.json', '$.values[1]', ''))
+        self.assertTrue(artifact_jsonpath_eq('/artifacts/edge.json', '$.values[2]', 0))
+        self.assertTrue(artifact_jsonpath_eq('/artifacts/edge.json', '$.values[3]', False))
+        self.assertTrue(artifact_jsonpath_eq('/artifacts/edge.json', '$.values[4]', True))
         
-        # Verify hermetic environment
-        call_kwargs = mock_run.call_args[1]
-        env = call_kwargs['env']
+        # Test invalid JSONPath expressions
+        self.assertFalse(artifact_jsonpath_eq('/artifacts/edge.json', 'invalid', 'value'))
+        self.assertFalse(artifact_jsonpath_eq('/artifacts/edge.json', '$.', 'value'))
+        self.assertFalse(artifact_jsonpath_eq('/artifacts/edge.json', '$.field[invalid]', 'value'))
         
-        self.assertEqual(env['PYTEST_DISABLE_PLUGIN_AUTOLOAD'], '1')
-        self.assertEqual(env['DJANGO_SETTINGS_MODULE'], 'backend.settings.test')
+        # Test array bounds
+        self.assertFalse(artifact_jsonpath_eq('/artifacts/edge.json', '$.values[10]', 'value'))
+        self.assertFalse(artifact_jsonpath_eq('/artifacts/edge.json', '$.values[-1]', 'value'))  # negative indices not supported
     
-    @patch('subprocess.run')
-    def test_tests_pass_command_flags(self, mock_run):
-        """Test pytest command flags."""
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_run.return_value = mock_result
+    @patch('apps.storage.service.storage_service')
+    def test_jsonpath_eq_type_deep_equality(self, mock_service):
+        """Test that deep equality works correctly across different types."""
+        test_data = {
+            "string": "hello",
+            "number": 42,
+            "float": 3.14,
+            "boolean": True,
+            "null": None,
+            "array": [1, 2, 3],
+            "object": {"nested": "value"}
+        }
         
-        tests_pass('/artifacts/plan1/tests/', 2000)
+        mock_service.read_file.return_value = json.dumps(test_data).encode('utf-8')
         
-        # Check command
-        cmd = mock_run.call_args[0][0]
-        self.assertEqual(cmd[0], 'pytest')
-        self.assertIn('-q', cmd)
-        self.assertIn('--disable-warnings', cmd)
-        self.assertIn('--tb=no', cmd)
+        # Test exact matches
+        self.assertTrue(artifact_jsonpath_eq('/artifacts/types.json', '$.string', 'hello'))
+        self.assertTrue(artifact_jsonpath_eq('/artifacts/types.json', '$.number', 42))
+        self.assertTrue(artifact_jsonpath_eq('/artifacts/types.json', '$.float', 3.14))
+        self.assertTrue(artifact_jsonpath_eq('/artifacts/types.json', '$.boolean', True))
+        self.assertTrue(artifact_jsonpath_eq('/artifacts/types.json', '$.null', None))
+        
+        # Test type mismatches
+        self.assertFalse(artifact_jsonpath_eq('/artifacts/types.json', '$.string', 42))
+        self.assertFalse(artifact_jsonpath_eq('/artifacts/types.json', '$.number', '42'))
+        self.assertFalse(artifact_jsonpath_eq('/artifacts/types.json', '$.boolean', 'true'))
+        self.assertFalse(artifact_jsonpath_eq('/artifacts/types.json', '$.null', ''))
+    
+    def test_jsonpath_eq_path_canonicalization_acceptance(self):
+        """Test path canonicalization in realistic scenarios."""
+        # Test that canonicalization rejects non-facet-root paths
+        self.assertFalse(artifact_jsonpath_eq('/etc/config.json', '$.field', 'value'))
+        self.assertFalse(artifact_jsonpath_eq('/tmp/data.json', '$.field', 'value'))
+        self.assertFalse(artifact_jsonpath_eq('relative/path.json', '$.field', 'value'))
+        
+        # Test that streams facet is rejected (only artifacts allowed)
+        self.assertFalse(artifact_jsonpath_eq('/streams/data.json', '$.field', 'value'))
+        
+        # Test path normalization would work (if file existed)
+        # These will return False due to file not found, but path validation passes
+        with patch('apps.core.predicates.builtins.artifact_read_json', return_value=None):
+            # Should not raise ValueError for path validation
+            self.assertFalse(artifact_jsonpath_eq('/artifacts/../artifacts/data.json', '$.field', 'value'))
+            self.assertFalse(artifact_jsonpath_eq('/ARTIFACTS/data.json', '$.field', 'value'))  # Case normalization

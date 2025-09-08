@@ -9,14 +9,14 @@ from .builtins import (
     artifact_exists,
     series_has_new,
     json_schema_ok,
-    run_tests_pass as tests_pass,
+    artifact_jsonpath_eq,
 )
 
 __all__ = [
     'artifact_exists',
     'series_has_new', 
     'json_schema_ok',
-    'tests_pass',
+    'artifact_jsonpath_eq',
 ]
 
 # Registry entries for predicates
@@ -39,10 +39,10 @@ PREDICATE_REGISTRY = {
         'returns': 'bool',
         'description': 'Validate JSON at path against schema',
     },
-    'tests.pass@1': {
-        'fn': tests_pass,
-        'params': {'path_or_glob': 'str', 'timeout_ms': 'int'},
+    'artifact.jsonpath_eq@1': {
+        'fn': artifact_jsonpath_eq,
+        'params': {'path': 'str', 'expr': 'str', 'expected': 'any'},
         'returns': 'bool',
-        'description': 'Run tests and check if they pass',
+        'description': 'Check if JSONPath expression in artifact equals expected value',
     },
 }

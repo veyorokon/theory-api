@@ -16,7 +16,7 @@ from apps.core.predicates import (
     artifact_exists,
     series_has_new,
     json_schema_ok,
-    tests_pass,
+    artifact_jsonpath_eq,
     PREDICATE_REGISTRY,
 )
 
@@ -30,7 +30,7 @@ class TestPredicateRegistry(TestCase):
             'artifact.exists@1',
             'series.has_new@1',
             'json.schema_ok@1',
-            'tests.pass@1',
+            'artifact.jsonpath_eq@1',
         }
         self.assertEqual(set(PREDICATE_REGISTRY.keys()), expected)
     
@@ -166,72 +166,91 @@ class TestJsonSchemaOk(TestCase):
         self.assertFalse(result)
 
 
-class TestTestsPass(TestCase):
-    """Test tests.pass predicate."""
+class TestArtifactJsonPathEq(TestCase):
+    """Test artifact.jsonpath_eq predicate."""
     
-    @patch('subprocess.run')
-    def test_tests_pass_returns_true_on_success(self, mock_run):
-        """Should return True when tests pass."""
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_run.return_value = mock_result
+    @patch('apps.storage.service.storage_service')
+    def test_jsonpath_eq_simple_field(self, mock_service):
+        """Should return True when JSONPath matches expected value."""
+        mock_service.read_file.return_value = b'{"name": "test", "version": 1}'
         
-        result = tests_pass('/artifacts/planA/tests/test_example.py', timeout_ms=5000)
+        result = artifact_jsonpath_eq('/artifacts/config.json', '$.name', 'test')
         
         self.assertTrue(result)
-        mock_run.assert_called_once()
-        
-        # Check pytest was called with correct args
-        call_args = mock_run.call_args[0][0]
-        self.assertEqual(call_args[0], 'pytest')
-        self.assertIn('-q', call_args)
-        self.assertIn('/artifacts/planA/tests/test_example.py', call_args)
+        mock_service.read_file.assert_called_with('/artifacts/config.json')
     
-    @patch('subprocess.run')
-    def test_tests_pass_returns_false_on_failure(self, mock_run):
-        """Should return False when tests fail."""
-        mock_result = MagicMock()
-        mock_result.returncode = 1  # Test failure
-        mock_run.return_value = mock_result
+    @patch('apps.storage.service.storage_service')
+    def test_jsonpath_eq_nested_field(self, mock_service):
+        """Should handle nested field access."""
+        mock_service.read_file.return_value = b'{"config": {"debug": true, "port": 8080}}'
         
-        result = tests_pass('/artifacts/planA/tests/test_example.py', timeout_ms=5000)
+        result = artifact_jsonpath_eq('/artifacts/settings.json', '$.config.debug', True)
+        
+        self.assertTrue(result)
+        
+        result = artifact_jsonpath_eq('/artifacts/settings.json', '$.config.port', 8080)
+        
+        self.assertTrue(result)
+    
+    @patch('apps.storage.service.storage_service')
+    def test_jsonpath_eq_array_index(self, mock_service):
+        """Should handle array index access."""
+        mock_service.read_file.return_value = b'{"items": ["first", "second", "third"]}'
+        
+        result = artifact_jsonpath_eq('/artifacts/list.json', '$.items[0]', 'first')
+        
+        self.assertTrue(result)
+        
+        result = artifact_jsonpath_eq('/artifacts/list.json', '$.items[1]', 'second')
+        
+        self.assertTrue(result)
+    
+    @patch('apps.storage.service.storage_service')
+    def test_jsonpath_eq_returns_false_on_mismatch(self, mock_service):
+        """Should return False when values don't match."""
+        mock_service.read_file.return_value = b'{"status": "active"}'
+        
+        result = artifact_jsonpath_eq('/artifacts/status.json', '$.status', 'inactive')
         
         self.assertFalse(result)
     
-    @patch('subprocess.run')
-    def test_tests_pass_returns_false_on_timeout(self, mock_run):
-        """Should return False when tests timeout."""
-        import subprocess
-        mock_run.side_effect = subprocess.TimeoutExpired('pytest', 5.0)
+    @patch('apps.storage.service.storage_service')
+    def test_jsonpath_eq_handles_missing_path(self, mock_service):
+        """Should return False when JSONPath doesn't exist."""
+        mock_service.read_file.return_value = b'{"name": "test"}'
         
-        result = tests_pass('/artifacts/planA/tests/test_slow.py', timeout_ms=5000)
+        result = artifact_jsonpath_eq('/artifacts/data.json', '$.nonexistent', 'value')
+        
+        self.assertFalse(result)
+        
+        result = artifact_jsonpath_eq('/artifacts/data.json', '$.nested.field', 'value')
         
         self.assertFalse(result)
     
-    @patch('subprocess.run')
-    def test_tests_pass_handles_errors(self, mock_run):
-        """Should return False on any error."""
-        mock_run.side_effect = Exception('Unexpected error')
+    @patch('apps.storage.service.storage_service')
+    def test_jsonpath_eq_handles_invalid_json(self, mock_service):
+        """Should return False on invalid JSON."""
+        mock_service.read_file.return_value = b'invalid json{'
         
-        result = tests_pass('/artifacts/planA/tests/test_error.py', timeout_ms=5000)
+        result = artifact_jsonpath_eq('/artifacts/bad.json', '$.field', 'value')
         
         self.assertFalse(result)
     
-    def test_tests_pass_uses_hermetic_environment(self):
-        """Should set hermetic environment variables."""
-        with patch('subprocess.run') as mock_run:
-            mock_result = MagicMock()
-            mock_result.returncode = 0
-            mock_run.return_value = mock_result
-            
-            tests_pass('/artifacts/planA/tests/', timeout_ms=1000)
-            
-            # Check environment variables
-            call_kwargs = mock_run.call_args[1]
-            env = call_kwargs.get('env', {})
-            self.assertIn('PYTEST_DISABLE_PLUGIN_AUTOLOAD', env)
-            self.assertEqual(env['PYTEST_DISABLE_PLUGIN_AUTOLOAD'], '1')
-            self.assertIn('DJANGO_SETTINGS_MODULE', env)
+    @patch('apps.storage.service.storage_service')
+    def test_jsonpath_eq_handles_missing_file(self, mock_service):
+        """Should return False when file doesn't exist."""
+        mock_service.read_file.return_value = None
+        
+        result = artifact_jsonpath_eq('/artifacts/missing.json', '$.field', 'value')
+        
+        self.assertFalse(result)
+    
+    def test_jsonpath_eq_validates_path_canonicalization(self):
+        """Should validate and canonicalize paths."""
+        # Invalid paths should return False
+        self.assertFalse(artifact_jsonpath_eq('/streams/data.json', '$.field', 'value'))
+        self.assertFalse(artifact_jsonpath_eq('/invalid/path', '$.field', 'value'))
+        self.assertFalse(artifact_jsonpath_eq('artifacts/no-slash', '$.field', 'value'))
 
 
 # Acceptance tests
@@ -260,4 +279,4 @@ class TestPredicateAcceptance(TestCase):
 
         with patch('subprocess.run') as mock_run:
             mock_run.return_value.returncode = 0
-            self.assertIsInstance(tests_pass('/artifacts/planA/tests/test.py', 1000), bool)
+            self.assertIsInstance(artifact_jsonpath_eq('/artifacts/test.json', '$.field', 'value'), bool)

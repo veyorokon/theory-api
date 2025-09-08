@@ -231,64 +231,106 @@ def json_schema_ok(path: str, schema_ref: str) -> bool:
         return False
 
 
-def run_tests_pass(path_or_glob: str, timeout_ms: int = 5000) -> bool:
+def artifact_jsonpath_eq(path: str, expr: str, expected: Any) -> bool:
     """
-    Run tests and check if they pass.
-    
-    Invokes pytest on the specified path/pattern with a timeout.
-    Must be hermetic - no network calls.
-    Path must be under sandbox root.
+    Check if JSONPath expression in artifact equals expected value.
     
     Args:
-        path_or_glob: Path or glob pattern for tests (under /artifacts/<plan>/tests/)
-        timeout_ms: Timeout in milliseconds
+        path: Path to JSON artifact (will be canonicalized)
+        expr: JSONPath expression (subset: $.field, $.field.nested, $.array[0])
+        expected: Expected value to compare against
         
     Returns:
-        True if all tests pass (exit code 0), False otherwise
+        True if JSONPath result equals expected value, False otherwise
     """
     try:
-        # Validate sandbox constraint — require facet-root sandbox path
-        # Default sandbox root: /artifacts/<plan>/tests/
-        if not path_or_glob.startswith('/artifacts/'):
-            # Not in sandbox - reject
+        # Canonicalize path
+        canonical_path = canon_path_facet_root(path)
+        
+        # Load JSON artifact via storage
+        data = artifact_read_json(canonical_path)
+        if data is None:
             return False
         
-        # Convert timeout to seconds
-        timeout_sec = timeout_ms / 1000.0
+        # Evaluate JSONPath expression (simple subset)
+        result, found = _evaluate_simple_jsonpath(data, expr)
+        if not found:
+            return False
         
-        # Build pytest command
-        # Use -q for quiet, --disable-warnings to reduce output
-        cmd = [
-            'pytest',
-            '-q',
-            '--disable-warnings',
-            '--tb=no',
-            '--no-header',
-            '--no-summary',
-            path_or_glob
-        ]
+        # Deep equality check (result can be None if the JSON value is null)
+        return result == expected
         
-        # Run with timeout and capture output
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout_sec,
-            cwd='code',  # Run from code directory
-            env={
-                **os.environ,
-                # Ensure hermetic - no network
-                'PYTEST_DISABLE_PLUGIN_AUTOLOAD': '1',
-                'DJANGO_SETTINGS_MODULE': 'backend.settings.test',
-            }
-        )
-        
-        # Return True iff exit code is 0
-        return result.returncode == 0
-        
-    except subprocess.TimeoutExpired:
-        # Timeout means tests didn't complete
+    except (ValueError, Exception):
+        # Invalid path or evaluation error
         return False
-    except Exception:
-        # Any other error means failure
-        return False
+
+
+def _evaluate_simple_jsonpath(data: Dict[str, Any], expr: str) -> tuple[Any, bool]:
+    """
+    Evaluate simple JSONPath expressions without external dependencies.
+    
+    Supports: $.field, $.field.nested, $.array[0], $.field[1].nested
+    
+    Args:
+        data: JSON data to evaluate against
+        expr: JSONPath expression
+        
+    Returns:
+        Tuple of (resolved_value, found) where found indicates if path exists
+    """
+    if not expr.startswith('$.'):
+        return None, False
+    
+    # Remove $. prefix
+    path = expr[2:]
+    if not path:
+        return data, True
+    
+    current = data
+    
+    # Split path into segments, handling array indices
+    segments = []
+    current_segment = ""
+    
+    i = 0
+    while i < len(path):
+        char = path[i]
+        if char == '.':
+            if current_segment:
+                segments.append(current_segment)
+                current_segment = ""
+        elif char == '[':
+            if current_segment:
+                segments.append(current_segment)
+                current_segment = ""
+            # Find closing bracket
+            bracket_end = path.find(']', i)
+            if bracket_end == -1:
+                return None, False
+            index_str = path[i+1:bracket_end]
+            try:
+                segments.append(int(index_str))
+            except ValueError:
+                return None, False
+            i = bracket_end
+        else:
+            current_segment += char
+        i += 1
+    
+    if current_segment:
+        segments.append(current_segment)
+    
+    # Navigate through segments
+    for segment in segments:
+        if isinstance(segment, int):
+            # Array index
+            if not isinstance(current, list) or segment >= len(current) or segment < 0:
+                return None, False
+            current = current[segment]
+        else:
+            # Object key
+            if not isinstance(current, dict) or segment not in current:
+                return None, False
+            current = current[segment]
+    
+    return current, True

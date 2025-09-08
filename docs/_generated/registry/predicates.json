@@ -22,12 +22,13 @@
     "returns": "bool",
     "description": "Validate JSON at path against schema"
   },
-  "tests.pass@1": {
+  "artifact.jsonpath_eq@1": {
     "params": {
-      "path_or_glob": "str",
-      "timeout_ms": "int"
+      "path": "str",
+      "expr": "str",
+      "expected": "any"
     },
     "returns": "bool",
-    "description": "Run tests and check if they pass"
+    "description": "Check if JSONPath expression in artifact equals expected value"
   }
 }
