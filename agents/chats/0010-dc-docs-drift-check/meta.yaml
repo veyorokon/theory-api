@@ -8,8 +8,8 @@ branch: feat/dc-docs-drift-check-0010
 created: "2025-09-07T16:30:00Z"
 
 scope:
-  - Add GitHub Action: export generated docs, fail on drift, build Sphinx with -W
-  - Keep CI PR-gated; no secrets
+  - "Add GitHub Action: export generated docs, fail on drift, build Sphinx with -W"
+  - "Keep CI PR-gated; no secrets"
 
 non_goals:
   - No code behavior changes
