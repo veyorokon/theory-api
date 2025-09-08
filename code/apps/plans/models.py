@@ -25,11 +25,11 @@ class Plan(models.Model):
     class Meta:
         constraints = [
             models.CheckConstraint(
-                check=models.Q(reserved_micro__gte=0), 
+                condition=models.Q(reserved_micro__gte=0), 
                 name='plan_reserved_nonneg'
             ),
             models.CheckConstraint(
-                check=models.Q(spent_micro__gte=0), 
+                condition=models.Q(spent_micro__gte=0), 
                 name='plan_spent_nonneg'
             ),
         ]

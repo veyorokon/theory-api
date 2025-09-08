@@ -9,7 +9,7 @@ from .builtins import (
     artifact_exists,
     series_has_new,
     json_schema_ok,
-    tests_pass,
+    run_tests_pass as tests_pass,
 )
 
 __all__ = [

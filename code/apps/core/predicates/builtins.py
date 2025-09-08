@@ -231,7 +231,7 @@ def json_schema_ok(path: str, schema_ref: str) -> bool:
         return False
 
 
-def tests_pass(path_or_glob: str, timeout_ms: int = 5000) -> bool:
+def run_tests_pass(path_or_glob: str, timeout_ms: int = 5000) -> bool:
     """
     Run tests and check if they pass.
     
