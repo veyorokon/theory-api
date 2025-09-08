@@ -57,6 +57,17 @@ class StorageService:
     
     def get_file_metadata(self, key, bucket):
         return self.adapter.get_file_metadata(key, bucket)
+    
+    def upload_bytes(self, data, key, content_type='application/json', bucket='default', metadata=None):
+        """Upload bytes data as a file. Convenience wrapper around upload_file."""
+        import io
+        return self.upload_file(
+            file=io.BytesIO(data), 
+            key=key, 
+            bucket=bucket, 
+            content_type=content_type, 
+            metadata=metadata
+        )
 
 
 # Singleton instance
