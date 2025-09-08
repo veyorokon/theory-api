@@ -2,8 +2,8 @@ id: "0009"
 area: rt
 slug: determinism-receipts
 title: Determinism receipts on settle + ledger reference
-owner: engineer
-state: open
+owner: architect
+state: closed
 branch: feat/rt-determinism-receipts-0009
 created: "2025-09-07T16:31:30Z"
 
@@ -37,4 +37,3 @@ ci_gates:
 
 notes: |
   Keep it deterministic and isolated; write artifacts under a predictable path so docs export can include examples later.
-
