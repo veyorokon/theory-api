@@ -1,0 +1,39 @@
+id: "0008"
+area: rt
+slug: predicate-pack-v1
+title: Predicate Pack v1 (artifact.exists, series.has_new, json.schema_ok, tests.pass)
+owner: architect
+state: closed
+branch: feat/rt-predicate-pack-v1-0008
+created: "2025-09-07T16:30:30Z"
+
+scope:
+  - Implement 4 predicates (pure, unit-fast)
+  - Wire minimal acceptance path (plan + artifact rows) for true/false evaluation
+  - Add registry entries so they export under docs/_generated/registry/**
+
+non_goals:
+  - No scheduler/admission wiring beyond unit/acceptance evaluation
+  - No external network calls
+
+acceptance:
+  - make test-unit
+  - cd code && pytest -q -k predicates
+  - make docs
+
+outputs:
+  - code/apps/core/predicates/* (new)
+  - docs/_generated/registry/* (updated on export)
+
+gh:
+  sync_mode: "issue-dryrun"
+  title_pattern: '^{id} \[{area}\] {slug}$'
+  labels: ["chat","area:rt"]
+  issue_body_source: "SUMMARY.md"
+
+ci_gates:
+  - meta-schema
+  - pr-title
+
+notes: |
+  Ship minimal predicate implementations + tests, and registry manifests to appear in generated docs.
