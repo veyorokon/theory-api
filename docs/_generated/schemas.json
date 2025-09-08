@@ -97,10 +97,38 @@
       "is_profile_complete"
     ]
   },
+  "plans.Project": {
+    "type": "object",
+    "title": "Project",
+    "description": "Lightweight grouping for multiple Plans under a tenant.\n\n    Control-plane only: execution safety remains strictly per-Plan.\n    ",
+    "properties": {
+      "id": {
+        "type": "string",
+        "description": "ID"
+      },
+      "key": {
+        "type": "string",
+        "description": "key",
+        "maxLength": 128
+      },
+      "title": {
+        "type": "string",
+        "description": "title",
+        "maxLength": 256
+      },
+      "defaults_json": {
+        "type": "object",
+        "description": "defaults json"
+      }
+    },
+    "required": [
+      "key"
+    ]
+  },
   "plans.Plan": {
     "type": "object",
     "title": "Plan",
-    "description": "Plan(id, key, reserved_micro, spent_micro)",
+    "description": "Plan(id, key, reserved_micro, spent_micro, project)",
     "properties": {
       "id": {
         "type": "string",
@@ -118,6 +146,10 @@
       "spent_micro": {
         "type": "integer",
         "description": "spent micro"
+      },
+      "project": {
+        "type": "string",
+        "description": "project"
       }
     },
     "required": [

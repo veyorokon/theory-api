@@ -27,7 +27,7 @@ outputs:
 
 gh:
   sync_mode: "issue-dryrun"
-  title_pattern: "^{id} \[{area}\] {slug}$"
+  title_pattern: '^{id} \[{area}\] {slug}$'
   labels: ["chat","area:rt"]
   issue_body_source: "SUMMARY.md"
 

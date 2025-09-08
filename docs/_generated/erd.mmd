@@ -18,12 +18,20 @@ boolean is_profile_complete
 datetime created_at
 datetime updated_at
     }
+    Project {
+string id PK
+string key UK
+string title
+json defaults_json NULL
+    }
     Plan {
 string id PK
 string key UK
 bigint reserved_micro
 bigint spent_micro
+fk project NULL
     }
+    Plan ||--o{ Project : project
     Transition {
 string id PK
 fk plan
