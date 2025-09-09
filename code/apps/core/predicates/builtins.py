@@ -231,18 +231,26 @@ def json_schema_ok(path: str, schema_ref: str) -> bool:
         return False
 
 
-def artifact_jsonpath_eq(path: str, expr: str, expected: Any) -> bool:
+
+def artifact_jmespath_ok(path: str, expr: str, mode: str = 'truthy', expected: Any = None) -> bool:
     """
-    Check if JSONPath expression in artifact equals expected value.
+    Evaluate JMESPath expression against JSON artifact.
     
     Args:
         path: Path to JSON artifact (will be canonicalized)
-        expr: JSONPath expression (subset: $.field, $.field.nested, $.array[0])
-        expected: Expected value to compare against
+        expr: JMESPath expression
+        mode: Evaluation mode ('truthy' or 'equals')
+        expected: Expected value for 'equals' mode
         
     Returns:
-        True if JSONPath result equals expected value, False otherwise
+        True if expression evaluates as expected, False otherwise
     """
+    try:
+        import jmespath
+    except ImportError:
+        # JMESPath not available - fail predicate
+        return False
+    
     try:
         # Canonicalize path
         canonical_path = canon_path_facet_root(path)
@@ -252,14 +260,24 @@ def artifact_jsonpath_eq(path: str, expr: str, expected: Any) -> bool:
         if data is None:
             return False
         
-        # Evaluate JSONPath expression (simple subset)
-        result, found = _evaluate_simple_jsonpath(data, expr)
-        if not found:
+        # Evaluate JMESPath expression
+        result = jmespath.search(expr, data)
+        
+        # Check based on mode
+        if mode == 'truthy':
+            # Truthy check: non-null, non-false, non-empty
+            if result is None or result is False:
+                return False
+            if isinstance(result, (list, dict, str)) and len(result) == 0:
+                return False
+            return True
+        elif mode == 'equals':
+            # Deep equality check
+            return result == expected
+        else:
+            # Unknown mode
             return False
-        
-        # Deep equality check (result can be None if the JSON value is null)
-        return result == expected
-        
+            
     except (ValueError, Exception):
         # Invalid path or evaluation error
         return False

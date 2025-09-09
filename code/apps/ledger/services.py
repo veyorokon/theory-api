@@ -26,7 +26,7 @@ class LedgerWriter:
             # Calculate next sequence and hash chain
             next_seq = (last_event.seq if last_event else 0) + 1
             prev_hash = last_event.this_hash if last_event else None
-            this_hash = event_hash(payload, prev_hash=prev_hash, include_ts=False)
+            this_hash = event_hash(payload, prev_hash=prev_hash, include_ts=True)
             
             # Atomically create event
             return Event.objects.create(

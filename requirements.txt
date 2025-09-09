@@ -22,3 +22,5 @@ pytest
 pytest-django
 blake3>=0.4.1
 jsonschema>=4.0.0
+jmespath>=1.0.0
+PyYAML>=6.0

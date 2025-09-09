@@ -35,12 +35,14 @@ This separation allows:
 
 ### CLI Selection
 ```bash
-# Provider + default model
-python manage.py hello_llm --provider mock
-python manage.py hello_llm --provider litellm --model openai/gpt-4o-mini
+# Mock adapter for testing
+python manage.py run_processor --ref llm/litellm@1 --adapter mock
 
-# Specific local gateway (Ollama)
-python manage.py hello_llm --provider litellm --model ollama/qwen2.5:0.5b --api-base http://127.0.0.1:11434
+# Modal adapter for cloud execution
+python manage.py run_processor --ref llm/litellm@1 --adapter modal
+
+# With attachments
+python manage.py run_processor --ref llm/litellm@1 --adapter mock --attach image=photo.jpg
 ```
 
 ### Programmatic Usage
@@ -156,5 +158,5 @@ LiteLLM supports streaming; MockLLM yields deterministic chunks for demos and te
 
 ## Related Documentation
 
-- [Hello LLM Use Case](../use-cases/hello-llm.md) - Provider usage examples
+- [Run Processor Use Case](../use-cases/run-processor.md) - Processor execution examples
 - [Registry and Adapters](registry-and-adapters.md) - General adapter patterns

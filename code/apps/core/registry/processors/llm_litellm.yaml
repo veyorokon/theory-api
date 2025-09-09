@@ -1,0 +1,54 @@
+ref: llm/litellm@1
+description: LLM processor using LiteLLM for multi-provider support
+version: 1
+image:
+  dockerfile: apps/core/processors/llm_litellm/Dockerfile
+runtime:
+  cpu: 1
+  memory: 512
+  timeout: 300
+adapter:
+  modal:
+    stub_name: llm_litellm_v1
+    function_name: process
+secrets:
+  - OPENAI_API_KEY
+inputs:
+  schema:
+    type: object
+    properties:
+      messages:
+        type: array
+        items:
+          type: object
+          properties:
+            role:
+              type: string
+              enum: [system, user, assistant]
+            content:
+              oneOf:
+                - type: string
+                - type: array
+                  items:
+                    type: object
+      model:
+        type: string
+        default: openai/gpt-4o-mini
+      temperature:
+        type: number
+        minimum: 0
+        maximum: 2
+        default: 0.7
+      max_tokens:
+        type: integer
+        minimum: 1
+        default: 1000
+    required:
+      - messages
+outputs:
+  - path: text/response.txt
+    description: LLM response text
+    mime: text/plain
+  - path: metadata.json
+    description: Execution metadata
+    mime: application/json
