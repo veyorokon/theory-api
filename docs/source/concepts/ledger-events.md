@@ -45,7 +45,8 @@ Consider this ledger event payload:
 
 ```json
 {
-  "event_type": "budget.reserved",
+  "kind": "budget.reserve",
+  "ts": "2025-09-09T18:30:00Z",
   "amount_micro": 150000,
   "plan_id": "media-pipeline-001"
 }
@@ -55,14 +56,14 @@ Consider this ledger event payload:
 
 Keys sorted lexicographically, compact separators:
 ```json
-{"amount_micro":150000,"event_type":"budget.reserved","plan_id":"media-pipeline-001"}
+{"amount_micro":150000,"kind":"budget.reserve","plan_id":"media-pipeline-001","ts":"2025-09-09T18:30:00Z"}
 ```
 
 **Step 2: UTF-8 Byte Representation**
 
 Canonical JSON encoded as UTF-8 bytes:
 ```text
-7b 22 61 6d 6f 75 6e 74 5f 6d 69 63 72 6f 22 3a 31 35 30 30 30 30 2c 22 65 76 65 6e 74 5f 74 79 70 65 22 3a 22 62 75 64 67 65 74 2e 72 65 73 65 72 76 65 64 22 2c 22 70 6c 61 6e 5f 69 64 22 3a 22 6d 65 64 69 61 2d 70 69 70 65 6c 69 6e 65 2d 30 30 31 22 7d
+7b 22 61 6d 6f 75 6e 74 5f 6d 69 63 72 6f 22 3a 31 35 30 30 30 30 2c 22 6b 69 6e 64 22 3a 22 62 75 64 67 65 74 2e 72 65 73 65 72 76 65 22 2c 22 70 6c 61 6e 5f 69 64 22 3a 22 6d 65 64 69 61 2d 70 69 70 65 6c 69 6e 65 2d 30 30 31 22 2c 22 74 73 22 3a 22 32 30 32 35 2d 30 39 2d 30 39 54 31 38 3a 33 30 3a 30 30 5a 22 7d
 ```
 
 **Step 3: BLAKE3 Hash Computation**
@@ -83,25 +84,44 @@ The hash chain provides tamper-evident properties:
 
 ## Event Types
 
-The ledger records these event types:
+The ledger records events using a `kind` field with UTC timestamp `ts`:
 
 ### Budget Events
-- `budget.reserved` - Resources reserved for execution
-- `budget.settled` - Final resource accounting (success/failure)
+- `budget.reserve` - Resources reserved for execution
+- `budget.settle.success` - Successful settlement with final accounting
+- `budget.settle.failure` - Failed settlement with error details
 
 ### Execution Events  
-- `execution.started` - Executor begins processing transition
-- `execution.succeeded` - Successful completion with artifacts
-- `execution.failed` - Failed execution with error details
+- `execution.start` - Executor begins processing transition
+- `execution.settle.success` - Successful completion with artifacts and metadata
+- `execution.settle.failure` - Failed execution with error details
 
 ### Artifact Events
-- `artifact.produced` - New artifact created at world:// path
-- `artifact.consumed` - Artifact read/used by execution
+- `artifact.produce` - New artifact created at world:// path
+- `artifact.consume` - Artifact read/used by execution
 
 ### Predicate Events
-- `predicate.checked` - Rule evaluation result (allow/deny)
+- `predicate.check` - Rule evaluation result (allow/deny)
 
-Each event type has specific payload schemas defined by the system.
+Each event includes:
+- `kind`: Event type identifier
+- `ts`: UTC timestamp in ISO 8601 format with Z suffix
+- Additional fields specific to the event type
+
+### Example: Execution Settlement Success
+
+```json
+{
+  "kind": "execution.settle.success",
+  "ts": "2025-09-09T18:30:00Z",
+  "execution_id": "exec_abc123",
+  "determinism_uri": "/artifacts/execution/exec_abc123/determinism.json",
+  "outputs_index": "/artifacts/execution/exec_abc123/outputs.json",
+  "outputs_count": 2,
+  "duration_ms": 2341,
+  "tokens_consumed": 150
+}
+```
 
 ## Concurrency & Sequencing
 

@@ -1,0 +1,6 @@
+{
+  "model": "openai/gpt-4o-mini",
+  "tokens_in": 14,
+  "tokens_out": 59,
+  "duration_ms": 1733
+}

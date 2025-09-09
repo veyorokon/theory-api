@@ -9,6 +9,7 @@ A universal, event-driven framework to achieve complex goals under budget and po
 
 guides/getting-started
 guides/ci-cd
+guides/processor-outputs
 contributing
 ```
 

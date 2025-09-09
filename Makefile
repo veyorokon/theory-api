@@ -53,3 +53,8 @@ docs-drift-check: docs-export
 docs:
 	$(MAKE) docs-drift-check
 	make -C docs html
+
+# --- Linting ---
+lint-ref-resolver:
+	@! rg -n "replace\('/','_'\)" code/apps/core | rg -v "processors/resolver.py" || \
+	 (echo "✗ Ref mapping must go through processors/resolver.py"; exit 1)

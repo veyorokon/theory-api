@@ -34,15 +34,12 @@ class RuntimeAdapter(ABC):
             adapter_opts_json: Optional adapter-specific options as JSON string
             
         Returns:
-            Execution result dictionary with:
-                - status: 'success' or 'error'
-                - outputs: Dict of output paths to content
-                - seed: Execution seed
-                - memo_key: Cache key for memoization
-                - env_fingerprint: Environment specification
-                - output_cids: List of content identifiers
-                - estimate_micro: Estimated cost in micro-USD
-                - actual_micro: Actual cost in micro-USD
+            Execution result dictionary (canonical):
+                - status: 'success'|'error'
+                - execution_id: str
+                - outputs: List[{path,cid,size_bytes,mime}]
+                - index_path: str (path to outputs.json)
+                - meta: {image_digest, env_fingerprint, duration_ms, ...}
         """
         pass
     

@@ -17,6 +17,8 @@ def settle_execution_success(
     memo_key: str,
     env_fingerprint: str,
     output_cids: Iterable[str],
+    outputs_index: Optional[str] = None,
+    outputs_count: Optional[int] = None,
 ) -> str:
     """
     Success path: clears reserve fully, records spend, writes receipt, emits event with pointer.
@@ -39,9 +41,9 @@ def settle_execution_success(
             output_cids=list(output_cids or []),
         )
 
-        # Emit ledger event with determinism reference
+        # Emit ledger event with determinism reference and optional output metadata
         ledger_writer = LedgerWriter()
-        ledger_writer.append_event(plan, {
+        payload = {
             'kind': 'execution.settle.success',
             'ts': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
             'actual_micro': int(actual_micro),
@@ -50,7 +52,15 @@ def settle_execution_success(
             'determinism_uri': determinism_uri,
             'execution_id': str(execution.id),
             'plan_id': plan.key
-        })
+        }
+        
+        # Add optional canonical output metadata (additive, test-safe)
+        if outputs_index is not None:
+            payload['outputs_index'] = outputs_index
+        if outputs_count is not None:
+            payload['outputs_count'] = outputs_count
+            
+        ledger_writer.append_event(plan, payload)
         
         return determinism_uri
 

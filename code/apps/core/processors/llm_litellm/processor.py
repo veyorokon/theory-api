@@ -22,16 +22,13 @@ def compute_cid(content: bytes) -> str:
         return 's256:' + hashlib.sha256(content).hexdigest()
 
 
-def process(inputs_json: str, write_prefix: str) -> str:
+def process(inputs_json: str, write_prefix: str) -> None:
     """
-    Process LLM request using LiteLLM.
+    Process LLM request using LiteLLM and write outputs to /work/out/.
     
     Args:
         inputs_json: JSON string with processor inputs
-        write_prefix: Prefix path for writing outputs
-        
-    Returns:
-        JSON string with execution result
+        write_prefix: Prefix path for writing outputs (unused, outputs go to /work/out/)
     """
     try:
         # Parse inputs
@@ -81,57 +78,30 @@ def process(inputs_json: str, write_prefix: str) -> str:
         # Extract response text
         response_text = response.choices[0].message.content
         
-        # Prepare outputs
-        outputs = {}
+        # Create output directory
+        import os
+        os.makedirs('/work/out/text', exist_ok=True)
         
-        # Write response text
-        response_path = f"{write_prefix}text/response.txt"
-        outputs[response_path] = response_text
-        response_cid = compute_cid(response_text.encode('utf-8'))
+        # Write response text to file
+        with open('/work/out/text/response.txt', 'w') as f:
+            f.write(response_text)
         
-        # Write metadata
+        # Write metadata to file
         metadata = {
             'model': model,
-            'messages_count': len(messages),
-            'response_tokens': response.usage.completion_tokens if response.usage else 0,
-            'prompt_tokens': response.usage.prompt_tokens if response.usage else 0,
-            'total_tokens': response.usage.total_tokens if response.usage else 0,
-            'duration_seconds': end_time - start_time,
-            'timestamp': time.time()
-        }
-        metadata_json = json.dumps(metadata, indent=2)
-        metadata_path = f"{write_prefix}metadata.json"
-        outputs[metadata_path] = metadata_json
-        metadata_cid = compute_cid(metadata_json.encode('utf-8'))
-        
-        # Prepare result
-        result = {
-            'status': 'success',
-            'outputs': outputs,
-            'seed': int(time.time() * 1000) % 2**32,
-            'memo_key': f"llm-{model}-{hash(json.dumps(processed_messages, sort_keys=True))}",
-            'env_fingerprint': f"litellm-{litellm.__version__}-{model}",
-            'output_cids': [response_cid, metadata_cid],
-            'estimate_micro': 1000,
-            'actual_micro': int(response.usage.total_tokens * 0.002 * 1000) if response.usage else 500
+            'tokens_in': response.usage.prompt_tokens if response.usage else 0,
+            'tokens_out': response.usage.completion_tokens if response.usage else 0,
+            'duration_ms': int((end_time - start_time) * 1000)
         }
         
-        return json.dumps(result)
+        with open('/work/out/meta.json', 'w') as f:
+            json.dump(metadata, f, indent=2)
         
     except Exception as e:
-        # Return error result
-        error_result = {
-            'status': 'error',
-            'error': str(e),
-            'outputs': {},
-            'seed': 0,
-            'memo_key': '',
-            'env_fingerprint': 'error',
-            'output_cids': [],
-            'estimate_micro': 1000,
-            'actual_micro': 100
-        }
-        return json.dumps(error_result)
+        # Write error to stderr and exit with error code
+        import sys
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == '__main__':
@@ -144,6 +114,16 @@ if __name__ == '__main__':
     
     args = parser.parse_args()
     
-    # Process and print result
-    result = process(args.inputs, args.write_prefix)
-    print(result)
+    # Read inputs from file or use as direct JSON
+    inputs_json = args.inputs
+    if inputs_json.startswith('/') or inputs_json.startswith('./'):
+        # Looks like a file path, read it
+        try:
+            with open(inputs_json, 'r') as f:
+                inputs_json = f.read()
+        except Exception as e:
+            print(f"Failed to read inputs file: {e}", file=sys.stderr)
+            sys.exit(1)
+    
+    # Process and write files
+    process(inputs_json, args.write_prefix)

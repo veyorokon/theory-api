@@ -24,7 +24,8 @@ class MockAdapter(RuntimeAdapter):
         plan_id: str,
         timeout_s: Optional[int] = None,
         secrets: Optional[List[str]] = None,
-        adapter_opts_json: Optional[str] = None
+        adapter_opts_json: Optional[str] = None,
+        build: bool = False
     ) -> Dict[str, Any]:
         """
         Invoke processor in mock mode.
@@ -38,6 +39,7 @@ class MockAdapter(RuntimeAdapter):
             timeout_s: Optional timeout
             secrets: Optional secret names
             adapter_opts_json: Optional adapter options
+            build: Whether to build image (ignored in mock)
             
         Returns:
             Mock execution result
@@ -60,11 +62,15 @@ class MockAdapter(RuntimeAdapter):
             except json.JSONDecodeError:
                 pass
         
+        execution_id = adapter_opts.get('execution_id', plan_id)
+        
         # Simulate processing time
         time.sleep(0.1)
         
-        # Mock different processor types
-        outputs = {}
+        # Mock different processor types with canonical output format
+        from apps.storage.artifact_store import artifact_store
+        import mimetypes
+        
         if 'llm' in processor_ref:
             # Mock LLM processor
             messages = inputs.get('messages', [])
@@ -79,45 +85,94 @@ class MockAdapter(RuntimeAdapter):
                             if isinstance(item, dict) and '$artifact' in item:
                                 response_text += f" (saw attachment: {item['$artifact']})"
             
-            outputs = {
-                f"{write_prefix}text/response.txt": response_text,
-                f"{write_prefix}metadata.json": json.dumps({
-                    'model': 'mock-llm',
-                    'tokens': len(response_text.split()),
-                    'timestamp': time.time(),
-                    'plan_id': plan_id
-                })
-            }
+            # Build canonical outputs array matching real processor structure
+            entries = []
+            
+            # Response text file (matches /work/out/text/response.txt)
+            response_bytes = response_text.encode('utf-8')
+            p1 = f"{write_prefix}text/response.txt"
+            c1 = artifact_store.compute_cid(response_bytes)
+            artifact_store.put_bytes(p1, response_bytes, 'text/plain')
+            entries.append({
+                'path': p1,
+                'cid': c1,
+                'size_bytes': len(response_bytes),
+                'mime': 'text/plain'
+            })
+            
+            # Metadata file (matches /work/out/meta.json with real processor fields)
+            meta_json = json.dumps({
+                'model': 'mock-llm',
+                'tokens_in': len(response_text.split()),
+                'tokens_out': len(response_text.split()),
+                'duration_ms': 100
+            })
+            meta_bytes = meta_json.encode('utf-8')
+            p2 = f"{write_prefix}meta.json"
+            c2 = artifact_store.compute_cid(meta_bytes)
+            artifact_store.put_bytes(p2, meta_bytes, 'application/json')
+            entries.append({
+                'path': p2,
+                'cid': c2,
+                'size_bytes': len(meta_bytes),
+                'mime': 'application/json'
+            })
+            
+            # Sort entries by path
+            entries.sort(key=lambda x: x['path'])
+            
+            # Create index artifact
+            index_path = f"/artifacts/execution/{execution_id}/outputs.json"
+            index_bytes = json.dumps(entries, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
+            artifact_store.put_bytes(index_path, index_bytes, 'application/json')
             
             result = {
                 'status': 'success',
-                'outputs': outputs,
-                'seed': 12345,
-                'memo_key': f"mock-{processor_ref}-{hash(inputs_json)}",
-                'env_fingerprint': f"mock-{image_digest}-cpu:1-memory:512",
-                'output_cids': ['mock-cid-1', 'mock-cid-2'],
-                'estimate_micro': 1000,
-                'actual_micro': 500
+                'execution_id': execution_id,
+                'outputs': entries,
+                'index_path': index_path,
+                'meta': {
+                    'image_digest': f'mock-{image_digest}',
+                    'env_fingerprint': f"mock-{image_digest}-cpu:1-memory:512",
+                    'duration_ms': 100,
+                    'io_bytes': sum(e['size_bytes'] for e in entries)
+                }
             }
         else:
             # Generic mock processor
-            outputs = {
-                f"{write_prefix}result.json": json.dumps({
-                    'processed': True,
-                    'input_keys': list(inputs.keys()),
-                    'plan_id': plan_id
-                })
-            }
+            result_data = json.dumps({
+                'processed': True,
+                'input_keys': list(inputs.keys()),
+                'plan_id': plan_id
+            })
+            result_bytes = result_data.encode('utf-8')
+            p1 = f"{write_prefix}result.json"
+            c1 = artifact_store.compute_cid(result_bytes)
+            artifact_store.put_bytes(p1, result_bytes, 'application/json')
+            
+            entries = [{
+                'path': p1,
+                'cid': c1,
+                'size_bytes': len(result_bytes),
+                'mime': 'application/json'
+            }]
+            
+            # Create index artifact
+            index_path = f"/artifacts/execution/{execution_id}/outputs.json"
+            index_bytes = json.dumps(entries, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
+            artifact_store.put_bytes(index_path, index_bytes, 'application/json')
             
             result = {
                 'status': 'success',
-                'outputs': outputs,
-                'seed': 67890,
-                'memo_key': f"mock-generic-{processor_ref}",
-                'env_fingerprint': f"mock-{image_digest}-generic",
-                'output_cids': ['mock-generic-cid'],
-                'estimate_micro': 500,
-                'actual_micro': 250
+                'execution_id': execution_id,
+                'outputs': entries,
+                'index_path': index_path,
+                'meta': {
+                    'image_digest': f'mock-{image_digest}',
+                    'env_fingerprint': f"mock-{image_digest}-generic",
+                    'duration_ms': 50,
+                    'io_bytes': len(result_bytes)
+                }
             }
         
         # Track execution

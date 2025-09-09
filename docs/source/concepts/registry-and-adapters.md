@@ -8,24 +8,31 @@
 
 The registry provides versioned, immutable specifications for all system components:
 
-### Tool Specifications
+### Processor Specifications
 
 ```yaml
-# registry/tools/text.llm.yaml
-id: "text.llm@1"
-name: "Large Language Model Text Generation"
-adapter: "modal"
-entry_point: "modal_functions.llm_generate"
-inputs:
-  - name: "prompt"  
-    type: "string"
-    required: true
-  - name: "model"
-    type: "string" 
-    default: "gpt-4"
+# registry/processors/llm/litellm.yaml  
+ref: llm/litellm@1
+name: "LLM processor using LiteLLM"
+image:
+  oci: "ghcr.io/theory/litellm:v1.2.3@sha256:abc123..."
+  build:
+    context: "apps/core/processors/llm_litellm"
+    dockerfile: "Dockerfile"
+runtime:
+  cpu: 1
+  memory_gb: 2
+  timeout_s: 300
+  gpu: false
+secrets:
+  required:
+    - OPENAI_API_KEY
+  optional:
+    - ANTHROPIC_API_KEY
 outputs:
-  - name: "text"
-    type: "string"
+  writes:
+    - prefix: "/artifacts/outputs/text/"
+    - prefix: "/artifacts/outputs/meta.json"
 predicates:
   admission:
     - id: "budget.available@1"
@@ -70,51 +77,72 @@ leases:
 
 ## Adapter System
 
-Adapters translate abstract `processor_ref` identifiers into concrete execution:
+Adapters provide runtime placement for processors, mapping `processor_ref` to concrete execution environments:
 
-### Modal Adapter
+- **local**: Docker container execution on local machine
+- **mock**: Simulated execution for testing/CI
+- **modal**: Cloud execution via Modal platform
 
-```python
-class ModalAdapter:
-    def invoke(self, processor_ref: str, context: ExpandedContext) -> ProcessorResult:
-        """Invoke a Modal function with the given context."""
-        tool_spec = context.registry_snapshot.get_tool(processor_ref)
-        
-        # Map to Modal function
-        function = self.get_modal_function(tool_spec.entry_point)
-        
-        # Execute with timeout and resource limits
-        result = function.remote(
-            inputs=context.inputs,
-            world_mount=context.world_mount,
-            write_paths=context.write_set_resolved
-        )
-        
-        return ProcessorResult(
-            success=True,
-            outputs=result.outputs,
-            receipt=result.usage,
-            artifacts=result.produced_artifacts
-        )
-```
-
-### Local Adapter  
+### Local Adapter (Docker)
 
 ```python
 class LocalAdapter:
     def invoke(self, processor_ref: str, context: ExpandedContext) -> ProcessorResult:
-        """Run a local tool/script with sandboxed filesystem access."""
-        tool_spec = context.registry_snapshot.get_tool(processor_ref)
+        """Execute processor in Docker container with sandboxed access."""
+        processor_spec = context.registry_snapshot.get_processor(processor_ref)
         
-        # Execute in subprocess with restricted permissions
-        result = subprocess.run(
-            [tool_spec.entry_point] + context.inputs,
-            cwd=context.scratch_dir,
-            timeout=tool_spec.timeout_s,
-            capture_output=True
+        # Build or pull container image (with digest pinning)
+        image_uri = self.resolve_image(processor_spec.image)
+        
+        # Execute with resource limits and mounted world state
+        result = self.docker_client.containers.run(
+            image=image_uri,
+            command=["/work/entrypoint.sh"],
+            environment=self.prepare_env(context),
+            volumes={
+                context.world_mount: {"bind": "/work/world", "mode": "ro"},
+                context.scratch_dir: {"bind": "/work/out", "mode": "rw"}
+            },
+            mem_limit=f"{processor_spec.runtime.memory_gb}g",
+            cpu_period=100000,
+            cpu_quota=processor_spec.runtime.cpu * 100000,
+            timeout=processor_spec.runtime.timeout_s
         )
         
-        return self.parse_result(result)
+        return self._canonicalize_outputs(context.scratch_dir, context.write_prefix, 
+                                          processor_spec.to_dict(), context.execution_id)
+```
+
+### Modal Adapter (Cloud)
+
+```python
+class ModalAdapter:
+    def invoke(self, processor_ref: str, context: ExpandedContext) -> ProcessorResult:
+        """Invoke Modal function with containerized processor."""
+        processor_spec = context.registry_snapshot.get_processor(processor_ref)
+        
+        # Map to Modal function with image digest pinning
+        function = self.get_modal_function(processor_spec, digest_pinned=True)
+        
+        # Execute with cloud resources
+        result = function.remote(
+            inputs=context.inputs,
+            world_mount=context.world_mount,
+            write_prefix=context.write_prefix,
+            execution_id=context.execution_id
+        )
+        
+        return result  # Modal returns canonical format
+```
+
+### Mock Adapter (Testing)
+
+```python
+class MockAdapter:
+    def invoke(self, processor_ref: str, context: ExpandedContext) -> ProcessorResult:
+        """Simulate processor execution for testing."""
+        # Generate mock outputs in canonical format
+        return self._generate_mock_canonical_outputs(context)
 ```
 
 ## ExpandedContext
@@ -163,6 +191,34 @@ The `world_mount` provides read-only access to world state:
 ```
 
 Processors read inputs but never write directly - all outputs go through the adapter API.
+
+## Image Resolution & Digest Pinning
+
+Adapters support multiple image resolution strategies:
+
+### OCI Registry (Recommended)
+```yaml
+image:
+  oci: "ghcr.io/theory/processor:v1.2.3@sha256:abc123..."
+```
+Uses digest pinning from GHCR or any OCI-compliant registry for reproducible builds.
+
+### Local Build
+```yaml
+image:
+  build:
+    context: "apps/core/processors/llm_litellm"
+    dockerfile: "Dockerfile"
+```
+Builds image from local Dockerfile with context path.
+
+## SDK Integration
+
+SDKs and libraries live inside containerized processors, not in the Django runtime:
+
+- **Isolation**: Each processor carries its own dependencies
+- **Reproducibility**: Container images ensure consistent environments
+- **Security**: No direct Django integration with external SDKs
 
 ## Registry Snapshots
 

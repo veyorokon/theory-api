@@ -17,6 +17,7 @@ from apps.storage.artifact_store import artifact_store
 from apps.runtime.determinism import write_determinism_receipt
 from apps.runtime.services import settle_execution_success, settle_execution_failure
 from apps.core.adapters import MockAdapter, LocalAdapter, ModalAdapter
+from apps.core.utils.processor_ref import ref_to_local_dir
 
 
 class Command(BaseCommand):
@@ -69,6 +70,19 @@ class Command(BaseCommand):
             '--timeout',
             type=int,
             help='Timeout in seconds'
+        )
+        parser.add_argument(
+            '--build',
+            action='store_true',
+            help='Build container image if not available (requires build spec in registry)'
+        )
+        parser.add_argument(
+            '--save-dir',
+            help='Download all outputs into this directory (mirrors world paths)'
+        )
+        parser.add_argument(
+            '--save-first',
+            help='Download only the first output into this file path'
         )
     
     def materialize_attachments(self, attachments: List[str]) -> Dict[str, Dict[str, Any]]:
@@ -146,9 +160,58 @@ class Command(BaseCommand):
     
     def get_image_digest(self, processor_ref: str) -> str:
         """Get image digest for processor reference."""
-        # For now, return processor path as "digest"
-        # In full implementation, this would load from registry
-        return f"apps/core/processors/{processor_ref.replace('/', '_').replace('@', '_')}"
+        # For local adapter, return just the folder name (no path prefix)
+        # In full implementation, this would load from registry for modal
+        return ref_to_local_dir(processor_ref)
+    
+    def _download_all_outputs(self, outputs: List[Dict[str, Any]], save_dir: str) -> None:
+        """Download all outputs to save_dir, mirroring world paths."""
+        save_path = Path(save_dir)
+        save_path.mkdir(parents=True, exist_ok=True)
+        
+        for output in outputs:
+            if not isinstance(output, dict) or 'path' not in output:
+                continue
+            
+            world_path = output['path']
+            # Create relative path from world path (strip leading /)
+            rel_path = world_path.lstrip('/')
+            local_path = save_path / rel_path
+            
+            # Create parent directories
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Download from artifact store
+            try:
+                content = artifact_store.get_bytes(world_path)
+                with open(local_path, 'wb') as f:
+                    f.write(content)
+                if not self.options.get('json'):
+                    self.stdout.write(f"Downloaded {world_path} -> {local_path}")
+            except Exception as e:
+                self.stderr.write(f"Failed to download {world_path}: {e}")
+    
+    def _download_first_output(self, outputs: List[Dict[str, Any]], save_path: str) -> None:
+        """Download only the first output to save_path."""
+        if not outputs or not isinstance(outputs[0], dict) or 'path' not in outputs[0]:
+            return
+        
+        output = outputs[0]
+        world_path = output['path']
+        local_path = Path(save_path)
+        
+        # Create parent directories
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Download from artifact store
+        try:
+            content = artifact_store.get_bytes(world_path)
+            with open(local_path, 'wb') as f:
+                f.write(content)
+            if not self.options.get('json'):
+                self.stdout.write(f"Downloaded first output {world_path} -> {local_path}")
+        except Exception as e:
+            self.stderr.write(f"Failed to download {world_path}: {e}")
     
     def handle(self, *args, **options):
         """Execute the command."""
@@ -208,6 +271,11 @@ class Command(BaseCommand):
             # Get image digest
             image_digest = self.get_image_digest(options['ref'])
             
+            # Pass execution_id to adapter via adapter_opts
+            adapter_opts = json.loads(options.get('adapter_opts_json') or '{}')
+            if execution:
+                adapter_opts['execution_id'] = str(execution.id)
+            
             # Invoke processor
             result = adapter.invoke(
                 processor_ref=options['ref'],
@@ -217,21 +285,27 @@ class Command(BaseCommand):
                 plan_id=plan.key if plan else 'no-plan',
                 timeout_s=options.get('timeout'),
                 secrets=['OPENAI_API_KEY'] if 'llm' in options['ref'] else None,
-                adapter_opts_json=options.get('adapter_opts_json')
+                adapter_opts_json=json.dumps(adapter_opts),
+                build=options.get('build', False)
             )
             
             # Write determinism receipt if execution exists and successful
             if execution and result.get('status') == 'success':
+                # Derive output_cids from canonical outputs
+                outputs = result.get('outputs') or []
+                output_cids = [o['cid'] for o in outputs if isinstance(o, dict) and 'cid' in o]
+                
+                env_fp = result.get('env_fingerprint') or (result.get('meta') or {}).get('env_fingerprint', '')
                 determinism_uri = write_determinism_receipt(
                     plan=plan,
                     execution=execution,
                     seed=result.get('seed', 0),
                     memo_key=result.get('memo_key', ''),
-                    env_fingerprint=result.get('env_fingerprint', ''),
-                    output_cids=result.get('output_cids', [])
+                    env_fingerprint=env_fp,
+                    output_cids=output_cids
                 )
                 
-                # Settle execution
+                # Settle execution with canonical output metadata
                 settle_execution_success(
                     plan=plan,
                     execution=execution,
@@ -239,11 +313,21 @@ class Command(BaseCommand):
                     actual_micro=result.get('actual_micro', 500),
                     seed=result.get('seed', 0),
                     memo_key=result.get('memo_key', ''),
-                    env_fingerprint=result.get('env_fingerprint', ''),
-                    output_cids=result.get('output_cids', [])
+                    env_fingerprint=env_fp,
+                    output_cids=output_cids,
+                    # Pass canonical output metadata
+                    outputs_index=result.get('index_path'),
+                    outputs_count=len(outputs) if outputs else 0
                 )
                 
                 result['determinism_uri'] = determinism_uri
+            
+            # Download outputs if requested
+            if result.get('status') == 'success' and result.get('outputs'):
+                if options.get('save_dir'):
+                    self._download_all_outputs(result['outputs'], options['save_dir'])
+                elif options.get('save_first'):
+                    self._download_first_output(result['outputs'], options['save_first'])
             
             # Output result
             if options.get('json'):
@@ -253,6 +337,8 @@ class Command(BaseCommand):
                     self.stdout.write("Processor completed successfully")
                     if result.get('outputs'):
                         self.stdout.write(f"Outputs: {json.dumps(result['outputs'], indent=2)}")
+                    if result.get('index_path'):
+                        self.stdout.write(f"Index: {result['index_path']}")
                 else:
                     self.stderr.write(f"Processor failed: {result.get('error', 'Unknown error')}")
                     sys.exit(1)

@@ -1,18 +1,24 @@
-ref: llm/litellm@1
-description: LLM processor using LiteLLM for multi-provider support
-version: 1
-image:
-  dockerfile: apps/core/processors/llm_litellm/Dockerfile
+name: llm/litellm@1
+image: { }
+build:
+  context: apps/core/processors/llm_litellm
+  dockerfile: Dockerfile
 runtime:
-  cpu: 1
-  memory: 512
-  timeout: 300
+  cpu: "1"
+  memory_gb: 2
+  timeout_s: 60
 adapter:
   modal:
     stub_name: llm_litellm_v1
     function_name: process
 secrets:
-  - OPENAI_API_KEY
+  required: [OPENAI_API_KEY]
+  optional: [LITELLM_API_BASE]
+outputs:
+  writes:
+    - { kind: prefix, path: /artifacts/outputs/text/ }
+entrypoint:
+  cmd: ["python","/app/processor.py"]
 inputs:
   schema:
     type: object
