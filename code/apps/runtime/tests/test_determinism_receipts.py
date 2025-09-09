@@ -199,7 +199,7 @@ class TestSettleExecutionIntegration(TestCase):
         event_payload = mock_append_event.call_args[0][1]  # Second positional arg
         
         expected_payload = {
-            'event_type': 'execution.settle.success',
+            'kind': 'execution.settle.success',
             'actual_micro': 3000,
             'estimate_hi_micro': 5000,
             'refund_micro': 2000,  # 5000 - 3000
@@ -207,7 +207,12 @@ class TestSettleExecutionIntegration(TestCase):
             'execution_id': str(self.execution.id),
             'plan_id': self.plan.key
         }
-        self.assertEqual(event_payload, expected_payload)
+        # Check all fields except timestamp
+        for key, value in expected_payload.items():
+            self.assertEqual(event_payload[key], value)
+        # Verify timestamp is present and valid
+        self.assertIn('ts', event_payload)
+        self.assertTrue(event_payload['ts'].endswith('Z'))
     
     @patch('apps.ledger.services.LedgerWriter.append_event')
     def test_settle_execution_failure_emits_event(self, mock_append_event):
@@ -233,14 +238,19 @@ class TestSettleExecutionIntegration(TestCase):
         event_payload = mock_append_event.call_args[0][1]
         
         expected_payload = {
-            'event_type': 'execution.settle.failure',
+            'kind': 'execution.settle.failure',
             'estimate_hi_micro': 5000,
             'metered_actual_micro': 1000,
             'reason': 'Timeout occurred',
             'execution_id': str(self.execution.id),
             'plan_id': self.plan.key
         }
-        self.assertEqual(event_payload, expected_payload)
+        # Check all fields except timestamp
+        for key, value in expected_payload.items():
+            self.assertEqual(event_payload[key], value)
+        # Verify timestamp is present and valid
+        self.assertIn('ts', event_payload)
+        self.assertTrue(event_payload['ts'].endswith('Z'))
     
     @patch('apps.storage.service.storage_service.upload_bytes')
     @patch('apps.ledger.services.LedgerWriter.append_event')

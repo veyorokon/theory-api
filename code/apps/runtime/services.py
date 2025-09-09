@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import Iterable, Optional
+from datetime import datetime, timezone
 from django.db import transaction
 from apps.plans.models import Plan
 from apps.runtime.models import Execution
@@ -41,7 +42,8 @@ def settle_execution_success(
         # Emit ledger event with determinism reference
         ledger_writer = LedgerWriter()
         ledger_writer.append_event(plan, {
-            'event_type': 'execution.settle.success',
+            'kind': 'execution.settle.success',
+            'ts': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
             'actual_micro': int(actual_micro),
             'estimate_hi_micro': int(estimate_hi_micro),
             'refund_micro': refund_micro,
@@ -71,7 +73,8 @@ def settle_execution_failure(
         # Emit ledger event for failure
         ledger_writer = LedgerWriter()
         ledger_writer.append_event(plan, {
-            'event_type': 'execution.settle.failure',
+            'kind': 'execution.settle.failure',
+            'ts': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
             'estimate_hi_micro': int(estimate_hi_micro),
             'metered_actual_micro': int(metered_actual_micro),
             'reason': reason or '',
@@ -86,7 +89,8 @@ def record_memo_hit(*, plan: Plan, execution: Execution, memo_key: str) -> None:
     """
     ledger_writer = LedgerWriter()
     ledger_writer.append_event(plan, {
-        'event_type': 'execution.memo_hit',
+        'kind': 'execution.memo_hit',
+        'ts': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
         'memo_key': memo_key,
         'execution_id': str(execution.id),
         'plan_id': plan.key

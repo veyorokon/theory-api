@@ -11,14 +11,14 @@ except ImportError:
     BLAKE3_AVAILABLE = False
 
 
-def event_hash(payload: dict, prev_hash: str | None = None, include_ts: bool = False) -> str:
+def event_hash(payload: dict, prev_hash: str | None = None, include_ts: bool = True) -> str:
     """
     Compute hash of event payload using canonical JSON serialization with prev_hash chaining.
     
     Args:
         payload: Event payload dictionary
         prev_hash: Previous event hash to include in chain (hex string)
-        include_ts: Whether to include timestamp in hash computation
+        include_ts: Whether to include timestamp in hash computation (default True)
         
     Returns:
         Hex string hash of prev_hash + canonical payload
@@ -26,7 +26,7 @@ def event_hash(payload: dict, prev_hash: str | None = None, include_ts: bool = F
     # Create copy to avoid mutating input
     obj = dict(payload)
     
-    # Remove timestamp if not included in hash
+    # Remove timestamp if not included in hash (backwards compatibility)
     if not include_ts:
         obj.pop('ts', None)
         obj.pop('timestamp', None)

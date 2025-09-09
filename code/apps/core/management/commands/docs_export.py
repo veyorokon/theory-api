@@ -5,6 +5,7 @@ Generates Mermaid diagrams, API documentation, and schemas.
 
 import os
 import json
+import yaml
 import inspect
 from pathlib import Path
 from typing import Dict, List, Any
@@ -40,6 +41,11 @@ class Command(BaseCommand):
             action='store_true',
             help='Export JSON schemas'
         )
+        parser.add_argument(
+            '--registry',
+            action='store_true',
+            help='Export processor registry documentation'
+        )
 
     def handle(self, *args, **options):
         output_dir = Path(options['out'])
@@ -55,6 +61,9 @@ class Command(BaseCommand):
         
         if options['schemas']:
             self.generate_schemas(output_dir)
+        
+        if options['registry']:
+            self.generate_registry(output_dir)
             
         # Generate placeholder content for hybrid pages
         self.generate_placeholders(output_dir)
@@ -294,6 +303,84 @@ class Command(BaseCommand):
             schema['format'] = 'uuid'
         
         return schema
+
+    def generate_registry(self, output_dir: Path):
+        """Generate processor registry documentation"""
+        self.stdout.write('Generating processor registry...')
+        
+        registry_dir = Path('apps/core/registry/processors')
+        registry_docs = []
+        
+        registry_docs.append('# Processor Registry\n')
+        registry_docs.append('Auto-generated processor registry documentation.\n\n')
+        
+        if registry_dir.exists():
+            for yaml_file in registry_dir.glob('*.yaml'):
+                try:
+                    with open(yaml_file, 'r') as f:
+                        processor = yaml.safe_load(f)
+                    
+                    # Document processor
+                    registry_docs.append(f"## {processor.get('ref', 'Unknown')}\n")
+                    registry_docs.append(f"{processor.get('description', 'No description')}\n\n")
+                    
+                    # Image configuration
+                    if 'image' in processor:
+                        registry_docs.append('### Image\n')
+                        image = processor['image']
+                        if 'oci' in image:
+                            registry_docs.append(f"- **OCI**: `{image['oci']}`\n")
+                        if 'dockerfile' in image:
+                            registry_docs.append(f"- **Dockerfile**: `{image['dockerfile']}`\n")
+                        registry_docs.append('\n')
+                    
+                    # Runtime configuration
+                    if 'runtime' in processor:
+                        registry_docs.append('### Runtime\n')
+                        runtime = processor['runtime']
+                        registry_docs.append(f"- **CPU**: {runtime.get('cpu', 'default')}\n")
+                        registry_docs.append(f"- **Memory**: {runtime.get('memory', 'default')} MB\n")
+                        registry_docs.append(f"- **Timeout**: {runtime.get('timeout', 300)} seconds\n")
+                        if 'gpu' in runtime:
+                            registry_docs.append(f"- **GPU**: {runtime['gpu']}\n")
+                        registry_docs.append('\n')
+                    
+                    # Adapter configuration
+                    if 'adapter' in processor:
+                        registry_docs.append('### Adapter Configuration\n')
+                        if 'modal' in processor['adapter']:
+                            modal = processor['adapter']['modal']
+                            registry_docs.append('#### Modal\n')
+                            registry_docs.append(f"- **Stub Name**: `{modal.get('stub_name', 'default')}`\n")
+                            registry_docs.append(f"- **Function**: `{modal.get('function_name', 'process')}`\n")
+                        registry_docs.append('\n')
+                    
+                    # Secrets
+                    if 'secrets' in processor:
+                        registry_docs.append('### Required Secrets\n')
+                        for secret in processor['secrets']:
+                            registry_docs.append(f"- `{secret}`\n")
+                        registry_docs.append('\n')
+                    
+                    # Outputs
+                    if 'outputs' in processor:
+                        registry_docs.append('### Outputs\n')
+                        for output in processor['outputs']:
+                            registry_docs.append(f"- **{output['path']}**: {output.get('description', 'No description')} ({output.get('mime', 'unknown')})\n")
+                        registry_docs.append('\n')
+                    
+                    registry_docs.append('---\n\n')
+                    
+                except Exception as e:
+                    self.stdout.write(self.style.WARNING(f'Error processing {yaml_file}: {e}'))
+        
+        # Write registry documentation
+        registry_file = output_dir / 'registry' / 'processors.md'
+        registry_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(registry_file, 'w') as f:
+            f.write(''.join(registry_docs))
+        
+        self.stdout.write(self.style.SUCCESS(f'Processor registry generated: {registry_file}'))
 
     def generate_predicate_registry(self, registry_dir: Path):
         """Generate predicate registry documentation"""

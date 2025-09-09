@@ -30,5 +30,15 @@
     },
     "returns": "bool",
     "description": "Check if JSONPath expression in artifact equals expected value"
+  },
+  "artifact.jmespath_ok@1": {
+    "params": {
+      "path": "str",
+      "expr": "str",
+      "mode": "str",
+      "expected": "any"
+    },
+    "returns": "bool",
+    "description": "Evaluate JMESPath expression against JSON artifact (truthy or equals mode)"
   }
 }

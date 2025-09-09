@@ -10,6 +10,7 @@ from .builtins import (
     series_has_new,
     json_schema_ok,
     artifact_jsonpath_eq,
+    artifact_jmespath_ok,
 )
 
 __all__ = [
@@ -17,6 +18,7 @@ __all__ = [
     'series_has_new', 
     'json_schema_ok',
     'artifact_jsonpath_eq',
+    'artifact_jmespath_ok',
 ]
 
 # Registry entries for predicates
@@ -44,5 +46,11 @@ PREDICATE_REGISTRY = {
         'params': {'path': 'str', 'expr': 'str', 'expected': 'any'},
         'returns': 'bool',
         'description': 'Check if JSONPath expression in artifact equals expected value',
+    },
+    'artifact.jmespath_ok@1': {
+        'fn': artifact_jmespath_ok,
+        'params': {'path': 'str', 'expr': 'str', 'mode': 'str', 'expected': 'any'},
+        'returns': 'bool',
+        'description': 'Evaluate JMESPath expression against JSON artifact (truthy or equals mode)',
     },
 }

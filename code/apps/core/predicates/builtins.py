@@ -265,6 +265,57 @@ def artifact_jsonpath_eq(path: str, expr: str, expected: Any) -> bool:
         return False
 
 
+def artifact_jmespath_ok(path: str, expr: str, mode: str = 'truthy', expected: Any = None) -> bool:
+    """
+    Evaluate JMESPath expression against JSON artifact.
+    
+    Args:
+        path: Path to JSON artifact (will be canonicalized)
+        expr: JMESPath expression
+        mode: Evaluation mode ('truthy' or 'equals')
+        expected: Expected value for 'equals' mode
+        
+    Returns:
+        True if expression evaluates as expected, False otherwise
+    """
+    try:
+        import jmespath
+    except ImportError:
+        # JMESPath not available - fail predicate
+        return False
+    
+    try:
+        # Canonicalize path
+        canonical_path = canon_path_facet_root(path)
+        
+        # Load JSON artifact via storage
+        data = artifact_read_json(canonical_path)
+        if data is None:
+            return False
+        
+        # Evaluate JMESPath expression
+        result = jmespath.search(expr, data)
+        
+        # Check based on mode
+        if mode == 'truthy':
+            # Truthy check: non-null, non-false, non-empty
+            if result is None or result is False:
+                return False
+            if isinstance(result, (list, dict, str)) and len(result) == 0:
+                return False
+            return True
+        elif mode == 'equals':
+            # Deep equality check
+            return result == expected
+        else:
+            # Unknown mode
+            return False
+            
+    except (ValueError, Exception):
+        # Invalid path or evaluation error
+        return False
+
+
 def _evaluate_simple_jsonpath(data: Dict[str, Any], expr: str) -> tuple[Any, bool]:
     """
     Evaluate simple JSONPath expressions without external dependencies.

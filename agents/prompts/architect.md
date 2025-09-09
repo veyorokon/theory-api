@@ -121,7 +121,13 @@ CHANGESETS — C-XX title, intent, files, minimal diff sketch
 SMOKE — use Makefile (test-unit | test-acceptance | test-property | docs)
 RISKS — brief
 ASKS — only if blocking
+REPO ADAPTATION NOTES — repo-specific paths/deltas (6–8 bullets)
 ```
+
+### Repo Adaptation Notes (RAN)
+- Purpose: The Twin operates repo-agnostically and cannot see code. The Architect MUST add a short, concrete “Repo Adaptation Notes” block in the first turn of each chat to map generic briefs to this repository’s real structure.
+- Content: 6–8 bullets with exact file paths, module names, flags, known deltas (e.g., our ledger uses `LedgerWriter`, selectors are facet-root, `write-prefix` must end with `/`, exporter hooks required), and any environment quirks.
+- Scope: Only repo mechanics and naming — not re-specifying the whole plan. Keep it concise and actionable to eliminate guesswork and prevent drift.
 
 ---
 
