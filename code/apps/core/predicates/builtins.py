@@ -231,39 +231,6 @@ def json_schema_ok(path: str, schema_ref: str) -> bool:
         return False
 
 
-def artifact_jsonpath_eq(path: str, expr: str, expected: Any) -> bool:
-    """
-    Check if JSONPath expression in artifact equals expected value.
-    
-    Args:
-        path: Path to JSON artifact (will be canonicalized)
-        expr: JSONPath expression (subset: $.field, $.field.nested, $.array[0])
-        expected: Expected value to compare against
-        
-    Returns:
-        True if JSONPath result equals expected value, False otherwise
-    """
-    try:
-        # Canonicalize path
-        canonical_path = canon_path_facet_root(path)
-        
-        # Load JSON artifact via storage
-        data = artifact_read_json(canonical_path)
-        if data is None:
-            return False
-        
-        # Evaluate JSONPath expression (simple subset)
-        result, found = _evaluate_simple_jsonpath(data, expr)
-        if not found:
-            return False
-        
-        # Deep equality check (result can be None if the JSON value is null)
-        return result == expected
-        
-    except (ValueError, Exception):
-        # Invalid path or evaluation error
-        return False
-
 
 def artifact_jmespath_ok(path: str, expr: str, mode: str = 'truthy', expected: Any = None) -> bool:
     """

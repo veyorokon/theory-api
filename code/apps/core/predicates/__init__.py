@@ -9,7 +9,6 @@ from .builtins import (
     artifact_exists,
     series_has_new,
     json_schema_ok,
-    artifact_jsonpath_eq,
     artifact_jmespath_ok,
 )
 
@@ -17,7 +16,6 @@ __all__ = [
     'artifact_exists',
     'series_has_new', 
     'json_schema_ok',
-    'artifact_jsonpath_eq',
     'artifact_jmespath_ok',
 ]
 
@@ -40,12 +38,6 @@ PREDICATE_REGISTRY = {
         'params': {'path': 'str', 'schema_ref': 'str'},
         'returns': 'bool',
         'description': 'Validate JSON at path against schema',
-    },
-    'artifact.jsonpath_eq@1': {
-        'fn': artifact_jsonpath_eq,
-        'params': {'path': 'str', 'expr': 'str', 'expected': 'any'},
-        'returns': 'bool',
-        'description': 'Check if JSONPath expression in artifact equals expected value',
     },
     'artifact.jmespath_ok@1': {
         'fn': artifact_jmespath_ok,
