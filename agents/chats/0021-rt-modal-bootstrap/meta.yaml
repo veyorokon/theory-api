@@ -1,27 +1,29 @@
-id: 21
+id: "0021"
 area: rt
 slug: modal-bootstrap
 title: Modal adapter + unified CLI + attachments
 branch: feat/rt-modal-bootstrap-0021
 created: "2025-09-08T00:00:00Z"
-scope: >
-  Introduce Modal adapter (mock + real shell), unified run_processor CLI,
-  attachments-to-artifacts flow ($attach -> $artifact), env_fingerprint,
-  and registry runtime/adapter fields. Remove hello_llm from code/docs.
-  First live Modal processor is llm/litellm@1 (no GPU).
+scope:
+  - Introduce Modal adapter (mock + real shell), unified run_processor CLI
+  - Implement attachments-to-artifacts flow ($attach -> $artifact)
+  - Add env_fingerprint and registry runtime/adapter fields  
+  - Remove hello_llm from code/docs
+  - First live Modal processor is llm/litellm@1 (no GPU)
+
 non_goals:
   - Full streaming SFU
   - GPU scheduling policy beyond validation
+
 acceptance:
-  - Modal: end-to-end run of llm/litellm@1 on Modal using container image from registry,
-    OPENAI_API_KEY resolved via secrets, messages[] with multi-image supported, outputs
-    written under /artifacts/outputs/text/, determinism.json emitted on settle.
-  - CLI: run_processor supports --ref/--adapter/--plan/--write-prefix/--inputs-json and --attach (rewrites to $artifact).
+  - "Modal: end-to-end run of llm/litellm@1 on Modal using container image from registry, OPENAI_API_KEY resolved via secrets, messages[] with multi-image supported, outputs written under /artifacts/outputs/text/, determinism.json emitted on settle."
+  - "CLI: run_processor supports --ref/--adapter/--plan/--write-prefix/--inputs-json and --attach (rewrites to $artifact)."
   - Local + mock adapters green; Modal client shell callable behind feature flag (secrets-gated).
   - artifact.jmespath_ok@1 implemented and unit-tested (truthy, equals).
   - Events use kind+ts; JCS payload includes ts; BLAKE3 chain verified in tests.
   - docs_export renders processor registry fields; drift check passes.
   - hello_llm removed and docs updated.
+
 outputs:
   - code/apps/core/management/commands/run_processor.py
   - code/apps/core/providers/modal_client.py
@@ -34,10 +36,12 @@ outputs:
   - code/apps/core/registry/processors/llm_litellm.yaml
   - docs/source/guides/getting-started.md
   - docs/_generated/registry/index.md
-ci:
+
+ci_gates:
   - "cd code && pytest -q -m 'unit and not integration and not requires_postgres'"
   - "cd code && sphinx-build -W -b html docs docs/_build/html"
-owners: []
-tags: ["runtime","modal","cli","predicates","docs"]
+
+notes: "Tags: runtime, modal, cli, predicates, docs. Major architectural changes: providers→adapters, ArtifactStore shim, RuntimeAdapter ABC."
+
 owner: architect
 state: closed
