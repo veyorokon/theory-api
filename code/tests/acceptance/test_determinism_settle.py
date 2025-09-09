@@ -93,18 +93,18 @@ class TestDeterminismSettlementAcceptance(TransactionTestCase):
         self.assertEqual(latest_event.plan, self.plan)
         self.assertIsNotNone(latest_event.this_hash)
         
-        # Verify event payload
+        # Verify event payload (check fields individually due to dynamic ts field)
         event_payload = latest_event.payload
-        expected_payload = {
-            'event_type': 'execution.settle.success',
-            'actual_micro': 15000,
-            'estimate_hi_micro': 20000,
-            'refund_micro': 5000,  # 20000 - 15000
-            'determinism_uri': expected_path,
-            'execution_id': str(self.execution.id),
-            'plan_id': self.plan.key
-        }
-        self.assertEqual(event_payload, expected_payload)
+        self.assertEqual(event_payload['kind'], 'execution.settle.success')
+        self.assertEqual(event_payload['actual_micro'], 15000)
+        self.assertEqual(event_payload['estimate_hi_micro'], 20000)
+        self.assertEqual(event_payload['refund_micro'], 5000)  # 20000 - 15000
+        self.assertEqual(event_payload['determinism_uri'], expected_path)
+        self.assertEqual(event_payload['execution_id'], str(self.execution.id))
+        self.assertEqual(event_payload['plan_id'], self.plan.key)
+        # Verify timestamp is present and valid
+        self.assertIn('ts', event_payload)
+        self.assertTrue(event_payload['ts'].endswith('Z'))
         
         # Verify hash chaining if there was a previous event
         if initial_event_count > 0:
@@ -138,15 +138,16 @@ class TestDeterminismSettlementAcceptance(TransactionTestCase):
         
         latest_event = new_events.last()
         event_payload = latest_event.payload
-        expected_payload = {
-            'event_type': 'execution.settle.failure',
-            'estimate_hi_micro': 25000,
-            'metered_actual_micro': 8000,
-            'reason': 'Resource allocation failed',
-            'execution_id': str(self.execution.id),
-            'plan_id': self.plan.key
-        }
-        self.assertEqual(event_payload, expected_payload)
+        # Check all fields except timestamp (ts field is dynamic)
+        self.assertEqual(event_payload['kind'], 'execution.settle.failure')
+        self.assertEqual(event_payload['estimate_hi_micro'], 25000)
+        self.assertEqual(event_payload['metered_actual_micro'], 8000)
+        self.assertEqual(event_payload['reason'], 'Resource allocation failed')
+        self.assertEqual(event_payload['execution_id'], str(self.execution.id))
+        self.assertEqual(event_payload['plan_id'], self.plan.key)
+        # Verify timestamp is present and valid
+        self.assertIn('ts', event_payload)
+        self.assertTrue(event_payload['ts'].endswith('Z'))
     
     @patch('apps.storage.service.storage_service.upload_bytes')
     def test_multiple_settlements_maintain_hash_chain(self, mock_upload):
@@ -290,5 +291,5 @@ class TestDeterminismSettlementAcceptance(TransactionTestCase):
         self.assertEqual(events.count(), 1)
         
         event = events.first()
-        self.assertEqual(event.payload['event_type'], 'execution.settle.failure')
+        self.assertEqual(event.payload['kind'], 'execution.settle.failure')
         self.assertEqual(event.payload['metered_actual_micro'], 500)
