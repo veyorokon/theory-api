@@ -106,7 +106,7 @@ All CI/CD changes follow a structured workflow:
 - **GitHub Environments:** Provide secret isolation and approval requirements
 - **Branch Protection:** Production deploys require human review and passing tests
 
-See [CI/CD Operations Guide](../guides/ci-cd) for detailed procedures.
+See [CI/CD Operations Guide](../runbooks/ci-cd) for detailed procedures.
 
 ## Status History
 

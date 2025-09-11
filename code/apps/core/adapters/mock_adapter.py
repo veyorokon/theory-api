@@ -6,6 +6,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from .base import RuntimeAdapter
+from .envelope import success_envelope, error_envelope
 
 
 class MockAdapter(RuntimeAdapter):
@@ -16,6 +17,75 @@ class MockAdapter(RuntimeAdapter):
         self.executions = []
     
     def invoke(
+        self,
+        *,
+        processor_ref: str,
+        inputs_json: Dict[str, Any],
+        write_prefix: str,
+        execution_id: str,
+        registry_snapshot: Dict[str, Any],
+        adapter_opts: Dict[str, Any],
+        secrets_present: List[str],
+    ) -> Dict[str, Any]:
+        """
+        Invoke processor using new keyword-only signature.
+        """
+        return self.invoke_kw(
+            processor_ref=processor_ref,
+            inputs_json=inputs_json,
+            write_prefix=write_prefix,
+            execution_id=execution_id,
+            registry_snapshot=registry_snapshot,
+            adapter_opts=adapter_opts,
+            secrets_present=secrets_present,
+        )
+
+    def invoke_kw(
+        self,
+        *,
+        processor_ref: str,
+        inputs_json: Dict[str, Any],
+        write_prefix: str,
+        execution_id: str,
+        registry_snapshot: Dict[str, Any],
+        adapter_opts: Dict[str, Any],
+        secrets_present: List[str],
+    ) -> Dict[str, Any]:
+        """
+        Keyword-only invoke that adapts to legacy implementation.
+        """
+        from .envelope import error_envelope
+        
+        try:
+            spec = registry_snapshot["processors"][processor_ref]
+            image_digest = spec["image"]["oci"]
+            timeout_s = spec.get("runtime", {}).get("timeout_s")
+        except Exception as e:
+            return error_envelope(
+                execution_id=execution_id,
+                code="ERR_SPEC_RESOLUTION",
+                message=f"MockAdapter: bad registry snapshot: {e}",
+                env_fingerprint="adapter=mock",
+            )
+
+        # Call legacy implementation
+        legacy_inputs = json.dumps(inputs_json, ensure_ascii=False)
+        legacy_opts = json.dumps(adapter_opts, ensure_ascii=False)
+        plan_id = execution_id  # Use execution_id as plan_id for legacy
+
+        return self._invoke_legacy(
+            processor_ref,
+            image_digest,
+            legacy_inputs,
+            write_prefix,
+            plan_id,
+            timeout_s=timeout_s,
+            secrets=secrets_present,
+            adapter_opts_json=legacy_opts,
+            build=False,
+        )
+
+    def _invoke_legacy(
         self,
         processor_ref: str,
         image_digest: str,
@@ -121,23 +191,19 @@ class MockAdapter(RuntimeAdapter):
             # Sort entries by path
             entries.sort(key=lambda x: x['path'])
             
-            # Create index artifact
+            # Create index artifact with object wrapper
             index_path = f"/artifacts/execution/{execution_id}/outputs.json"
-            index_bytes = json.dumps(entries, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
+            index_bytes = json.dumps({"outputs": entries}, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
             artifact_store.put_bytes(index_path, index_bytes, 'application/json')
             
-            result = {
-                'status': 'success',
-                'execution_id': execution_id,
-                'outputs': entries,
-                'index_path': index_path,
-                'meta': {
-                    'image_digest': f'mock-{image_digest}',
-                    'env_fingerprint': f"mock-{image_digest}-cpu:1-memory:512",
-                    'duration_ms': 100,
-                    'io_bytes': sum(e['size_bytes'] for e in entries)
-                }
-            }
+            # Use shared envelope serializer
+            result = success_envelope(
+                execution_id, entries, index_path,
+                f'mock-{image_digest}',
+                f"mock-{image_digest}-cpu:1-memory:512",
+                100,
+                {'io_bytes': sum(e['size_bytes'] for e in entries)}
+            )
         else:
             # Generic mock processor
             result_data = json.dumps({
@@ -157,23 +223,19 @@ class MockAdapter(RuntimeAdapter):
                 'mime': 'application/json'
             }]
             
-            # Create index artifact
+            # Create index artifact with object wrapper
             index_path = f"/artifacts/execution/{execution_id}/outputs.json"
-            index_bytes = json.dumps(entries, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
+            index_bytes = json.dumps({"outputs": entries}, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
             artifact_store.put_bytes(index_path, index_bytes, 'application/json')
             
-            result = {
-                'status': 'success',
-                'execution_id': execution_id,
-                'outputs': entries,
-                'index_path': index_path,
-                'meta': {
-                    'image_digest': f'mock-{image_digest}',
-                    'env_fingerprint': f"mock-{image_digest}-generic",
-                    'duration_ms': 50,
-                    'io_bytes': len(result_bytes)
-                }
-            }
+            # Use shared envelope serializer
+            result = success_envelope(
+                execution_id, entries, index_path,
+                f'mock-{image_digest}',
+                f"mock-{image_digest}-generic",
+                50,
+                {'io_bytes': len(result_bytes)}
+            )
         
         # Track execution
         self.executions.append({

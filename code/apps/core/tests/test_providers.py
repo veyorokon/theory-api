@@ -3,8 +3,8 @@ Tests for provider factory and system integration.
 """
 from django.test import TestCase
 
-from apps.core.providers import get_llm_provider
-from apps.core.providers.mock import MockLLM
+from apps.core.integrations import get_llm_provider
+from apps.core.integrations.mock import MockLLM
 
 
 class TestProviderFactory(TestCase):

@@ -62,7 +62,7 @@ class LLMStreamProvider(LLMProvider, Protocol):
 
 # Re-export MockLLM for backward compatibility
 try:
-    from .providers.mock import MockLLM  # type: ignore
+    from .integrations.mock import MockLLM  # type: ignore
 except ImportError:  # pragma: no cover
     # Fallback for cases where providers package not available
     class MockLLM:  # type: ignore

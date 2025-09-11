@@ -88,8 +88,8 @@ cd theory_api/code && python manage.py run_processor --ref llm/litellm@1 --adapt
 With Modal token configured and `MODAL_ENABLED=True`:
 
 ```bash
-export MODAL_TOKEN_ID="your-token"
-export MODAL_TOKEN_SECRET="your-secret"
+export MODAL_TOKEN_ID="your-token-id"
+export MODAL_TOKEN_SECRET="your-token-secret"
 export OPENAI_API_KEY="your-key"
 export MODAL_ENABLED=True
 cd theory_api/code && python manage.py run_processor --ref llm/litellm@1 --adapter modal --inputs-json '{"messages":[{"role":"user","content":"Hello!"}]}'

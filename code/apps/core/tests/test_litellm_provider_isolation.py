@@ -5,7 +5,7 @@ Ensures no global state contamination between test runs.
 """
 import litellm
 import pytest
-from apps.core.providers.litellm_provider import LiteLLMProvider
+from apps.core.integrations.litellm_provider import LiteLLMProvider
 
 
 def test_provider_does_not_mutate_global_api_base(monkeypatch):

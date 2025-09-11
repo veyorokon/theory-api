@@ -1,14 +1,16 @@
 """
-Run processor management command - unified processor execution with attachments.
+Run processor management command - unified processor execution with new keyword-only API.
 
-Supports local, mock, and Modal adapters with attachment materialization.
+Supports local, mock, and Modal adapters with structured data types.
 """
+from __future__ import annotations
 import json
 import sys
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from apps.plans.models import Plan
@@ -16,8 +18,11 @@ from apps.runtime.models import Transition, Execution
 from apps.storage.artifact_store import artifact_store
 from apps.runtime.determinism import write_determinism_receipt
 from apps.runtime.services import settle_execution_success, settle_execution_failure
-from apps.core.adapters import MockAdapter, LocalAdapter, ModalAdapter
-from apps.core.utils.processor_ref import ref_to_local_dir
+from apps.core.adapters.mock_adapter import MockAdapter
+from apps.core.adapters.local_adapter import LocalAdapter
+from apps.core.adapters.modal_adapter import ModalAdapter
+from apps.core.registry.loader import snapshot_for_ref, get_secrets_present_for_spec
+from apps.core.adapters.envelope import error_envelope
 
 
 class Command(BaseCommand):
@@ -149,20 +154,14 @@ class Command(BaseCommand):
     
     def get_adapter(self, adapter_name: str):
         """Get adapter instance by name."""
-        if adapter_name == 'mock':
-            return MockAdapter()
-        elif adapter_name == 'modal':
-            return ModalAdapter()
-        elif adapter_name == 'local':
-            return LocalAdapter()
-        else:
+        adapters = {
+            "local": LocalAdapter,
+            "mock": MockAdapter,
+            "modal": ModalAdapter,
+        }
+        if adapter_name not in adapters:
             raise ValueError(f"Unknown adapter: {adapter_name}")
-    
-    def get_image_digest(self, processor_ref: str) -> str:
-        """Get image digest for processor reference."""
-        # For local adapter, return just the folder name (no path prefix)
-        # In full implementation, this would load from registry for modal
-        return ref_to_local_dir(processor_ref)
+        return adapters[adapter_name]()
     
     def _download_all_outputs(self, outputs: List[Dict[str, Any]], save_dir: str) -> None:
         """Download all outputs to save_dir, mirroring world paths."""
@@ -265,29 +264,54 @@ class Command(BaseCommand):
                 )
         
         try:
+            # Load registry snapshot
+            ref = options['ref']
+            try:
+                registry_snapshot = snapshot_for_ref(ref)
+                spec = registry_snapshot["processors"][ref]
+            except Exception as e:
+                raise CommandError(f"Failed to load registry for {ref}: {e}")
+            
+            # Get secrets present in environment
+            secrets_present = get_secrets_present_for_spec(spec)
+            
             # Get adapter
             adapter = self.get_adapter(options['adapter'])
             
-            # Get image digest
-            image_digest = self.get_image_digest(options['ref'])
-            
-            # Pass execution_id to adapter via adapter_opts
+            # Parse adapter options
             adapter_opts = json.loads(options.get('adapter_opts_json') or '{}')
             if execution:
                 adapter_opts['execution_id'] = str(execution.id)
             
-            # Invoke processor
-            result = adapter.invoke(
-                processor_ref=options['ref'],
-                image_digest=image_digest,
-                inputs_json=json.dumps(inputs),
-                write_prefix=write_prefix,
-                plan_id=plan.key if plan else 'no-plan',
-                timeout_s=options.get('timeout'),
-                secrets=['OPENAI_API_KEY'] if 'llm' in options['ref'] else None,
-                adapter_opts_json=json.dumps(adapter_opts),
-                build=options.get('build', False)
-            )
+            # Generate execution_id if not provided
+            execution_id = str(execution.id) if execution else str(uuid.uuid4())
+            
+            # Invoke processor with new keyword-only signature
+            try:
+                result = adapter.invoke(
+                    processor_ref=ref,
+                    inputs_json=inputs,
+                    write_prefix=write_prefix,
+                    execution_id=execution_id,
+                    registry_snapshot=registry_snapshot,
+                    adapter_opts=adapter_opts,
+                    secrets_present=secrets_present,
+                )
+            except TypeError as te:
+                # Adapter doesn't implement new signature
+                result = error_envelope(
+                    execution_id=execution_id,
+                    code="ERR_ADAPTER_SIGNATURE",
+                    message=f"Adapter {options['adapter']} does not implement the new keyword-only signature: {te}",
+                    env_fingerprint=f"adapter={options['adapter']}",
+                )
+            except Exception as e:
+                result = error_envelope(
+                    execution_id=execution_id,
+                    code="ERR_RUN_PROCESSOR",
+                    message=f"{e.__class__.__name__}: {e}",
+                    env_fingerprint=f"adapter={options['adapter']}",
+                )
             
             # Write determinism receipt if execution exists and successful
             if execution and result.get('status') == 'success':
@@ -331,16 +355,15 @@ class Command(BaseCommand):
             
             # Output result
             if options.get('json'):
-                self.stdout.write(json.dumps(result, indent=2))
+                self.stdout.write(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
             else:
                 if result.get('status') == 'success':
-                    self.stdout.write("Processor completed successfully")
-                    if result.get('outputs'):
-                        self.stdout.write(f"Outputs: {json.dumps(result['outputs'], indent=2)}")
-                    if result.get('index_path'):
-                        self.stdout.write(f"Index: {result['index_path']}")
+                    # Print index path on success (matches new contract)
+                    self.stdout.write(result.get('index_path', ''))
                 else:
-                    self.stderr.write(f"Processor failed: {result.get('error', 'Unknown error')}")
+                    # Print error details
+                    err = result.get('error') or {}
+                    self.stderr.write(f"{err.get('code','ERR')}: {err.get('message','unknown error')}")
                     sys.exit(1)
                     
         except Exception as e:

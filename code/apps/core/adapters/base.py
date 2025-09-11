@@ -1,37 +1,50 @@
 """
 RuntimeAdapter abstract base class for processor execution.
 """
-from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from __future__ import annotations
+from typing import Any, Dict, List
 
 
-class RuntimeAdapter(ABC):
-    """Abstract base class for runtime execution adapters."""
-    
-    @abstractmethod
+class RuntimeAdapter:
+    """
+    All adapters should expose a keyword-only invoke() with the new signature.
+
     def invoke(
         self,
+        *,
         processor_ref: str,
-        image_digest: str,
-        inputs_json: str,
+        inputs_json: Dict[str, Any],
         write_prefix: str,
-        plan_id: str,
-        timeout_s: Optional[int] = None,
-        secrets: Optional[List[str]] = None,
-        adapter_opts_json: Optional[str] = None
+        execution_id: str,
+        registry_snapshot: Dict[str, Any],
+        adapter_opts: Dict[str, Any],
+        secrets_present: List[str],
+    ) -> Dict[str, Any]:
+        ...
+    """
+
+    def invoke(
+        self,
+        *,
+        processor_ref: str,
+        inputs_json: Dict[str, Any],
+        write_prefix: str,
+        execution_id: str,
+        registry_snapshot: Dict[str, Any],
+        adapter_opts: Dict[str, Any],
+        secrets_present: List[str],
     ) -> Dict[str, Any]:
         """
         Invoke a processor with the given configuration.
         
         Args:
             processor_ref: Processor reference (e.g., 'llm/litellm@1')
-            image_digest: Container image digest or identifier
-            inputs_json: JSON string with processor inputs
+            inputs_json: Dict with processor inputs (not JSON string)
             write_prefix: Prefix path for writing outputs (must end with /)
-            plan_id: Plan identifier for tracking
-            timeout_s: Optional timeout in seconds
-            secrets: Optional list of secret names to resolve
-            adapter_opts_json: Optional adapter-specific options as JSON string
+            execution_id: Unique execution identifier
+            registry_snapshot: Registry snapshot containing processor specs
+            adapter_opts: Adapter-specific options (not JSON string)
+            secrets_present: List of secret names available in environment
             
         Returns:
             Execution result dictionary (canonical):
@@ -41,7 +54,7 @@ class RuntimeAdapter(ABC):
                 - index_path: str (path to outputs.json)
                 - meta: {image_digest, env_fingerprint, duration_ms, ...}
         """
-        pass
+        raise NotImplementedError("Subclasses must implement invoke method")
     
     def validate_write_prefix(self, write_prefix: str) -> bool:
         """

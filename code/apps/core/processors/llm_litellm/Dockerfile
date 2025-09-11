@@ -13,11 +13,15 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Install only what this processor needs
-COPY requirements.txt /app/requirements.txt
+COPY apps/core/processors/llm_litellm/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Copy the processor code (must live in this directory)
-COPY processor.py /app/processor.py
+# Copy shared providers library (Django-free)
+COPY libs/runtime_common /app/libs/runtime_common
 
-# Contract: read /work/inputs.json or stdin; write outputs under /work/out/**
-ENTRYPOINT ["python", "/app/processor.py"]
+# Copy foundation and processor code
+COPY apps/core/processors/llm_litellm/foundation /app/foundation
+COPY apps/core/processors/llm_litellm/main.py /app/main.py
+
+# Contract: read /work/inputs.json; write outputs under /work/out/**
+# No ENTRYPOINT; caller provides command to run main

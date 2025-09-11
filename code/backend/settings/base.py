@@ -161,5 +161,13 @@ LLM_SETTINGS = {
     "api_base": os.environ.get("LLM_API_BASE", ""),
 }
 
+# Feature flags
+# Modal adapter gating comes from Django settings (not raw env var). Map env→setting here.
+MODAL_ENABLED = os.environ.get('MODAL_ENABLED', 'false').lower() == 'true'
+# Modal environment name for Function.from_name(..., environment_name=...)
+MODAL_ENV = os.environ.get('MODAL_ENV', '').strip() or 'dev'
+# Stable Modal app name (module uses this); env is selected at deploy/invoke time
+MODAL_APP_NAME = os.environ.get('MODAL_APP_NAME', 'theory-rt')
+
 # Lease management feature flag
 LEASES_ENABLED = False

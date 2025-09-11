@@ -15,6 +15,7 @@ from django.conf import settings
 
 from .base import RuntimeAdapter
 from .ensure_image import ensure_image
+from .envelope import success_envelope, error_envelope
 from apps.core.utils.processor_ref import registry_path
 
 
@@ -26,6 +27,75 @@ class LocalAdapter(RuntimeAdapter):
         self.executions = []
     
     def invoke(
+        self,
+        *,
+        processor_ref: str,
+        inputs_json: Dict[str, Any],
+        write_prefix: str,
+        execution_id: str,
+        registry_snapshot: Dict[str, Any],
+        adapter_opts: Dict[str, Any],
+        secrets_present: List[str],
+    ) -> Dict[str, Any]:
+        """
+        Invoke processor using new keyword-only signature.
+        """
+        return self.invoke_kw(
+            processor_ref=processor_ref,
+            inputs_json=inputs_json,
+            write_prefix=write_prefix,
+            execution_id=execution_id,
+            registry_snapshot=registry_snapshot,
+            adapter_opts=adapter_opts,
+            secrets_present=secrets_present,
+        )
+
+    def invoke_kw(
+        self,
+        *,
+        processor_ref: str,
+        inputs_json: Dict[str, Any],
+        write_prefix: str,
+        execution_id: str,
+        registry_snapshot: Dict[str, Any],
+        adapter_opts: Dict[str, Any],
+        secrets_present: List[str],
+    ) -> Dict[str, Any]:
+        """
+        Keyword-only invoke that adapts to legacy implementation.
+        """
+        from .envelope import error_envelope
+        
+        try:
+            spec = registry_snapshot["processors"][processor_ref]
+            image_digest = spec["image"]["oci"]
+            timeout_s = spec.get("runtime", {}).get("timeout_s")
+        except Exception as e:
+            return error_envelope(
+                execution_id=execution_id,
+                code="ERR_SPEC_RESOLUTION",
+                message=f"LocalAdapter: bad registry snapshot: {e}",
+                env_fingerprint="adapter=local",
+            )
+
+        # Call legacy implementation
+        legacy_inputs = json.dumps(inputs_json, ensure_ascii=False)
+        legacy_opts = json.dumps(adapter_opts, ensure_ascii=False)
+        plan_id = execution_id  # Use execution_id as plan_id for legacy
+
+        return self._invoke_legacy(
+            processor_ref,
+            image_digest,
+            legacy_inputs,
+            write_prefix,
+            plan_id,
+            timeout_s=timeout_s,
+            secrets=secrets_present,
+            adapter_opts_json=legacy_opts,
+            build=False,
+        )
+
+    def _invoke_legacy(
         self,
         processor_ref: str,
         image_digest: str,  # Not used - we read from registry
@@ -208,11 +278,9 @@ class LocalAdapter(RuntimeAdapter):
         # Add standard environment variables
         cmd.extend(['-e', 'THEORY_OUTPUT_DIR=/work/out'])
         
-        # Add image
+        # Add image and explicit processor command (no ENTRYPOINT in image)
         cmd.append(image_ref)
-        
-        # Add processor arguments (Dockerfile ENTRYPOINT will handle the Python execution)
-        cmd.extend(['--inputs', '/work/inputs.json', '--write-prefix', write_prefix])
+        cmd.extend(['python', '/app/main.py', '--inputs', '/work/inputs.json', '--write-prefix', write_prefix])
         
         return cmd
     
@@ -254,13 +322,8 @@ class LocalAdapter(RuntimeAdapter):
             world_path = canon_path_facet_root(f"{write_prefix}{rel}")
             
             if world_path in seen:
-                return {
-                    'status': 'error',
-                    'error': {
-                        'code': 'duplicate_target_path',
-                        'message': f'Duplicate target path: {world_path}'
-                    }
-                }
+                env_fingerprint = self._compose_env_fingerprint(registry_spec)
+                return error_envelope(execution_id, 'duplicate_target_path', f'Duplicate target path: {world_path}', env_fingerprint)
             seen.add(world_path)
             
             data = f.read_bytes()
@@ -281,26 +344,20 @@ class LocalAdapter(RuntimeAdapter):
         # Sort deterministically by path
         entries.sort(key=lambda e: e['path'])
         
-        # Create index artifact
-        index_bytes = json.dumps(entries, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
+        # Create index artifact with object wrapper
+        index_bytes = json.dumps({"outputs": entries}, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
         index_path = f"/artifacts/execution/{execution_id}/outputs.json"
         artifact_store.put_bytes(index_path, index_bytes, 'application/json')
         
-        # Build metadata
-        meta = {
-            'image_digest': registry_spec.get('image', {}).get('oci') or 'local-build',
-            'env_fingerprint': self._compose_env_fingerprint(registry_spec),
-            'duration_ms': 0,
-            'io_bytes': io_bytes,
-        }
+        # Use shared envelope serializer
+        image_digest = registry_spec.get('image', {}).get('oci') or 'local-build'
+        env_fingerprint = self._compose_env_fingerprint(registry_spec)
+        meta_extra = {'io_bytes': io_bytes}
         
-        return {
-            'status': 'success',
-            'execution_id': execution_id,
-            'outputs': entries,
-            'index_path': index_path,
-            'meta': meta
-        }
+        return success_envelope(
+            execution_id, entries, index_path,
+            image_digest, env_fingerprint, 0, meta_extra
+        )
     
     def _process_failure_outputs(
         self, 
@@ -314,10 +371,8 @@ class LocalAdapter(RuntimeAdapter):
         if result.stdout.strip():
             error_msg += f'. STDOUT: {result.stdout[:200]}'
         
-        return {
-            'status': 'error',
-            'error': error_msg
-        }
+        env_fingerprint = self._compose_env_fingerprint(registry_spec)
+        return error_envelope('local-error', 'container_execution_failed', error_msg, env_fingerprint)
     
     def _compose_env_fingerprint(self, registry_spec: Dict[str, Any]) -> str:
         """Compose environment fingerprint from registry specification."""

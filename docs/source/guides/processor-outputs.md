@@ -72,23 +72,25 @@ Outputs undergo path canonicalization to prevent duplicates and ensure determini
 
 ## Index Artifact
 
-The index artifact at `/artifacts/execution/<id>/outputs.json` contains the complete outputs array in JSON Canonical Serialization (JCS) format:
+The index artifact at `/artifacts/execution/<id>/outputs.json` contains the complete outputs array in an object wrapper using JSON Canonical Serialization (JCS) format:
 
 ```json
-[
-  {
-    "cid": "b3:def456...",
-    "mime": "text/plain", 
-    "path": "/artifacts/outputs/text/response.txt",
-    "size_bytes": 1247
-  },
-  {
-    "cid": "b3:789abc...",
-    "mime": "application/json",
-    "path": "/artifacts/outputs/meta.json", 
-    "size_bytes": 198
-  }
-]
+{
+  "outputs": [
+    {
+      "cid": "b3:def456...",
+      "mime": "text/plain", 
+      "path": "/artifacts/outputs/text/response.txt",
+      "size_bytes": 1247
+    },
+    {
+      "cid": "b3:789abc...",
+      "mime": "application/json",
+      "path": "/artifacts/outputs/meta.json", 
+      "size_bytes": 198
+    }
+  ]
+}
 ```
 
 This provides a deterministic, cryptographically verifiable record of execution outputs.

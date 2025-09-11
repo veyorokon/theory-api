@@ -8,8 +8,10 @@ A universal, event-driven framework to achieve complex goals under budget and po
 :caption: Guides
 
 guides/getting-started
-guides/ci-cd
 guides/processor-outputs
+guides/cli
+guides/modal
+guides/tests
 contributing
 ```
 
@@ -21,10 +23,13 @@ concepts/north-star
 concepts/storage-planes
 concepts/world-plan-ledger
 concepts/facets-and-paths
+concepts/worldpath
 concepts/ledger-events
 concepts/predicates
 concepts/providers
 concepts/registry-and-adapters
+concepts/adapters
+concepts/envelopes-and-index
 concepts/agents-and-cognition
 glossary
 ```
@@ -57,8 +62,16 @@ adr/index
 
 ```{toctree}
 :maxdepth: 1
+:caption: Reference
+
+reference/configuration
+```
+
+```{toctree}
+:maxdepth: 1
 :caption: Runbooks
 
+runbooks/ci-cd
 runbooks/deployments
 ```
 

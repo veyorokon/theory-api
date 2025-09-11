@@ -1,152 +1,63 @@
-"""
-Environment fingerprint utilities for determinism receipts.
+# apps/core/utils/env_fingerprint.py
+from __future__ import annotations
+import os
+from typing import Dict, Iterable, List, Optional
 
-Provides stable, JCS-hashed environment specifications for reproducibility.
-"""
-import json
-from typing import Dict, List, Any
+def collect_present_env_keys(
+    base_keys: Iterable[str] | None = None,
+    additional_keys: Iterable[str] | None = None,
+) -> List[str]:
+    """
+    Collect the union of env var names from the provided lists that are present in os.environ.
+    Values are NEVER included. The result is sorted for stability.
+    """
+    keys = set()
+    for src in (base_keys or []), (additional_keys or []):
+        for k in src:
+            if k and k in os.environ:
+                keys.add(k)
+    return sorted(keys)
 
-try:
-    import blake3
-    BLAKE3_AVAILABLE = True
-except ImportError:
-    import hashlib
-    BLAKE3_AVAILABLE = False
-
+def _norm_gpu(gpu: object) -> str:
+    if gpu is None:
+        return "none"
+    s = str(gpu).strip()
+    return s if s else "none"
 
 def compose_env_fingerprint(
+    *,
     image_digest: str,
-    runtime: Dict[str, Any],
-    versions: Dict[str, str],
-    present_env_keys: List[str]
+    runtime: Dict[str, object],
+    versions: Dict[str, str] | None = None,
+    present_env_keys: Iterable[str] | None = None,
+    snapshot: str = "off",
+    region: Optional[str] = None,
+    adapter: str,
 ) -> str:
     """
-    Compose environment fingerprint from execution context.
-    
-    Args:
-        image_digest: Container image digest or identifier
-        runtime: Runtime configuration (cpu, memory, gpu, etc.)
-        versions: Version information (python, packages, etc.)
-        present_env_keys: List of environment variable names that were present
-                         (names only, not values for security)
-    
-    Returns:
-        Stable JCS-hashed environment fingerprint string
+    Produce a stable, human-readable fingerprint string. Field order is fixed.
+    Example:
+      "adapter=modal,image=ghcr.io/x@sha256:abc...,gpu=none,memory_gb=4,timeout_s=120,snapshot=off,region=us-east-1,env=[OPENAI_API_KEY,LITELLM_API_BASE]"
     """
-    # Compose fingerprint object
-    fingerprint_obj = {
-        'image_digest': str(image_digest),
-        'runtime': _normalize_runtime(runtime),
-        'versions': dict(versions) if versions else {},
-        'env_keys': sorted(present_env_keys) if present_env_keys else []
-    }
-    
-    # Generate canonical JSON (JCS-style: sorted keys, compact)
-    canonical_json = json.dumps(
-        fingerprint_obj, 
-        sort_keys=True, 
-        separators=(',', ':'), 
-        ensure_ascii=False
-    ).encode('utf-8')
-    
-    # Hash with BLAKE3 or SHA256
-    if BLAKE3_AVAILABLE:
-        fingerprint_hash = blake3.blake3(canonical_json).hexdigest()
-        return f"b3:{fingerprint_hash}"
+    mem = runtime.get("memory_gb", "")
+    timeout = runtime.get("timeout_s", "")
+    gpu = _norm_gpu(runtime.get("gpu"))
+    keys = list(present_env_keys or [])
+    parts: List[str] = [
+        f"adapter={adapter}",
+        f"image={image_digest}",
+        f"gpu={gpu}",
+        f"memory_gb={mem}",
+        f"timeout_s={timeout}",
+        f"snapshot={snapshot or 'off'}",
+        f"region={region}" if region else "region=",
+    ]
+    if versions:
+        # Include sorted tool versions if provided (optional)
+        ver_str = ",".join([f"{k}={versions[k]}" for k in sorted(versions)])
+        parts.append(f"versions=[{ver_str}]")
+    if keys:
+        parts.append(f"env=[{','.join(sorted(keys))}]")
     else:
-        fingerprint_hash = hashlib.sha256(canonical_json).hexdigest()
-        return f"s256:{fingerprint_hash}"
-
-
-def _normalize_runtime(runtime: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Normalize runtime configuration for stable fingerprinting.
-    
-    Args:
-        runtime: Runtime configuration dictionary
-        
-    Returns:
-        Normalized runtime configuration
-    """
-    normalized = {}
-    
-    # Standard runtime fields
-    if 'cpu' in runtime:
-        normalized['cpu'] = float(runtime['cpu'])
-    
-    if 'memory' in runtime:
-        normalized['memory'] = int(runtime['memory'])
-    
-    if 'gpu' in runtime:
-        normalized['gpu'] = str(runtime['gpu'])
-    
-    if 'timeout' in runtime:
-        normalized['timeout'] = int(runtime['timeout'])
-    
-    # Include any other fields in sorted order
-    for key in sorted(runtime.keys()):
-        if key not in normalized:
-            normalized[key] = runtime[key]
-    
-    return normalized
-
-
-def extract_env_keys(secrets: List[str], additional_keys: List[str] = None) -> List[str]:
-    """
-    Extract environment variable keys that should be included in fingerprint.
-    
-    Args:
-        secrets: List of secret names that were resolved
-        additional_keys: Additional environment keys to include
-        
-    Returns:
-        Sorted list of environment variable names
-    """
-    env_keys = []
-    
-    # Add secret names
-    if secrets:
-        env_keys.extend(secrets)
-    
-    # Add additional keys
-    if additional_keys:
-        env_keys.extend(additional_keys)
-    
-    # Return sorted unique list
-    return sorted(set(env_keys))
-
-
-def compose_simple_fingerprint(
-    image_digest: str,
-    cpu: float = 1.0,
-    memory: int = 512,
-    gpu: str = None,
-    secrets: List[str] = None
-) -> str:
-    """
-    Compose simple environment fingerprint for common use cases.
-    
-    Args:
-        image_digest: Container image digest
-        cpu: CPU allocation
-        memory: Memory allocation in MB
-        gpu: Optional GPU specification
-        secrets: Optional list of secret names
-        
-    Returns:
-        Environment fingerprint string
-    """
-    runtime = {
-        'cpu': cpu,
-        'memory': memory
-    }
-    
-    if gpu:
-        runtime['gpu'] = gpu
-    
-    return compose_env_fingerprint(
-        image_digest=image_digest,
-        runtime=runtime,
-        versions={},
-        present_env_keys=secrets or []
-    )
+        parts.append("env=[]")
+    return ",".join(parts)

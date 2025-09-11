@@ -68,6 +68,12 @@ class StorageService:
             content_type=content_type, 
             metadata=metadata
         )
+    
+    def write_file(self, path: str, data, mime: str = "application/octet-stream"):
+        """Write file data to storage. Accepts str or bytes data."""
+        if isinstance(data, str):
+            data = data.encode("utf-8")
+        return self.upload_bytes(data, path, content_type=mime)
 
 
 # Singleton instance
