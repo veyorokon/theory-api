@@ -73,6 +73,9 @@ jobs:
           S3_SECRET_KEY: minioadmin
           S3_BUCKET: default
         run: |
+          # Authenticate Docker to GitHub Container Registry
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          
           # Verify MinIO connectivity
           echo "🔍 Testing MinIO connectivity..."
           curl -f http://127.0.0.1:9000/minio/health/live || echo "⚠️ MinIO health check failed"

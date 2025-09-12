@@ -28,8 +28,8 @@ All adapters return consistent envelope structures regardless of execution envir
   ],
   "index_path": "/artifacts/execution/E123/outputs.json",
   "meta": {
-    "image_digest": "ghcr.io/veyorokon/llm_litellm@sha256:...",
-    "env_fingerprint": "adapter=modal,env_keys_present=[OPENAI_API_KEY],modal_env=dev",
+    "image_digest": "ghcr.io/owner/llm_litellm@sha256:...",
+    "env_fingerprint": "adapter=modal,image_digest=...,cpu=1,memory_gb=2,timeout_s=60,snapshot=off,present_env_keys=[OPENAI_API_KEY]",
     "duration_ms": 1234
   }
 }
@@ -131,14 +131,14 @@ The `env_fingerprint` field captures execution environment details without expos
 ### Format
 
 ```
-adapter=modal,env_keys_present=[OPENAI_API_KEY,LITELLM_API_BASE],modal_env=dev
+adapter=modal,image_digest=...,cpu=1,memory_gb=2,timeout_s=60,snapshot=off,present_env_keys=[OPENAI_API_KEY]
 ```
 
 ### Components
 
 - **`adapter`**: Execution adapter used (`local`, `mock`, `modal`)
-- **`env_keys_present`**: List of environment variable names present (names only, never values)
-- **`modal_env`**: Modal environment name (when using Modal adapter)
+- **`image_digest`**, **`cpu`**, **`memory_gb`**, **`timeout_s`**, **`snapshot`**: Normalized runtime settings
+- **`present_env_keys`**: Sorted list of environment variable names present (names only, never values)
 - **Additional fields**: Adapter-specific metadata
 
 ### Security

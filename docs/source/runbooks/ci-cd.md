@@ -258,7 +258,7 @@ python manage.py sync_modal --env main
 
 **"function not found" after deployment:**
 - Ensure deployment ran to the correct environment (`--env dev|staging|main`)
-- Function name is derived from processor ref: `exec__{slug}__v{ver}`
+- App name: `{slug}-v{ver}-{env}`; Function name: `run`
 - Verify Modal deployment completed successfully
 
 **Unit tests failing on PR:**

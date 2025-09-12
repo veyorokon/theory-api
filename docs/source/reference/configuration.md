@@ -63,7 +63,7 @@ The `env_fingerprint` records **only the names** of present environment variable
 {
   "adapter": "modal",
   "env_keys_present": ["OPENAI_API_KEY", "LITELLM_API_BASE"],
-  "modal_env": "dev"
+  "present_env_keys": ["OPENAI_API_KEY"]
 }
 ```
 

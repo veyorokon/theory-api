@@ -54,7 +54,7 @@ For `REGISTRY_AUTH`, create a GitHub PAT with:
 
 ### Deploy Functions
 
-Test processor execution:
+Deploy committed module and test processor execution:
 ```bash
 cd code
 modal deploy --env dev -m modal_app
@@ -62,7 +62,9 @@ modal deploy --env dev -m modal_app
 # Or via Django management command (thin wrapper)
 python manage.py sync_modal --env dev
 ```
-The committed module builds function name deterministically from the processor ref: `exec__{slug}__v{ver}`.
+Naming in Modal UI is clean and deterministic:
+- App: `{slug}-v{ver}-{env}` (e.g., `llm-litellm-v1-dev`)
+- Function: `run`
 
 ## Environment Isolation
 
@@ -111,9 +113,9 @@ Optional secrets (like `LITELLM_API_BASE`) can be present but are not required f
 - Ensure PAT hasn't expired
 
 **"function not found" during execution:**
-- Function names change when profile changes (image digest, resources, secrets)
-- Re-run `sync_modal --deploy` after registry updates
-- Check Modal dashboard for deployed functions
+- Ensure deployment ran to the correct environment (`--env dev|staging|main`).
+- App name is `{slug}-v{ver}-{env}`; function name is `run`.
+- Re-deploy committed module: `cd code && modal deploy --env <env> -m modal_app`.
 
 **"403 forbidden" on secret access:**
 - Secret name must match environment variable name exactly
@@ -127,10 +129,10 @@ Optional secrets (like `LITELLM_API_BASE`) can be present but are not required f
 
 ### Debug Commands
 
-**List deployed functions:**
+**List deployed apps/functions:**
 ```bash
-modal app list
-modal function list --app theory-rt
+modal app list --env dev
+modal function list --app llm-litellm-v1-dev --env dev
 ```
 
 **Check secret existence:**
@@ -140,7 +142,7 @@ modal secret list
 
 **View function logs:**
 ```bash
-modal logs --app theory-rt
+modal logs --app llm-litellm-v1-dev --env dev
 ```
 
 ## Performance Considerations

@@ -49,7 +49,7 @@ python manage.py run_processor \
   "index_path": "/artifacts/execution/E123/outputs.json",
   "meta": {
     "image_digest": "ghcr.io/veyorokon/llm_litellm@sha256:...",
-    "env_fingerprint": "adapter=modal,env_keys_present=[OPENAI_API_KEY],modal_env=dev",
+    "env_fingerprint": "adapter=modal,image_digest=...,cpu=1,memory_gb=2,timeout_s=60,snapshot=off,present_env_keys=[OPENAI_API_KEY]",
     "duration_ms": 1234
   }
 }

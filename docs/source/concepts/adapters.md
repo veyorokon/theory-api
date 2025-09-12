@@ -93,8 +93,8 @@ All adapters return consistent **envelope** format:
   ],
   "index_path": "/artifacts/execution/E123/outputs.json",
   "meta": {
-    "image_digest": "ghcr.io/veyorokon/llm_litellm@sha256:...",
-    "env_fingerprint": "adapter=modal,env_keys_present=[OPENAI_API_KEY],modal_env=dev",
+    "image_digest": "ghcr.io/owner/llm_litellm@sha256:...",
+    "env_fingerprint": "adapter=modal,image_digest=...,cpu=1,memory_gb=2,timeout_s=60,snapshot=off,present_env_keys=[OPENAI_API_KEY]",
     "duration_ms": 1234
   }
 }
@@ -125,8 +125,8 @@ All adapters return consistent **envelope** format:
 
 ### Modal Adapter
 
-- **Committed module**: Functions deployed from a single committed module via `sync_modal`/`modal deploy`
-- **Deterministic naming**: One function per processor ref (`exec__{slug}__v{ver}`)
+- **Committed module**: Functions deployed from a single committed module via `modal deploy -m modal_app` (no codegen)
+- **Deterministic naming**: App `{slug}-v{ver}-{env}`; Function `run`
 - **Registry auth**: Uses `REGISTRY_AUTH` secret for GHCR image pulls
 - **Runtime secrets**: Mounted by name matching environment variables
 
