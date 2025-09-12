@@ -25,7 +25,7 @@ graph TD
 
 ### Required Status Checks
 
-All PRs must pass these checks before merge:
+All PRs must pass these checks before merge (Fast Lane):
 
 1. **Unit Tests (SQLite)**
    ```bash
@@ -54,6 +54,13 @@ PRs must use `.github/pull_request_template.md` and complete:
 - **Documentation**: List of updated docs files
 - **Testing**: Smoke test commands
 - **Safety**: Backout steps
+
+## CI Lanes
+
+- **Fast lane (unit + docs):** Runs on every PR and on pushes to `dev`/`main`. Platform‑agnostic (no Docker).
+- **Docker lane (acceptance + property):** Runs on Ubuntu with Docker. Triggers on pushes to `dev`/`main` and on PRs labeled `run-acceptance`.
+
+Add the `run-acceptance` label to a PR to execute Docker‑based tests before merge.
 
 ## Main Branch Pipeline
 

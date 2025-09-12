@@ -4,6 +4,7 @@ Run processor management command - unified processor execution with new keyword-
 Supports local, mock, and Modal adapters with structured data types.
 """
 from __future__ import annotations
+import datetime
 import json
 import sys
 import uuid
@@ -23,6 +24,37 @@ from apps.core.adapters.local_adapter import LocalAdapter
 from apps.core.adapters.modal_adapter import ModalAdapter
 from apps.core.registry.loader import snapshot_for_ref, get_secrets_present_for_spec
 from apps.core.adapters.envelope import error_envelope
+from apps.core.utils.worldpath import canonicalize_worldpath
+
+
+class _Safe(dict):
+    """Safe dict that leaves unknown template tokens untouched."""
+    def __missing__(self, k):
+        return "{" + k + "}"
+
+
+def _expand_prefix(tpl: str, context: Dict[str, str]) -> str:
+    """
+    Expand template tokens in prefix path.
+    
+    Supports: {execution_id}, {plan_id}, {date}, {datetime}, {short_id}
+    Unknown tokens are left as-is.
+    """
+    # Expand tokens
+    s = tpl.format_map(_Safe(context))
+    
+    # Normalize: ensure leading slash & trailing slash for prefix semantics
+    if not s.startswith("/"):
+        s = "/" + s
+    if not s.endswith("/"):
+        s = s + "/"
+    
+    # Canonicalize the prefix
+    canonical, err = canonicalize_worldpath(s)
+    if err:
+        # If canonicalization fails, return the normalized string
+        return s
+    return canonical
 
 
 class Command(BaseCommand):
@@ -285,6 +317,27 @@ class Command(BaseCommand):
             
             # Generate execution_id if not provided
             execution_id = str(execution.id) if execution else str(uuid.uuid4())
+            
+            # Build template context
+            ctx = {
+                "execution_id": execution_id,
+                "short_id": execution_id.split("-")[0],
+                "plan_id": options.get("plan") or "no-plan",
+                "date": datetime.date.today().isoformat(),  # e.g. 2025-09-11
+                "datetime": datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ"),
+            }
+            
+            # Expand write_prefix template
+            write_prefix_tpl = options['write_prefix']
+            write_prefix = _expand_prefix(write_prefix_tpl, ctx)
+            
+            # Warn if no templating was used
+            if "{" in write_prefix_tpl and "{" not in write_prefix:
+                if not options.get('json'):
+                    self.stdout.write(f"Expanded prefix: {write_prefix_tpl} -> {write_prefix}")
+            elif "{" in write_prefix:
+                if not options.get('json'):
+                    self.stderr.write(f"Warning: Unknown template tokens remain in prefix: {write_prefix}")
             
             # Invoke processor with new keyword-only signature
             try:
