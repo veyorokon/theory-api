@@ -165,7 +165,7 @@ LLM_SETTINGS = {
 # Modal adapter gating comes from Django settings (not raw env var). Map env→setting here.
 MODAL_ENABLED = os.environ.get("MODAL_ENABLED", "false").lower() == "true"
 # Modal environment name for Function.from_name(..., environment_name=...)
-MODAL_ENV = os.environ.get("MODAL_ENV", "").strip() or "dev"
+MODAL_ENVIRONMENT = os.environ.get("MODAL_ENVIRONMENT", "").strip() or "dev"
 # Stable Modal app name (module uses this); env is selected at deploy/invoke time
 MODAL_APP_NAME = os.environ.get("MODAL_APP_NAME", "theory-rt")
 

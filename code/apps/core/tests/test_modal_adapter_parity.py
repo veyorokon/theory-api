@@ -24,7 +24,7 @@ def make_tar_bytes(files: dict[str, bytes]) -> bytes:
 
 
 class TestModalAdapter(TestCase):
-    @override_settings(MODAL_ENABLED=True, MODAL_ENV="dev")
+    @override_settings(MODAL_ENABLED=True, MODAL_ENVIRONMENT="dev")
     @patch("apps.core.adapters.modal_adapter.storage_service")
     def test_success_envelope_from_tar(self, mock_storage_service):
         # Prepare tar with outputs
@@ -67,7 +67,7 @@ class TestModalAdapter(TestCase):
         idx = json.loads(payload)
         assert idx.get("outputs") and isinstance(idx["outputs"], list)
 
-    @override_settings(MODAL_ENABLED=True, MODAL_ENV="dev")
+    @override_settings(MODAL_ENABLED=True, MODAL_ENVIRONMENT="dev")
     @patch("apps.core.adapters.modal_adapter.storage_service")
     def test_duplicate_detection(self, _mock_storage_service):
         # Use paths that canonicalize to the same target after normalization

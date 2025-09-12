@@ -24,7 +24,7 @@ import modal
 def _modal_app_name_from_env() -> str:
     """Generate Modal app name from environment variables using shared naming logic."""
     processor_ref = os.environ.get("PROCESSOR_REF", "")
-    env = os.environ.get("MODAL_ENVIRONMENT") or os.environ.get("MODAL_ENV") or "dev"
+    env = os.environ.get("MODAL_ENVIRONMENT") or "dev"
 
     try:
         # Parse processor_ref: "ns/name@ver" -> "ns-name-vver-env"

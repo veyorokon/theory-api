@@ -10,7 +10,7 @@ Contracts:
 
 Env/config (explicit only; no magic):
 - settings.MODAL_ENABLED: bool (required True)
-- settings.MODAL_ENV: str (e.g., "dev" | "main"), optional; informs app naming only
+- settings.MODAL_ENVIRONMENT: str (e.g., "dev" | "main"), optional; informs app naming only
 - Secrets are injected by *name* (from registry); values resolved by SecretResolver at dispatch time.
 """
 
@@ -351,7 +351,7 @@ class ModalAdapter(RuntimeAdapter):
         self._current_ref = processor_ref
 
         # Get environment and function name
-        env = settings.MODAL_ENV or "dev"
+        env = settings.MODAL_ENVIRONMENT or "dev"
         spec = self._current_spec  # Set by caller
         func_name = self._function_name_from_spec(processor_ref, spec)
         app_name = self._app_name_from_ref(processor_ref, env)

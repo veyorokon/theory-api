@@ -41,7 +41,7 @@ def expected_apps(registry_dir: Path, env: str) -> list[tuple[str, str, str]]:
 
 
 def main() -> int:
-    env = os.environ.get("MODAL_ENVIRONMENT") or os.environ.get("MODAL_ENV") or "dev"
+    env = os.environ.get("MODAL_ENVIRONMENT") or "dev"
     app = os.environ.get("MODAL_APP_NAME", "theory-rt")
     base = Path(__file__).resolve().parents[1]
     reg_dir = base / "apps/core/registry/processors"
