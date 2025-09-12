@@ -76,6 +76,23 @@ jobs:
           # Authenticate Docker to GitHub Container Registry
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           
+          # Test image accessibility before running integration tests
+          echo "🔍 Testing processor image accessibility..."
+          DIGEST_IMAGE="ghcr.io/veyorokon/llm_litellm@sha256:6314df9935cad6a69486f254c820c079702be35d7d11b604b2d0ea066d86d60b"
+          if ! docker manifest inspect "$DIGEST_IMAGE" > /dev/null 2>&1; then
+            echo "⚠️ Pinned digest not accessible: $DIGEST_IMAGE"
+            echo "Attempting to use :latest tag instead..."
+            if docker pull ghcr.io/veyorokon/llm_litellm:latest; then
+              LATEST_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/veyorokon/llm_litellm:latest)
+              echo "Using accessible image: $LATEST_DIGEST"
+            else
+              echo "❌ Cannot access processor image - check repository permissions"
+              exit 1
+            fi
+          else
+            echo "✅ Pinned digest accessible: $DIGEST_IMAGE"
+          fi
+          
           # Verify MinIO connectivity
           echo "🔍 Testing MinIO connectivity..."
           curl -f http://127.0.0.1:9000/minio/health/live || echo "⚠️ MinIO health check failed"
