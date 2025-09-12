@@ -50,6 +50,11 @@ jobs:
           sleep 8
           docker compose ps
 
+      - name: Sanity check - verify pytest context
+        working-directory: code
+        run: |
+          python -c "import os,sys; print('✅ CWD:', os.getcwd()); import backend, apps; print('✅ Django imports OK')"
+
       - name: Acceptance tests
         run: |
           make test-acceptance
@@ -59,11 +64,11 @@ jobs:
           make test-property
 
       - name: Integration tests
+        working-directory: code
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY_DEV }}
         run: |
-          cd code
-          pytest -m integration -q
+          python -m pytest -m integration -q
 
       - name: Teardown services
         if: always()

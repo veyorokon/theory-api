@@ -20,23 +20,19 @@ makemigrations:
 
 # --- Tests ---
 test-unit:
-	DJANGO_SETTINGS_MODULE=backend.settings.unittest \
-	pytest -q -m "unit and not integration and not requires_postgres"
+	cd code && python -m pytest -q -m "unit and not integration and not requires_postgres"
 
 test-acceptance:
 	$(MAKE) compose-up
 	$(MAKE) wait-db
-	DJANGO_SETTINGS_MODULE=backend.settings.test \
-	cd code && python manage.py migrate --noinput
-	DJANGO_SETTINGS_MODULE=backend.settings.test \
-	pytest -q -m "ledger_acceptance or requires_postgres"
+	cd code && DJANGO_SETTINGS_MODULE=backend.settings.test python manage.py migrate --noinput
+	cd code && python -m pytest -q -m "ledger_acceptance or requires_postgres"
 
 test-property:
 	$(MAKE) compose-up
 	$(MAKE) wait-db
-	DJANGO_SETTINGS_MODULE=backend.settings.test \
-	cd code && python manage.py migrate --noinput
-	cd code && DJANGO_SETTINGS_MODULE=backend.settings.test python -m pytest -q tests/property --override-ini="testpaths=tests"
+	cd code && DJANGO_SETTINGS_MODULE=backend.settings.test python manage.py migrate --noinput
+	cd code && python -m pytest -q tests/property
 
 test-all:
 	DJANGO_SETTINGS_MODULE=backend.settings.unittest \
