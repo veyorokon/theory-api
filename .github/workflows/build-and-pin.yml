@@ -114,7 +114,7 @@ jobs:
         id: digest
         run: |
           set -euo pipefail
-          DIGEST=$(docker buildx imagetools inspect "${{ steps.img.outputs.image }}:${TAG}" --format '{{.Manifest.Digest}}')
+          DIGEST=$(docker buildx imagetools inspect "${{ steps.img.outputs.image }}:${TAG}" --format '{{json .}}' | jq -r '.manifest.digest // .descriptor.digest')
           echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
 
       - name: Pin digest into registry YAML

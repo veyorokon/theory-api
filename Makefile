@@ -37,7 +37,7 @@ test-property:
 	DJANGO_SETTINGS_MODULE=backend.settings.test \
 	cd code && python manage.py migrate --noinput
 	DJANGO_SETTINGS_MODULE=backend.settings.test \
-	pytest -q tests/property
+	cd code && pytest -q tests/property
 
 test-all:
 	DJANGO_SETTINGS_MODULE=backend.settings.unittest \
