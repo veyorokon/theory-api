@@ -279,7 +279,8 @@ class ModalAdapter(RuntimeAdapter):
 
     def _function_name_from_spec(self, ref: str, spec: Dict[str, Any]) -> str:
         """0021: functions are named 'run' in each app; keep API stable."""
-        return modal_fn_name()
+        import os
+        return os.getenv("MODAL_FUNCTION_NAME", modal_fn_name())
 
     def _app_name_from_ref(self, ref: str, env: str) -> str:
         """Generate Modal app name using shared naming logic."""

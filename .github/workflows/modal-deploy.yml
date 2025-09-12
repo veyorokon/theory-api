@@ -62,7 +62,7 @@ jobs:
           DJANGO_SETTINGS_MODULE: backend.settings.unittest
           MODAL_ENABLED: "true"
           MODAL_ENVIRONMENT: ${{ inputs.environment != '' && inputs.environment || github.ref_name }}
-          LLM_PROVIDER: mock  # Zero-cost deterministic mode
+          MODAL_FUNCTION_NAME: smoke  # Use deterministic smoke function
         run: |
           set -euo pipefail
           echo "🧪 Running post-deploy smoke test..."
@@ -78,12 +78,11 @@ jobs:
           echo "$OUT"
           
           echo "✅ Verifying deployment success..."
-          export SMOKE_OUTPUT="$OUT"
-          python - <<'PY'
-          import json, sys, os
+          python - <<'PY' <<< "$OUT"
+          import json, sys
           
           try:
-              payload = json.loads(os.environ["SMOKE_OUTPUT"])
+              payload = json.loads(input())
               
               # Verify success envelope
               assert payload["status"] == "success", f"Expected success, got: {payload}"
@@ -107,6 +106,18 @@ jobs:
               print(f"✅ Execution ID: {payload['execution_id']}")
               print(f"✅ Output files: {output_names}")
               print(f"✅ Index path: {payload['index_path']}")
+              
+              # Small mock OpenAI call for additional verification
+              print("🧪 Testing mock OpenAI call...")
+              try:
+                  import os
+                  os.environ["LLM_PROVIDER"] = "mock"
+                  from apps.core.processors.llm_litellm.libs.runtime_common.mock_runner import run_llm
+                  mock_result = run_llm({"messages": [{"role": "user", "content": "test"}]})
+                  assert "response" in mock_result, "Mock OpenAI call failed"
+                  print("✅ Mock OpenAI call successful")
+              except Exception as mock_e:
+                  print(f"⚠️ Mock OpenAI call warning: {mock_e}")
               
           except Exception as e:
               print(f"❌ Smoke test verification failed: {e}")

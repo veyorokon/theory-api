@@ -1,113 +1,115 @@
 """
-Self-contained Modal deploy module (no repo imports, no dynamic codegen).
-Parametrized entirely by environment variables so CI and local dev can deploy
-the same module without generating files or running a separate deployer.
+Self-contained Modal deploy module (no Django/repo imports, no codegen).
 
-Usage (deploy):
+Deploy:
   modal deploy --env $MODAL_ENVIRONMENT -m modal_app
 
-Invocation (adapter):
-  modal.Function.from_name(app=APP_NAME, name="run", environment_name=ENV).remote(payload)
+Runtime (adapter):
+  Function.from_name(app=APP_NAME, name="run", environment_name=$MODAL_ENVIRONMENT)
+
+CI smoke:
+  Function.from_name(..., name="smoke")  # deterministic, zero-cost
 """
+
+from __future__ import annotations
 
 import io
 import os
 import json
 import tarfile
 import subprocess
-from typing import List
+from typing import List, Optional
 
 import modal
 
 
-# Stable app name; environment is selected at deploy/invoke time
-def _modal_app_name_from_env() -> str:
-    """Generate Modal app name from environment variables using shared naming logic."""
-    processor_ref = os.environ.get("PROCESSOR_REF", "")
+# ---------- Naming ----------
+
+def _app_name_from_env() -> str:
+    """
+    Build app name from PROCESSOR_REF and MODAL_ENVIRONMENT.
+    ref "ns/name@1" -> app "{ns-name}-v1-{env}"
+    """
+    ref = os.environ.get("PROCESSOR_REF", "")
     env = os.environ.get("MODAL_ENVIRONMENT") or "dev"
 
     try:
-        # Parse processor_ref: "ns/name@ver" -> "ns-name-vver-env"
-        if "@" not in processor_ref:
-            raise ValueError(f"Invalid PROCESSOR_REF: {processor_ref}")
-
-        name_part, version = processor_ref.split("@", 1)
+        name_part, version = ref.split("@", 1)
         slug = name_part.replace("/", "-").lower()
-        ver_s = f"v{version}" if not version.startswith("v") else version
-        return f"{slug}-{ver_s}-{env}"
+        ver = version if version.startswith("v") else f"v{version}"
+        return f"{slug}-{ver}-{env}"
     except Exception:
-        # Fallback to explicit or default app name
+        # Fallback if env is missing or malformed
         return os.getenv("MODAL_APP_NAME", "theory-rt")
 
 
-APP_NAME = _modal_app_name_from_env()
+APP_NAME = _app_name_from_env()
 app = modal.App(APP_NAME)
 
-# Deployment-time parameters (all via env)
+
+# ---------- Parameters (env-only) ----------
+
 # Required
-PROCESSOR_REF = os.environ["PROCESSOR_REF"]  # e.g. "llm/litellm@1"
-IMAGE_REF = os.environ["IMAGE_REF"]  # e.g. "ghcr.io/..@sha256:..."
-# Optional (with sane defaults)
+PROCESSOR_REF = os.environ["PROCESSOR_REF"]          # e.g. "llm/litellm@1"
+IMAGE_REF = os.environ["IMAGE_REF"]                  # e.g. "ghcr.io/...@sha256:deadbeef..."
+
+# Optional
 TIMEOUT_S = int(os.getenv("TIMEOUT_S", "60"))
 CPU = int(os.getenv("CPU", "1"))
-MEMORY_MIB = int(os.getenv("MEMORY_MIB", "2048"))  # Modal uses MiB
-GPU = os.getenv("GPU") or None  # e.g., "A10G" or unset -> None
+MEMORY_MIB = int(os.getenv("MEMORY_MIB", "2048"))    # MiB
+GPU: Optional[str] = os.getenv("GPU") or None        # e.g., "A10G" or unset
 
-# Comma-separated list of tool secret names (must match env var names)
+# Registry secret (must contain REGISTRY_USERNAME + REGISTRY_PASSWORD)
+REGISTRY_SECRET_NAME = os.getenv("REGISTRY_SECRET_NAME", "REGISTRY_AUTH")
+
+# Comma-separated workload secrets; names must equal env var names
 TOOL_SECRETS: List[str] = [s for s in (os.getenv("TOOL_SECRETS", "")).split(",") if s.strip()]
 
-# Registry auth secret (special case: contains REGISTRY_USERNAME/REGISTRY_PASSWORD)
-REGISTRY_SECRET_NAME = "REGISTRY_AUTH"
+# Image + secrets
+image = modal.Image.from_registry(
+    IMAGE_REF,
+    secret=modal.Secret.from_name(REGISTRY_SECRET_NAME),
+)
 
-# Modal image & secrets list
-image = modal.Image.from_registry(IMAGE_REF, secret=modal.Secret.from_name(REGISTRY_SECRET_NAME))
 secrets = [modal.Secret.from_name(REGISTRY_SECRET_NAME)]
 for s in TOOL_SECRETS:
     secrets.append(modal.Secret.from_name(s))
 
 
-@app.function(
-    image=image,
-    timeout=TIMEOUT_S,
-    cpu=CPU,
-    memory=MEMORY_MIB,
-    gpu=GPU,
-    secrets=secrets,
-    retries=0,  # fail-fast; caller handles policy/retry
-)
-def run(payload: dict) -> bytes:
-    """
-    Execute processor inside container image and return gzipped tar of /work/out.
+# ---------- Shared execution ----------
 
-    Payload contract:
-      {
-        "inputs_json": {...},           # dict
-        "write_prefix": "/artifacts/..."  # string (must end with '/')
-      }
+def _exec(payload: dict, *, extra_env: Optional[dict] = None) -> bytes:
     """
-    # 1) Write inputs to /work
+    Write inputs -> call /app/main.py -> tar /work/out into gzipped bytes.
+    """
+    # 1) Inputs
     os.makedirs("/work", exist_ok=True)
     inputs_path = "/work/inputs.json"
     with open(inputs_path, "w", encoding="utf-8") as f:
         json.dump(payload["inputs_json"], f, ensure_ascii=False, separators=(",", ":"))
 
-    # 2) Run processor entrypoint
     write_prefix = payload["write_prefix"]
     argv = ["python", "/app/main.py", "--inputs", inputs_path, "--write-prefix", write_prefix]
 
+    # 2) Run
+    env = os.environ.copy()
+    if extra_env:
+        env.update(extra_env)
+
     try:
-        subprocess.run(
+        proc = subprocess.run(
             argv,
             check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            env=env,
         )
     except subprocess.CalledProcessError as e:
         tail = (e.stderr or "").splitlines()[-40:]
-        raise RuntimeError("processor failed (exit=%s):\n%s" % (e.returncode, "\n".join(tail)))
+        raise RuntimeError(f"processor failed (exit={e.returncode}):\n" + "\n".join(tail))
 
-    # 3) Tar /work/out into bytes
+    # 3) Tar outputs
     buf = io.BytesIO()
     out_dir = "/work/out"
     with tarfile.open(fileobj=buf, mode="w:gz") as tf:
@@ -119,3 +121,39 @@ def run(payload: dict) -> bytes:
                     tf.add(full, arcname=arc)
     buf.seek(0)
     return buf.read()
+
+
+# ---------- Functions ----------
+
+# Real function: used in production/runtime
+@app.function(
+    name="run",
+    image=image,
+    timeout=TIMEOUT_S,
+    cpu=CPU,
+    memory=MEMORY_MIB,
+    gpu=GPU,
+    secrets=secrets,
+    retries=0,            # fail-fast; policy is upstream
+    serialized=True,      # stable name requires serialization
+)
+def run(payload: dict) -> bytes:
+    return _exec(payload)
+
+
+# Deterministic, zero-cost smoke function: used only by CI post-deploy
+@app.function(
+    name="smoke",
+    image=image,
+    timeout=TIMEOUT_S,
+    cpu=CPU,
+    memory=MEMORY_MIB,
+    gpu=GPU,
+    secrets=secrets,
+    retries=0,
+    serialized=True,
+)
+def smoke(payload: dict) -> bytes:
+    # Force deterministic provider selection without changing processor code.
+    # Your provider shim already treats LLM_PROVIDER=mock as zero-cost mode.
+    return _exec(payload, extra_env={"LLM_PROVIDER": "mock"})
