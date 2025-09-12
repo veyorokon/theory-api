@@ -143,3 +143,23 @@ ignore_names = [
 ]
 min_confidence = 80
 sort_by_size = true
+
+[tool.coverage.run]
+source = ["code"]
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+    "*_test.py",
+    "*/migrations/*",
+    "*/venv/*",
+    "*/__pycache__/*"
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
