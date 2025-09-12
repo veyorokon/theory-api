@@ -3,6 +3,7 @@ Thin orchestrator for Modal function deployment using the committed module.
 
 Runs `modal deploy` against top-level `modal_app` module with portable paths.
 """
+
 from django.core.management.base import BaseCommand, CommandError
 from django.conf import settings
 from pathlib import Path
@@ -26,13 +27,13 @@ class Command(BaseCommand):
         # Use Django's BASE_DIR (portable)
         code_dir = Path(settings.BASE_DIR)
         module = "modal_app"
-        
+
         # Sanity check that modal_app.py exists
         modal_app_path = code_dir / f"{module}.py"
         if not modal_app_path.exists():
             raise CommandError(f"Cannot find {modal_app_path}. Expected at project code root.")
 
-        self.stdout.write(f"🚀 Deploying Modal app module...")
+        self.stdout.write("🚀 Deploying Modal app module...")
         self.stdout.write(f"📦 Environment: {env}")
         self.stdout.write(f"📁 Working directory: {code_dir}")
 

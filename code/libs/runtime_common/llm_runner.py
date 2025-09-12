@@ -1,4 +1,5 @@
 """Pure-Python LLM runner using LiteLLM (runtime-common)."""
+
 from __future__ import annotations
 import os
 from typing import Any, Dict
@@ -43,4 +44,3 @@ def run_llm(inputs: Dict[str, Any], *, api_base: str | None = None, timeout_s: i
             "total_tokens": usage.get("total_tokens", 0) or 0,
         },
     }
-

@@ -9,6 +9,7 @@ Exit code:
   0: no drift (all functions present)
   2: drift detected or unable to verify (treated as failure on main)
 """
+
 from __future__ import annotations
 import os
 import sys

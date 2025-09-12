@@ -3,6 +3,7 @@ LiteLLM unified provider for all LLM backends.
 
 Server-side adapter wrapping litellm. Django-free by design.
 """
+
 import litellm
 import logging
 import time
@@ -15,15 +16,15 @@ logger = logging.getLogger(__name__)
 
 class LiteLLMProvider:
     """Unified LLM provider using LiteLLM substrate.
-    
+
     Handles all providers through litellm.completion with consistent interface.
     """
-    
+
     def __init__(self, model_default: str = "openai/gpt-4o-mini", api_base: str | None = None, timeout: int = 30):
         self.model_default = model_default
         self.timeout = timeout
         self._api_base = api_base.strip() if api_base else None
-    
+
     def chat(self, prompt: str, *, model: str | None = None) -> LLMReply:
         m = model or self.model_default
         logger.info("litellm.start", extra={"model": m, "api_base": self._api_base})
@@ -65,7 +66,7 @@ class LiteLLMProvider:
         }
         logger.info("litellm.finish", extra={"model": m, "resp_len": len(text)})
         return LLMReply(text=text, provider="litellm", model=m, usage=usage)
-    
+
     def stream_chat(self, prompt: str, *, model: str | None = None) -> Iterable[str]:
         m = model or self.model_default
         logger.info("litellm.stream_start", extra={"model": m, "api_base": self._api_base})
@@ -85,4 +86,3 @@ class LiteLLMProvider:
                 content = getattr(delta, "content", None)
                 if content:
                     yield content
-

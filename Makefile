@@ -92,18 +92,24 @@ test-coverage:
 
 # Static dead-code check with allowlist (to handle dynamic usage)
 deadcode:
-	vulture code --min-confidence 80 --exclude "*/migrations/*,*/tests/*" code/vulture_whitelist.py
+	vulture code code/vulture_whitelist.py --min-confidence 80 --exclude "*/migrations/*,*/tests/*" > vulture_report.txt || true
+	python scripts/ci/vulture_gate.py vulture_report.txt
 
-# Import graph reachability: fails if a module isn't reachable from entrypoints
+# Import graph reachability: fails if a module isn't reachable from entrypoints  
+# NOTE: Disabled for Django code due to dynamic loading false positives
 import-graph:
 	cd code && python -m tests.tools.check_import_reachability
+
+# Import reachability for pure Python modules only (libs, processors)
+import-graph-pure:
+	python scripts/ci/reachability_pure_python.py
 
 # Unused deps / missing imports
 deps-lint:
 	deptry code
 
 # Convenience meta target used in PR checks
-lint-deadcode: deadcode import-graph deps-lint
+lint-deadcode: deadcode import-graph-pure deps-lint
 
 # --- Mutation Testing ---
 # Reset mutation testing database

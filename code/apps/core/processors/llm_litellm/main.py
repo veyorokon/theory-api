@@ -3,6 +3,7 @@ Main entry point for llm_litellm processor.
 
 This is the new foundation-based structure that will replace processor.py.
 """
+
 import os
 import sys
 from pathlib import Path
@@ -43,20 +44,20 @@ def run(ws: Workspace, inputs: dict, write_prefix: str) -> int:
     """Execute LLM LiteLLM processor."""
     log("starting llm_litellm processor")
     progress(0.02, phase="init")
-    
+
     # Select provider based on environment and safety rules
     mode = select_provider()
     log(f"using provider: {mode}")
-    
+
     # Execute with selected provider
     if mode == "real":
         result = run_real(inputs)
     else:
         result = run_mock(inputs)
-    
+
     write_json(ws.outputs / "response.json", result)
     progress(0.85, phase="generate")
-    
+
     # Write receipt for determinism
     receipt = {
         "processor": "llm/litellm@1",
@@ -66,7 +67,7 @@ def run(ws: Workspace, inputs: dict, write_prefix: str) -> int:
         "provider": mode,
     }
     write_json(ws.outputs / "receipt.json", receipt)
-    
+
     progress(1.0, phase="finalize")
     log("llm_litellm processor completed")
     return 0

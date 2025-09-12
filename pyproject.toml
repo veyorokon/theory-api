@@ -34,6 +34,26 @@ ignore = [
     "E501",  # line-too-long (handled by line-length)
     "N805",  # first-argument-should-be-self (Django models can use different names)
     "N806",  # non-lowercase-variable-in-function (Django allows uppercase in some contexts)
+    "N999",  # Invalid module name (Django package naming)
+    "F401",  # unused imports (common in Django boilerplate)
+    "W291",  # trailing whitespace (let formatter handle)
+    "W292",  # no newline at end of file (let formatter handle)
+    "W293",  # blank line contains whitespace (let formatter handle)
+    "I001",  # import sorting (let formatter handle)
+    "UP006", # typing.Dict -> dict (compatibility)
+    "UP035", # typing.Dict deprecated (compatibility)
+    "SIM103", # return condition directly (style preference)
+    "B904",  # raise with from/None (pedantic exception handling)
+    "SIM105", # contextlib.suppress (style preference)
+    "SIM108", # ternary operator (style preference)
+    "F841",  # unused variable (can be useful for debugging)
+    "UP028", # yield from (style preference)
+    "E722",  # bare except (sometimes needed for broad catching)
+    "N803",  # argument naming (Django/legacy code patterns)
+    "ERA001", # commented code (sometimes useful for context)
+    "UP022", # capture_output (compatibility with older code)
+    "UP031", # f-strings vs % formatting (style preference)
+    "SIM117", # nested with statements (sometimes clearer)
 ]
 
 # Allow autofix for all enabled rules (when `--fix`) is provided.
@@ -45,9 +65,81 @@ unfixable = []
 "*/migrations/*" = ["ALL"]  # Skip all linting for migrations
 "conftest.py" = ["F401"]  # Allow unused imports in conftest
 "**/settings/*.py" = ["F403", "F405"]  # Allow wildcard imports in settings
+"code/vulture_whitelist.py" = ["B018", "F821"]  # Vulture whitelist has intentional "useless" expressions
 
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
+
+[tool.deptry]
+# Skip checking these directories (Django dynamic loading)
+extend_exclude = [
+    "code/apps/*/migrations/*",
+    "code/apps/*/tests/*",
+    "code/tests/*",
+    "code/backend/settings/*",
+]
+
+# Skip these dependencies (dev/runtime/Django framework tools)
+[tool.deptry.per_rule_ignores]
+DEP002 = [
+    "django-environ",      # Used in settings (dynamic)
+    "psycopg2-binary",     # Database driver (runtime)
+    "redis",               # Cache backend (runtime) 
+    "celery",              # Task queue (runtime)
+    "djangorestframework", # API framework (via INSTALLED_APPS)
+    "django-cors-headers", # Middleware (via settings)
+    "gunicorn",            # WSGI server (deployment)
+    "channels-redis",      # WebSocket backend (runtime)
+    "daphne",              # ASGI server (deployment)
+    "sphinx",              # Documentation tool
+    "myst-parser",         # Sphinx extension
+    "sphinxcontrib-mermaid", # Sphinx extension
+    "furo",                # Sphinx theme
+    "requests",            # HTTP library (used in processors)
+    "pytest-django",       # Test framework plugin
+    "pytest-cov",          # Coverage plugin
+    "coverage",            # Coverage tool
+    "vulture",             # Dead code checker
+    "diff-cover",          # Coverage diff tool
+    "deptry",              # Self-reference
+    "mutmut",              # Mutation testing
+    "ruff",                # Linter/formatter
+    "grimp",               # Import graph tool
+    "dj-database-url",     # Used in settings (dynamic)
+]
+DEP001 = [
+    "foundation",          # Local processor module (not a real package)
+    "libs",                # Local libs namespace (processor isolation)
+]
+
+[tool.vulture]
+exclude = [
+    "*/settings/*.py",
+    "*/migrations/*.py",
+    "*/admin.py",
+    "*/apps.py",
+    "*/tests/*.py",
+]
+ignore_decorators = [
+    "@receiver",           # Django signals
+    "@admin.register",
+    "@admin.action", 
+    "@register.filter",    # Template tags
+    "@register.simple_tag",
+    "@register.inclusion_tag",
+    "@pytest.fixture",
+]
+ignore_names = [
+    "*Config",            # Django AppConfig classes
+    "*Middleware",
+    "urlpatterns",        # URL routing
+    "Meta",              # Model Meta classes
+    "clean_*",           # Model validation methods
+    "has_*_permission",  # Admin permission methods
+    "get_*",             # Admin getter methods
+]
+min_confidence = 80
+sort_by_size = true

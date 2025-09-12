@@ -26,4 +26,3 @@ __all__ = [
     "selectors_overlap",
     "any_overlap",
 ]
-

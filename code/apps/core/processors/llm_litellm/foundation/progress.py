@@ -1,4 +1,5 @@
 """Progress and logging utilities."""
+
 import json
 import time
 

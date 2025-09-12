@@ -22,27 +22,28 @@ import tarfile
 import time
 import traceback
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from django.conf import settings
 
 from .base import RuntimeAdapter  # same base class used by local/mock
 from .envelope import success_envelope, error_envelope  # shared serializers
-from ..utils.processor_ref import registry_path  # ref -> YAML path
 
 # Storage & utils (world writes + cid + mime)
 from apps.storage.service import storage_service
-from apps.core.utils.env_fingerprint import compose_env_fingerprint, collect_present_env_keys  # utility in your codebase
+from apps.core.utils.env_fingerprint import (
+    compose_env_fingerprint,
+    collect_present_env_keys,
+)  # utility in your codebase
 from apps.core.utils.worldpath import canonicalize_worldpath, ERR_DECODED_SLASH, ERR_DOT_SEGMENTS
-from apps.core.errors import (
-    ERR_IMAGE_UNPINNED, ERR_MISSING_SECRET, ERR_OUTPUT_DUPLICATE, ERR_ADAPTER_INVOCATION
-)
+from apps.core.errors import ERR_IMAGE_UNPINNED, ERR_MISSING_SECRET, ERR_OUTPUT_DUPLICATE, ERR_ADAPTER_INVOCATION
 from apps.core.utils.mime import guess_mime  # simple extension->mime helper
 from apps.core.utils.hashing import blake3_cid  # returns "b3:<hex>"
 
 # Modal import guarded to keep import-time failures pretty
 try:
     import modal
+
     _MODAL_AVAILABLE = True
 except Exception:  # pragma: no cover
     _MODAL_AVAILABLE = False
@@ -56,9 +57,9 @@ class ModalAdapterOpts:
     timeout_s: int
     cpu: float
     memory_gb: float
-    gpu: Optional[str] = None  # 0021: usually None; 0022+ will set GPU
-    snapshot: str = "off"      # "off" | "cpu" | "gpu"
-    region: Optional[str] = None
+    gpu: str | None = None  # 0021: usually None; 0022+ will set GPU
+    snapshot: str = "off"  # "off" | "cpu" | "gpu"
+    region: str | None = None
     presigned_push: bool = False  # 0021: must be False (tar-pull only)
 
 
@@ -172,7 +173,12 @@ class ModalAdapter(RuntimeAdapter):
         try:
             wp = self._canon_prefix(write_prefix)
         except ValueError as ve:
-            return self._err(execution_id, code=ERR_ADAPTER_INVOCATION, msg=f"Write prefix validation failed: {ve}", env_fp=env_fingerprint)
+            return self._err(
+                execution_id,
+                code=ERR_ADAPTER_INVOCATION,
+                msg=f"Write prefix validation failed: {ve}",
+                env_fp=env_fingerprint,
+            )
 
         # ---- Execute on Modal ----
         try:
@@ -208,9 +214,16 @@ class ModalAdapter(RuntimeAdapter):
         except DuplicateTargetError as de:
             return self._err(execution_id, code=ERR_OUTPUT_DUPLICATE, msg=str(de), env_fp=env_fingerprint)
         except CanonicalizationError as ce:
-            return self._err(execution_id, code=ERR_ADAPTER_INVOCATION, msg=f"Output canonicalization failed: {ce}", env_fp=env_fingerprint)
+            return self._err(
+                execution_id,
+                code=ERR_ADAPTER_INVOCATION,
+                msg=f"Output canonicalization failed: {ce}",
+                env_fp=env_fingerprint,
+            )
         except Exception as e:
-            return self._err(execution_id, code=ERR_ADAPTER_INVOCATION, msg=f"Output upload failed: {e}", env_fp=env_fingerprint)
+            return self._err(
+                execution_id, code=ERR_ADAPTER_INVOCATION, msg=f"Output upload failed: {e}", env_fp=env_fingerprint
+            )
 
         duration_ms = int((time.time() - t0) * 1000)
 
@@ -225,7 +238,6 @@ class ModalAdapter(RuntimeAdapter):
         )
 
     # ---------------- internals ----------------
-
 
     def _normalize_opts(self, adapter_opts: Dict[str, Any], runtime: Dict[str, Any]) -> ModalAdapterOpts:
         def _num(x, default):
@@ -274,35 +286,40 @@ class ModalAdapter(RuntimeAdapter):
         ver_s = f"v{ver}" if not ver.startswith("v") else ver
         return f"{slug}-{ver_s}-{env}"
 
-    def _call_modal_function(self, *, app_name: str, func_name: str, payload: Dict[str, Any], wait_s: Optional[int] = None) -> bytes:
+    def _call_modal_function(
+        self, *, app_name: str, func_name: str, payload: Dict[str, Any], wait_s: int | None = None
+    ) -> bytes:
         """Call Modal function with timeout-based fail-fast behavior."""
         if not _MODAL_AVAILABLE:
             raise RuntimeError("Modal SDK not available")
-        
+
         # Function.from_name is the modern API
         fn = modal.Function.from_name(app_name, func_name)
-        
+
         # Prefer spawn + get(timeout) to avoid indefinite waits even if function-level timeout is larger
         handle = fn.spawn(payload)
         try:
             timeout_val = wait_s or DEFAULT_CLIENT_TIMEOUT_S
             result = handle.get(timeout=timeout_val)
             return result
-        except Exception as e:
+        except Exception:
             # Fast-path error surface: e will contain the RuntimeError message we raised inside the function
             # (includes exit code and stderr tail). Bubble it up to envelope builder.
             raise
 
-    def _call_generated(self, env: str, func_name: str, payload: Dict[str, Any], *, app_name: str | None = None) -> bytes:
+    def _call_generated(
+        self, env: str, func_name: str, payload: Dict[str, Any], *, app_name: str | None = None
+    ) -> bytes:
         """Call pre-deployed Modal function by name using Function.from_name."""
         if not _MODAL_AVAILABLE:
             raise RuntimeError("Modal SDK not available")
 
         if not app_name:
-            app_name = getattr(settings, 'MODAL_APP_NAME', 'theory-rt')
+            app_name = getattr(settings, "MODAL_APP_NAME", "theory-rt")
 
         try:
             from modal import Function as _Fn
+
             fn = _Fn.from_name(app_name, func_name, environment_name=env)
             handle = fn.spawn(payload)
             return handle.get(timeout=DEFAULT_CLIENT_TIMEOUT_S)
@@ -324,8 +341,8 @@ class ModalAdapter(RuntimeAdapter):
     ) -> bytes:
         """
         Call pre-deployed Modal function to execute processor and return tar bytes.
-        
-        This uses pre-deployed Modal functions to enable warm container reuse and 
+
+        This uses pre-deployed Modal functions to enable warm container reuse and
         GPU memory snapshots. Functions must be deployed via sync_modal command.
         """
         if not _MODAL_AVAILABLE:
@@ -333,19 +350,16 @@ class ModalAdapter(RuntimeAdapter):
 
         # Store ref for error messages
         self._current_ref = processor_ref
-        
+
         # Get environment and function name
         env = settings.MODAL_ENV or "dev"
         spec = self._current_spec  # Set by caller
         func_name = self._function_name_from_spec(processor_ref, spec)
         app_name = self._app_name_from_ref(processor_ref, env)
-        
+
         # Prepare payload for pre-deployed function
-        payload = {
-            "inputs_json": inputs_json,
-            "write_prefix": write_prefix
-        }
-        
+        payload = {"inputs_json": inputs_json, "write_prefix": write_prefix}
+
         # Call pre-deployed function
         return self._call_generated(env, func_name, payload, app_name=app_name)
 
@@ -397,9 +411,7 @@ class ModalAdapter(RuntimeAdapter):
                 storage_service.write_file(canon, data, mime=mime)
 
                 # Record output entry
-                outputs.append(
-                    {"path": canon, "cid": cid, "size_bytes": size_bytes, "mime": mime}
-                )
+                outputs.append({"path": canon, "cid": cid, "size_bytes": size_bytes, "mime": mime})
 
         # Sort outputs lexicographically by path
         outputs.sort(key=lambda o: o["path"])
@@ -421,8 +433,8 @@ class ModalAdapter(RuntimeAdapter):
         *,
         code: str,
         msg: str,
-        env_fp: Optional[str] = None,
-        meta_extra: Optional[Dict[str, Any]] = None,
+        env_fp: str | None = None,
+        meta_extra: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         env_fingerprint = env_fp or "adapter=modal"
         return error_envelope(

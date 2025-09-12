@@ -1,4 +1,5 @@
 """Mock LLM runner (runtime-common)."""
+
 from __future__ import annotations
 from typing import Any, Dict
 
@@ -21,4 +22,3 @@ def run_llm(inputs: Dict[str, Any]) -> Dict[str, Any]:
             "total_tokens": 15,
         },
     }
-

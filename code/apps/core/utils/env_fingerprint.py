@@ -1,7 +1,8 @@
 # apps/core/utils/env_fingerprint.py
 from __future__ import annotations
 import os
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List
+
 
 def collect_present_env_keys(
     base_keys: Iterable[str] | None = None,
@@ -18,11 +19,13 @@ def collect_present_env_keys(
                 keys.add(k)
     return sorted(keys)
 
+
 def _norm_gpu(gpu: object) -> str:
     if gpu is None:
         return "none"
     s = str(gpu).strip()
     return s if s else "none"
+
 
 def compose_env_fingerprint(
     *,
@@ -31,7 +34,7 @@ def compose_env_fingerprint(
     versions: Dict[str, str] | None = None,
     present_env_keys: Iterable[str] | None = None,
     snapshot: str = "off",
-    region: Optional[str] = None,
+    region: str | None = None,
     adapter: str,
 ) -> str:
     """

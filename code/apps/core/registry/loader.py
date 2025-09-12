@@ -9,7 +9,7 @@ def ref_to_yaml_filename(ref: str) -> str:
     Map 'llm/litellm@1' -> 'llm_litellm.yaml'.
     Version suffix is ignored at file name level; the YAML can still contain '@1' in its 'name'.
     """
-    base = ref.split("@", 1)[0]          # 'llm/litellm'
+    base = ref.split("@", 1)[0]  # 'llm/litellm'
     fname = base.replace("/", "_") + ".yaml"
     return fname
 
@@ -25,7 +25,7 @@ def load_processor_spec(ref: str) -> Dict:
     path = os.path.join(registry_dir, ref_to_yaml_filename(ref))
     if not os.path.exists(path):
         raise FileNotFoundError(f"registry spec not found for {ref} at {path}")
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
@@ -38,6 +38,7 @@ def snapshot_for_ref(ref: str) -> Dict:
 def _present_secret_names(required: List[str], optional: List[str]) -> List[str]:
     """Get list of secret names that are present in environment."""
     import os
+
     names = set()
     for n in required + optional:
         if n and n in os.environ:
@@ -54,5 +55,5 @@ def get_secrets_present_for_spec(spec: Dict) -> List[str]:
         optional = list(secrets_section.get("optional", []))
     elif isinstance(secrets_section, list):
         required = list(secrets_section)
-    
+
     return _present_secret_names(required, optional)

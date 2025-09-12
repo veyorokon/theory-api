@@ -54,7 +54,7 @@ Get a presigned URL for the file
 
 List files in a bucket with optional prefix
 
-#### `upload_file(self, file: <class 'BinaryIO'>, key: str, bucket: str, content_type: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None) -> str`
+#### `upload_file(self, file: <class 'BinaryIO'>, key: str, bucket: str, content_type: str | None = None, metadata: Optional[Dict[str, Any]] = None) -> str`
 
 Upload a file and return the public URL
 

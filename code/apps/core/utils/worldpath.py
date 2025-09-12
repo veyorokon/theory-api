@@ -1,7 +1,7 @@
 # apps/core/utils/worldpath.py
 from __future__ import annotations
 import unicodedata
-from typing import Tuple, Optional
+from typing import Tuple
 from urllib.parse import unquote_to_bytes
 
 # Public error codes (keep these EXACT for tests/docs)
@@ -11,7 +11,8 @@ ERR_BAD_FACET = "ERR_BAD_FACET"
 ERR_PERCENT_DECODE = "ERR_PERCENT_DECODE"
 ERR_SELECTOR_KIND_MISMATCH = "ERR_SELECTOR_KIND_MISMATCH"
 
-def _percent_decode_once(s: str) -> Tuple[str, Optional[str]]:
+
+def _percent_decode_once(s: str) -> Tuple[str, str | None]:
     """
     Decode percent-escapes exactly once. Reject invalid encodings and
     reject if any decoded byte becomes '/' (security).
@@ -29,6 +30,7 @@ def _percent_decode_once(s: str) -> Tuple[str, Optional[str]]:
         return s, ERR_DECODED_SLASH
     return decoded, None
 
+
 def _collapse_slashes(s: str) -> str:
     out = []
     prev = None
@@ -39,7 +41,8 @@ def _collapse_slashes(s: str) -> str:
         prev = ch
     return "".join(out)
 
-def canonicalize_worldpath(path: str) -> Tuple[str, Optional[str]]:
+
+def canonicalize_worldpath(path: str) -> Tuple[str, str | None]:
     """
     Canonicalize an absolute WorldPath. Rules:
       - Leading '/' required
@@ -70,6 +73,7 @@ def canonicalize_worldpath(path: str) -> Tuple[str, Optional[str]]:
     # No trailing normalization beyond the above; exact bytes preserved otherwise
     return decoded, None
 
+
 def canonicalize_relpath(rel: str) -> str:
     """
     Canonicalize a POSIX relative path (used for targets inside write_prefix).
@@ -88,7 +92,8 @@ def canonicalize_relpath(rel: str) -> str:
         raise ValueError(ERR_DOT_SEGMENTS)
     return rel_dec
 
-def enforce_selector_kind(path: str, *, kind: str) -> Tuple[str, Optional[str]]:
+
+def enforce_selector_kind(path: str, *, kind: str) -> Tuple[str, str | None]:
     """
     Ensure trailing slash semantics:
       - kind="prefix"  → must end with '/'

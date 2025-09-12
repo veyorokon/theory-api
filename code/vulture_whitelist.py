@@ -52,3 +52,10 @@ apps.core.errors.ERR_OUTPUT_DUPLICATE
 apps.core.tests.test_modal_adapter_parity
 apps.core.tests.test_predicates
 apps.core.tests.test_litellm_provider_isolation
+
+# Context manager protocol requires these parameters (unused is expected)
+self_nonlocal  # Context manager self parameter
+exc_type  # Context manager exception type parameter
+
+# Function parameters that may be unused in some implementations
+required_secret_names  # Modal adapter parameter for future secret handling

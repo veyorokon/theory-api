@@ -26,28 +26,28 @@ def canonicalize_path(p: str) -> str:
     """
     import unicodedata
     from urllib.parse import unquote
-    
-    s = unicodedata.normalize('NFC', unquote((p or '').strip()))
+
+    s = unicodedata.normalize("NFC", unquote((p or "").strip()))
     s = s.lower()
-    if not s.startswith('/'):
-        s = '/' + s
-    while '//' in s:
-        s = s.replace('//', '/')
-    
+    if not s.startswith("/"):
+        s = "/" + s
+    while "//" in s:
+        s = s.replace("//", "/")
+
     # forbid dot segments - check raw split to catch .. properly
-    if any(seg == '..' for seg in s.split('/')):
-        raise ValueError('dot-dot segments forbidden in world paths')
-    
-    parts = [seg for seg in s.split('/') if seg not in ('', '.')]
+    if any(seg == ".." for seg in s.split("/")):
+        raise ValueError("dot-dot segments forbidden in world paths")
+
+    parts = [seg for seg in s.split("/") if seg not in ("", ".")]
     if not parts:
-        raise ValueError('empty path after normalization')
-        
-    allowed = {'plan', 'artifacts', 'streams', 'scratch'}
+        raise ValueError("empty path after normalization")
+
+    allowed = {"plan", "artifacts", "streams", "scratch"}
     facet = parts[0]
     if facet not in allowed:
-        raise ValueError(f'Invalid facet: {facet}')
-    
-    return '/' + '/'.join(parts)
+        raise ValueError(f"Invalid facet: {facet}")
+
+    return "/" + "/".join(parts)
 
 
 # Remove parse_world_path - not needed for facet-root paths
@@ -55,30 +55,30 @@ def canonicalize_path(p: str) -> str:
 
 def canonicalize_selector(sel: Selector) -> Selector:
     """Canonicalize selector with trailing slash enforcement.
-    
+
     exact → no trailing slash
     prefix → must end with slash
     """
-    base = canonicalize_path(sel['path'])
-    if sel['kind'] == 'exact':
-        base = base.rstrip('/')
-        if base == '':
-            raise ValueError('exact selector cannot be root')
-    elif sel['kind'] == 'prefix':
-        base = base if base.endswith('/') else base + '/'
+    base = canonicalize_path(sel["path"])
+    if sel["kind"] == "exact":
+        base = base.rstrip("/")
+        if base == "":
+            raise ValueError("exact selector cannot be root")
+    elif sel["kind"] == "prefix":
+        base = base if base.endswith("/") else base + "/"
     else:
-        raise ValueError('Unknown selector kind')
-    return {'kind': sel['kind'], 'path': base}
+        raise ValueError("Unknown selector kind")
+    return {"kind": sel["kind"], "path": base}
 
 
 def paths_overlap(a: str, b: str) -> bool:
     """Return True if two paths overlap (path-only check).
-    
+
     Plan scoping will be handled by API callers.
     """
     a_c = canonicalize_path(a)
     b_c = canonicalize_path(b)
-    return a_c == b_c or a_c.startswith(b_c + '/') or b_c.startswith(a_c + '/')
+    return a_c == b_c or a_c.startswith(b_c + "/") or b_c.startswith(a_c + "/")
 
 
 def selectors_overlap(sa: Selector, sb: Selector) -> bool:
@@ -107,6 +107,7 @@ def any_overlap(selectors_a: Iterable[Selector], selectors_b: Iterable[Selector]
 @dataclass(frozen=True)
 class LeaseHandle:
     """Handle for acquired lease with plan scoping."""
+
     id: str
     plan_id: str
     selectors: tuple[Selector, ...]
@@ -125,13 +126,13 @@ class LeaseManager:
         if self.enabled:
             # naive overlap check within the same request set
             for i, a in enumerate(sels):
-                for b in sels[i+1:]:
+                for b in sels[i + 1 :]:
                     if selectors_overlap(a, b):
                         raise ValueError(f"overlapping selectors in request: {a} vs {b}")
             # façade: no global registry; just pretend success
         # return a handle; id can be deterministic for tests
-        sel_str = str(sorted((s['kind'], s['path']) for s in sels))
-        hid = f"lease:{plan_id}:{hash(sel_str) & 0xffffffff:x}"
+        sel_str = str(sorted((s["kind"], s["path"]) for s in sels))
+        hid = f"lease:{plan_id}:{hash(sel_str) & 0xFFFFFFFF:x}"
         return LeaseHandle(id=hid, plan_id=plan_id, selectors=sels, reason=reason)
 
     def release(self, handle: LeaseHandle) -> None:
@@ -141,10 +142,12 @@ class LeaseManager:
     def __call__(self, plan_id: str, selectors: Iterable[Selector], *, reason: str | None = None):
         """Context manager sugar for acquire/release."""
         handle = self.acquire(plan_id, selectors, reason=reason)
+
         class _Ctx:
             def __enter__(self_nonlocal):
                 return handle
+
             def __exit__(self_nonlocal, exc_type, exc, tb):
                 self.release(handle)
-        return _Ctx()
 
+        return _Ctx()

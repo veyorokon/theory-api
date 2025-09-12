@@ -8,7 +8,7 @@ except Exception:  # Optional dependency may be missing
     LiteLLMProvider = None  # type: ignore
 
 
-def get_llm_provider(name: str, *, model_default: str = 'openai/gpt-4o-mini', api_base: str | None = None) -> Any:
+def get_llm_provider(name: str, *, model_default: str = "openai/gpt-4o-mini", api_base: str | None = None) -> Any:
     """Get LLM provider instance by name with configuration.
 
     Args:
@@ -22,17 +22,14 @@ def get_llm_provider(name: str, *, model_default: str = 'openai/gpt-4o-mini', ap
     Raises:
         ValueError: Unknown provider or provider unavailable
     """
-    available = ['mock', 'litellm']
+    available = ["mock", "litellm"]
     if name not in available:
-        raise ValueError(
-            f"Unknown LLM provider: {name}. Available: {', '.join(available)}"
-        )
+        raise ValueError(f"Unknown LLM provider: {name}. Available: {', '.join(available)}")
 
-    if name == 'mock':
+    if name == "mock":
         return MockLLM()
 
-    if name == 'litellm':
+    if name == "litellm":
         if not LiteLLMProvider:
             raise ValueError("LiteLLMProvider is unavailable; missing optional dependency")
         return LiteLLMProvider(model_default=model_default, api_base=api_base)
-

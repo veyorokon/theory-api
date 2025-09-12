@@ -1,4 +1,5 @@
 """Mock LLM provider for development and testing."""
+
 import logging
 from apps.core.llm import LLMReply
 
@@ -7,13 +8,13 @@ logger = logging.getLogger(__name__)
 
 class MockLLM:
     """Deterministic mock LLM for hello-world demos and testing.
-    
+
     Provides both chat and streaming chat APIs for compatibility.
     """
 
     def chat(self, prompt: str, *, model: str | None = None) -> LLMReply:
         """Generate a deterministic mock response.
-        
+
         Args:
             prompt: Input prompt for the model
             model: Model name (ignored for mock, defaults to "mock")
@@ -32,7 +33,7 @@ class MockLLM:
 
     def stream_chat(self, prompt: str, *, model: str | None = None):
         """Stream a deterministic mock response word by word.
-        
+
         Args:
             prompt: Input prompt for the model
             model: Model name (ignored for mock, defaults to "mock")
@@ -44,4 +45,3 @@ class MockLLM:
         for word in text.split():
             yield word
         logger.info("mockllm.stream_finish", extra={"resp_len": len(text)})
-

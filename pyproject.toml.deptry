@@ -1,0 +1,41 @@
+# Add this to pyproject.toml:
+
+[tool.deptry]
+# Skip checking these directories (dynamic Django loading)
+ignore_paths = [
+    "code/apps/*/migrations/*",
+    "code/apps/*/tests/*", 
+    "code/tests/*",
+]
+
+# Skip these dependencies (dev/runtime tools)
+ignore_unused = [
+    "django-environ",      # Used in settings (dynamic)
+    "psycopg2-binary",     # Database driver (runtime)
+    "redis",               # Cache backend (runtime)
+    "celery",              # Task queue (runtime) 
+    "djangorestframework", # API framework (via settings)
+    "django-cors-headers", # Middleware (via settings)
+    "gunicorn",            # WSGI server (deployment)
+    "channels-redis",      # WebSocket backend (runtime)
+    "daphne",              # ASGI server (deployment)
+    "sphinx",              # Documentation tool
+    "myst-parser",         # Sphinx extension
+    "sphinxcontrib-mermaid", # Sphinx extension
+    "furo",                # Sphinx theme
+    "requests",            # HTTP library (used in processors)
+    "pytest-django",       # Test framework plugin
+    "pytest-cov",          # Coverage plugin
+    "coverage",            # Coverage tool
+    "vulture",             # Dead code checker
+    "diff-cover",          # Coverage diff tool
+    "deptry",              # Dependency checker (self)
+    "mutmut",              # Mutation testing
+    "ruff",                # Linter/formatter
+    "grimp",               # Import graph tool
+]
+
+# Skip missing dependencies for these modules (processor isolation)
+ignore_missing = [
+    "foundation",  # Local processor module
+]

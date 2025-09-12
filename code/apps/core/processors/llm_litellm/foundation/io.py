@@ -1,4 +1,5 @@
 """I/O utilities for processors."""
+
 import json
 import io
 import tarfile
@@ -18,7 +19,7 @@ def write_json(path: Path, obj: Any) -> None:
 
 def load_json(path: Path) -> dict:
     """Load JSON from file."""
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 

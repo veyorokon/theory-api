@@ -19,6 +19,7 @@ from typing import List
 
 import modal
 
+
 # Stable app name; environment is selected at deploy/invoke time
 def _slug_ver_env() -> str:
     ref = os.environ.get("PROCESSOR_REF", "")
@@ -32,18 +33,19 @@ def _slug_ver_env() -> str:
         # Fallback to explicit or default app name
         return os.getenv("MODAL_APP_NAME", "theory-rt")
 
+
 APP_NAME = _slug_ver_env()
 app = modal.App(APP_NAME)
 
 # Deployment-time parameters (all via env)
 # Required
-PROCESSOR_REF = os.environ["PROCESSOR_REF"]           # e.g. "llm/litellm@1"
-IMAGE_REF     = os.environ["IMAGE_REF"]               # e.g. "ghcr.io/..@sha256:..."
+PROCESSOR_REF = os.environ["PROCESSOR_REF"]  # e.g. "llm/litellm@1"
+IMAGE_REF = os.environ["IMAGE_REF"]  # e.g. "ghcr.io/..@sha256:..."
 # Optional (with sane defaults)
-TIMEOUT_S  = int(os.getenv("TIMEOUT_S", "60"))
-CPU        = int(os.getenv("CPU", "1"))
+TIMEOUT_S = int(os.getenv("TIMEOUT_S", "60"))
+CPU = int(os.getenv("CPU", "1"))
 MEMORY_MIB = int(os.getenv("MEMORY_MIB", "2048"))  # Modal uses MiB
-GPU        = os.getenv("GPU") or None                # e.g., "A10G" or unset -> None
+GPU = os.getenv("GPU") or None  # e.g., "A10G" or unset -> None
 
 # Comma-separated list of tool secret names (must match env var names)
 TOOL_SECRETS: List[str] = [s for s in (os.getenv("TOOL_SECRETS", "")).split(",") if s.strip()]
@@ -71,7 +73,7 @@ def _fn_name(ref: str) -> str:
     memory=MEMORY_MIB,
     gpu=GPU,
     secrets=secrets,
-    retries=0,                   # fail-fast; caller handles policy/retry
+    retries=0,  # fail-fast; caller handles policy/retry
 )
 def run(payload: dict) -> bytes:
     """

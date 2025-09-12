@@ -22,16 +22,16 @@ def environ_setting(name, default=None, isNoneAllowed=False):
     """
     if name not in os.environ and default is None and not isNoneAllowed:
         from django.core.exceptions import ImproperlyConfigured
-        raise ImproperlyConfigured(
-            "The {0} ENVVAR is not set.".format(name)
-        )
+
+        raise ImproperlyConfigured(f"The {name} ENVVAR is not set.")
 
     return os.environ.get(name, default)
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, BASE_DIR)
-sys.path.insert(0, os.path.join(BASE_DIR, 'apps'))
+sys.path.insert(0, os.path.join(BASE_DIR, "apps"))
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
@@ -39,90 +39,90 @@ sys.path.insert(0, os.path.join(BASE_DIR, 'apps'))
 # SECRET_KEY is set in environment-specific settings files
 
 # Application definition
-AUTH_USER_MODEL = 'core.User'
+AUTH_USER_MODEL = "core.User"
 
 LOCAL_APPS = [
-    'apps.core',
-    'apps.storage',
-    'apps.plans',
-    'apps.runtime',
-    'apps.ledger',
-    'apps.artifacts',
+    "apps.core",
+    "apps.storage",
+    "apps.plans",
+    "apps.runtime",
+    "apps.ledger",
+    "apps.artifacts",
 ]
 THIRD_PARTY_APPS = [
     "rest_framework",
     "channels",
 ]
 DJANGO_APPS = [
-    'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.messages',
-    'django.contrib.staticfiles',
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
 ]
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    "django.middleware.security.SecurityMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-ROOT_URLCONF = 'backend.urls'
+ROOT_URLCONF = "backend.urls"
 TEMPLATES = [
     {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
-        'APP_DIRS': True,
-        'OPTIONS': {
-            'context_processors': [
-                'django.template.context_processors.debug',
-                'django.template.context_processors.request',
-                'django.contrib.auth.context_processors.auth',
-                'django.contrib.messages.context_processors.messages',
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.debug",
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
             ],
         },
     },
 ]
 
-WSGI_APPLICATION = 'backend.wsgi.application'
-ASGI_APPLICATION = 'backend.asgi.application'
+WSGI_APPLICATION = "backend.wsgi.application"
+ASGI_APPLICATION = "backend.asgi.application"
 
 # Password validation
 # https://docs.djangoproject.com/en/4.2/ref/settings/#auth-password-validators
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
     },
 ]
 
 # Internationalization
 # https://docs.djangoproject.com/en/4.2/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = "en-us"
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = "UTC"
 
 USE_I18N = True
 
 USE_TZ = True
 
-#API KEYS
+# API KEYS
 OPENAI_API_KEY = environ_setting("OPENAI_API_KEY", isNoneAllowed=True)
 
 # Ensure your site uses the same domain settings in cookies
@@ -137,16 +137,16 @@ SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/4.2/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = "static/"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Channels / Channel layers (Redis)
-REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
-CHANNELS_REDIS_URL = os.environ.get('CHANNELS_REDIS_URL') or REDIS_URL
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+CHANNELS_REDIS_URL = os.environ.get("CHANNELS_REDIS_URL") or REDIS_URL
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
@@ -163,11 +163,11 @@ LLM_SETTINGS = {
 
 # Feature flags
 # Modal adapter gating comes from Django settings (not raw env var). Map env→setting here.
-MODAL_ENABLED = os.environ.get('MODAL_ENABLED', 'false').lower() == 'true'
+MODAL_ENABLED = os.environ.get("MODAL_ENABLED", "false").lower() == "true"
 # Modal environment name for Function.from_name(..., environment_name=...)
-MODAL_ENV = os.environ.get('MODAL_ENV', '').strip() or 'dev'
+MODAL_ENV = os.environ.get("MODAL_ENV", "").strip() or "dev"
 # Stable Modal app name (module uses this); env is selected at deploy/invoke time
-MODAL_APP_NAME = os.environ.get('MODAL_APP_NAME', 'theory-rt')
+MODAL_APP_NAME = os.environ.get("MODAL_APP_NAME", "theory-rt")
 
 # Lease management feature flag
 LEASES_ENABLED = False

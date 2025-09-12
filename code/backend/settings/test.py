@@ -27,9 +27,7 @@ DATABASES = {
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {
-            "hosts": [(os.getenv("TEST_REDIS_HOST", "127.0.0.1"), int(os.getenv("TEST_REDIS_PORT", "6379")))]
-        },
+        "CONFIG": {"hosts": [(os.getenv("TEST_REDIS_HOST", "127.0.0.1"), int(os.getenv("TEST_REDIS_PORT", "6379")))]},
     }
 }
 
@@ -41,17 +39,17 @@ SECRET_KEY = "test-secret-key-not-for-production"
 
 # Logging for debugging tests
 LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'handlers': {
-        'console': {
-            'class': 'logging.StreamHandler',
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
         },
     },
-    'loggers': {
-        'django.db.backends': {
-            'level': 'WARNING',  # Set to DEBUG to see SQL queries
-            'handlers': ['console'],
+    "loggers": {
+        "django.db.backends": {
+            "level": "WARNING",  # Set to DEBUG to see SQL queries
+            "handlers": ["console"],
         },
     },
 }
