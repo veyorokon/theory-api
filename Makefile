@@ -36,7 +36,7 @@ test-property:
 	$(MAKE) wait-db
 	DJANGO_SETTINGS_MODULE=backend.settings.test \
 	cd code && python manage.py migrate --noinput
-	cd code && DJANGO_SETTINGS_MODULE=backend.settings.test pytest -q tests/property
+	cd code && DJANGO_SETTINGS_MODULE=backend.settings.test python -m pytest -q tests/property --override-ini="testpaths=tests"
 
 test-all:
 	DJANGO_SETTINGS_MODULE=backend.settings.unittest \
