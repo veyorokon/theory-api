@@ -84,33 +84,47 @@ The CI/CD system uses a **build-once, deploy-many** strategy with digest pinning
 
 **Purpose**: Environment-gated deployments to Modal with smoke testing.
 
-### 5. Rollback Workflow
-**Trigger**: Manual workflow_dispatch only
-**Runtime**: ~2-3 minutes
+### 5. Modal Drift Audit
+**Trigger**: 
+- Push to `dev`, `staging`, `main` branches
+- Pull requests to `main`
+- Manual workflow_dispatch
+
+**Runtime**: ~1-2 minutes
+**Behavior**:
+- `dev`/`staging`: Report-only (continue-on-error: true)
+- `main`: Fail-closed if audit fails
+- PRs: Report-only for visibility
 
 ```yaml
-# .github/workflows/rollback.yml
-- Checkout target commit
-- Validate registry state at target
-- Deploy rollback to Modal
-- Smoke test rollback deployment
-```
-
-**Purpose**: Emergency rollback to previous known-good state.
-
-### 6. Environment Drift Audit
-**Trigger**: Weekly schedule (Monday 09:00 UTC) + manual dispatch
-**Runtime**: ~1-2 minutes per environment
-
-```yaml
-# .github/workflows/audit-env.yml  
-- Query Modal apps per environment
+# .github/workflows/modal-drift.yml  
+- Query Modal apps for environment
 - Compare deployed vs expected state
-- Generate audit reports
-- Create/update GitHub issue with findings
+- Report drift or fail based on branch
 ```
 
 **Purpose**: Detect configuration drift between expected and deployed state.
+
+### 6. Manual Rollback
+**Available via**: Manual workflow_dispatch or CLI commands
+**Runtime**: ~2-3 minutes
+
+**Manual process**:
+```bash
+# Identify target commit with working deployment
+git log --oneline
+
+# Checkout target commit
+git checkout <commit-sha>
+
+# Redeploy modal app from target commit
+modal deploy -m modal_app
+
+# Verify deployment
+modal function logs <app-name>::run --env <environment>
+```
+
+**Purpose**: Emergency rollback to previous known-good state.
 
 ## Secret Management
 
@@ -177,12 +191,15 @@ OPENAI_API_KEY          # Workload runtime key
 5. **Update tracking**: Coordinate with team on branch state
 
 ### Drift Audit Response
-1. **Weekly report**: Review automated audit issue created Mondays
-2. **Investigate discrepancies**:
+1. **Continuous monitoring**: Drift checks run on every push/PR
+2. **Environment-specific behavior**:
+   - **dev/staging**: Drift reported but doesn't block deployment
+   - **main**: Drift failures block deployment for safety
+3. **Investigate discrepancies**:
    - Missing apps: Check deployment pipeline health
    - Version mismatches: Verify pin PR workflow  
    - Access errors: Validate Modal credentials
-3. **Remediation**:
+4. **Remediation**:
    - Re-trigger deployments if needed
    - Update broken workflows
    - Escalate credential issues

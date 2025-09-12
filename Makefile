@@ -82,13 +82,13 @@ ci-pin-processor:
 	python scripts/ci/pin_processor.py "$(PROCESSOR)" "$(IMAGE_BASE)" "$(DIGEST)"
 
 # --- Dead Code Detection ---
-# Full coverage with json for diff-cover
+# Full coverage with xml/json for diff-cover (no fail threshold - CI uses diff-cover)
 test-coverage:
 	coverage erase
 	coverage run -m pytest -q
 	coverage xml
 	coverage json
-	coverage report --fail-under=85
+	coverage report
 
 # Static dead-code check with allowlist (to handle dynamic usage)
 deadcode:

@@ -7,7 +7,7 @@ Usage (deploy):
   modal deploy --env $MODAL_ENVIRONMENT -m modal_app
 
 Invocation (adapter):
-  modal.Function.from_name(app=APP_NAME, name=FN_NAME, environment_name=ENV).remote(payload)
+  modal.Function.from_name(app=APP_NAME, name="run", environment_name=ENV).remote(payload)
 """
 
 import io
@@ -21,20 +21,26 @@ import modal
 
 
 # Stable app name; environment is selected at deploy/invoke time
-def _slug_ver_env() -> str:
-    ref = os.environ.get("PROCESSOR_REF", "")
+def _modal_app_name_from_env() -> str:
+    """Generate Modal app name from environment variables using shared naming logic."""
+    processor_ref = os.environ.get("PROCESSOR_REF", "")
     env = os.environ.get("MODAL_ENVIRONMENT") or os.environ.get("MODAL_ENV") or "dev"
+
     try:
-        name, ver = ref.split("@", 1)
-        slug = name.replace("/", "-").lower()
-        ver_s = f"v{ver}" if not ver.startswith("v") else ver
+        # Parse processor_ref: "ns/name@ver" -> "ns-name-vver-env"
+        if "@" not in processor_ref:
+            raise ValueError(f"Invalid PROCESSOR_REF: {processor_ref}")
+
+        name_part, version = processor_ref.split("@", 1)
+        slug = name_part.replace("/", "-").lower()
+        ver_s = f"v{version}" if not version.startswith("v") else version
         return f"{slug}-{ver_s}-{env}"
     except Exception:
         # Fallback to explicit or default app name
         return os.getenv("MODAL_APP_NAME", "theory-rt")
 
 
-APP_NAME = _slug_ver_env()
+APP_NAME = _modal_app_name_from_env()
 app = modal.App(APP_NAME)
 
 # Deployment-time parameters (all via env)
@@ -58,12 +64,6 @@ image = modal.Image.from_registry(IMAGE_REF, secret=modal.Secret.from_name(REGIS
 secrets = [modal.Secret.from_name(REGISTRY_SECRET_NAME)]
 for s in TOOL_SECRETS:
     secrets.append(modal.Secret.from_name(s))
-
-
-def _fn_name(ref: str) -> str:
-    """Deterministic function name: exec__{slug}__v{ver} from 'ns/name@ver'."""
-    name, ver = ref.split("@", 1)
-    return f"exec__{name.replace('/', '_')}__v{ver}"
 
 
 @app.function(

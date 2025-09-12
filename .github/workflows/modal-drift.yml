@@ -1,0 +1,53 @@
+name: Modal Drift Audit
+
+on:
+  push:
+    branches: [dev, staging, main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  modal-drift:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          pip install -U pip wheel
+          pip install -r requirements.txt
+
+      - name: Run drift audit (dev/staging - report only)
+        if: github.ref_name == 'dev' || github.ref_name == 'staging'
+        continue-on-error: true
+        run: |
+          cd code
+          python scripts/drift_audit.py
+          echo "ℹ️ Drift detected on ${{ github.ref_name }} - reported for visibility"
+
+      - name: Run drift audit (main - fail closed)
+        if: github.ref_name == 'main'
+        run: |
+          cd code
+          python scripts/drift_audit.py
+          echo "✅ Modal deployment matches repository state on main"
+
+      - name: Run drift audit (PR - report only)
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: |
+          cd code
+          python scripts/drift_audit.py
+          echo "ℹ️ Drift check on PR - reported for visibility"

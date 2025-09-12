@@ -28,6 +28,7 @@ from django.conf import settings
 
 from .base import RuntimeAdapter  # same base class used by local/mock
 from .envelope import success_envelope, error_envelope  # shared serializers
+from .modal.naming import modal_app_name_from_ref, modal_fn_name
 
 # Storage & utils (world writes + cid + mime)
 from apps.storage.service import storage_service
@@ -278,13 +279,11 @@ class ModalAdapter(RuntimeAdapter):
 
     def _function_name_from_spec(self, ref: str, spec: Dict[str, Any]) -> str:
         """0021: functions are named 'run' in each app; keep API stable."""
-        return "run"
+        return modal_fn_name()
 
     def _app_name_from_ref(self, ref: str, env: str) -> str:
-        base, ver = (ref.split("@", 1) + ["1"])[:2]
-        slug = base.replace("/", "-").lower()
-        ver_s = f"v{ver}" if not ver.startswith("v") else ver
-        return f"{slug}-{ver_s}-{env}"
+        """Generate Modal app name using shared naming logic."""
+        return modal_app_name_from_ref(ref, env)
 
     def _call_modal_function(
         self, *, app_name: str, func_name: str, payload: Dict[str, Any], wait_s: int | None = None
