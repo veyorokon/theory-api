@@ -56,15 +56,59 @@ jobs:
           cd code
           modal deploy --env "${MODAL_ENVIRONMENT}" -m modal_app
 
-      - name: Post-deploy smoke (single call)
+      - name: Post-deploy smoke (Modal synthetic transaction)
+        working-directory: code
         env:
           DJANGO_SETTINGS_MODULE: backend.settings.unittest
-          MODAL_ENABLED: "True"
+          MODAL_ENABLED: "true"
+          MODAL_ENVIRONMENT: ${{ inputs.environment != '' && inputs.environment || github.ref_name }}
+          LLM_PROVIDER: mock  # Zero-cost deterministic mode
         run: |
-          cd code
-          python manage.py run_processor \
+          set -euo pipefail
+          echo "🧪 Running post-deploy smoke test..."
+          
+          OUT=$(python manage.py run_processor \
             --ref llm/litellm@1 \
             --adapter modal \
-            --write-prefix /artifacts/outputs/smoke/ \
-            --inputs-json '{"messages":[{"role":"user","content":"smoke"}]}' \
-            --json
+            --write-prefix /artifacts/outputs/smoke/{execution_id}/ \
+            --inputs-json '{"messages":[{"role":"user","content":"deployment smoke test"}]}' \
+            --json)
+          
+          echo "📋 Smoke test output:"
+          echo "$OUT"
+          
+          echo "✅ Verifying deployment success..."
+          export SMOKE_OUTPUT="$OUT"
+          python - <<'PY'
+          import json, sys, os
+          
+          try:
+              payload = json.loads(os.environ["SMOKE_OUTPUT"])
+              
+              # Verify success envelope
+              assert payload["status"] == "success", f"Expected success, got: {payload}"
+              assert "execution_id" in payload, "Missing execution_id"
+              assert payload["execution_id"], "Empty execution_id"
+              
+              # Verify outputs structure
+              assert "outputs" in payload, "Missing outputs"
+              assert payload["outputs"], "Empty outputs array"
+              
+              # Verify canonical output files present
+              output_names = sorted([o["path"].rsplit("/",1)[-1] for o in payload["outputs"]])
+              expected = ["receipt.json", "response.json"]
+              assert output_names == expected, f"Expected {expected}, got {output_names}"
+              
+              # Verify metadata
+              assert "meta" in payload, "Missing meta"
+              assert "index_path" in payload, "Missing index_path"
+              
+              print("✅ Modal deployment verified successfully")
+              print(f"✅ Execution ID: {payload['execution_id']}")
+              print(f"✅ Output files: {output_names}")
+              print(f"✅ Index path: {payload['index_path']}")
+              
+          except Exception as e:
+              print(f"❌ Smoke test verification failed: {e}")
+              sys.exit(1)
+          PY
