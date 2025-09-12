@@ -73,7 +73,12 @@ jobs:
           S3_SECRET_KEY: minioadmin
           S3_BUCKET: default
         run: |
-          python -m pytest -q -m integration tests/integration
+          # Verify MinIO connectivity
+          echo "🔍 Testing MinIO connectivity..."
+          curl -f http://127.0.0.1:9000/minio/health/live || echo "⚠️ MinIO health check failed"
+          
+          # Run integration tests with verbose output for debugging
+          python -m pytest -s -v -m integration tests/integration
 
       - name: Teardown services
         if: always()

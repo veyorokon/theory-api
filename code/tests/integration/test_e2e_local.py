@@ -57,10 +57,24 @@ class TestE2ELocal:
         
         # Execute processor
         result = subprocess.run(cmd, cwd=".", env=env, capture_output=True, text=True)
+        
+        # Debug output for CI diagnostics
+        if result.returncode != 0:
+            print(f"❌ Processor command failed:")
+            print(f"Command: {' '.join(cmd)}")
+            print(f"Return code: {result.returncode}")
+            print(f"STDERR: {result.stderr}")
+            print(f"STDOUT: {result.stdout}")
+            
         assert result.returncode == 0, f"Command failed: {result.stderr}"
         
         # Parse JSON response
         payload = json.loads(result.stdout)
+        
+        # Debug output for error envelopes
+        if payload.get("status") == "error":
+            print(f"❌ Processor returned error envelope:")
+            print(json.dumps(payload, indent=2))
         
         # Verify success envelope shape
         assert payload["status"] == "success"
