@@ -1,7 +1,7 @@
 (providers)=
-# LLM Providers
+# Integrations (LLM Providers)
 
-Overview of Theory's LLM provider architecture, distinguishing between providers and models.
+Overview of Theory's server-side integrations (LLM providers) and how they differ from runtime processors.
 
 ## Provider vs Model
 
@@ -45,9 +45,9 @@ python manage.py run_processor --ref llm/litellm@1 --adapter modal
 python manage.py run_processor --ref llm/litellm@1 --adapter mock --attach image=photo.jpg
 ```
 
-### Programmatic Usage
+### Programmatic Usage (Server-side)
 ```python
-from apps.core.providers import get_llm_provider
+from apps.core.integrations import get_llm_provider
 
 # Factory pattern
 llm = get_llm_provider('litellm', model_default='openai/gpt-4o-mini')
@@ -129,7 +129,7 @@ llm.chat("Hello")
 
 ## Extension Points
 
-### Adding New Providers
+### Adding New Integrations
 
 1. Implement the `LLMProvider` protocol:
    ```python
@@ -141,7 +141,7 @@ llm.chat("Hello")
 
 2. Register in factory:
    ```python
-   # apps/core/providers/__init__.py
+   # apps/core/integrations/__init__.py
    def get_llm_provider(name: str):
        mapping = {
            'custom': CustomProvider(),

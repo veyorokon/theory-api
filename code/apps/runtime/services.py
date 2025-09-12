@@ -1,11 +1,12 @@
 from __future__ import annotations
-from typing import Iterable, Optional
-from datetime import datetime, timezone
+from typing import Iterable
+from datetime import datetime, UTC
 from django.db import transaction
 from apps.plans.models import Plan
 from apps.runtime.models import Execution
 from apps.ledger.services import LedgerWriter
 from .determinism import write_determinism_receipt
+
 
 def settle_execution_success(
     *,
@@ -17,6 +18,8 @@ def settle_execution_success(
     memo_key: str,
     env_fingerprint: str,
     output_cids: Iterable[str],
+    outputs_index: str | None = None,
+    outputs_count: int | None = None,
 ) -> str:
     """
     Success path: clears reserve fully, records spend, writes receipt, emits event with pointer.
@@ -39,20 +42,29 @@ def settle_execution_success(
             output_cids=list(output_cids or []),
         )
 
-        # Emit ledger event with determinism reference
+        # Emit ledger event with determinism reference and optional output metadata
         ledger_writer = LedgerWriter()
-        ledger_writer.append_event(plan, {
-            'kind': 'execution.settle.success',
-            'ts': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
-            'actual_micro': int(actual_micro),
-            'estimate_hi_micro': int(estimate_hi_micro),
-            'refund_micro': refund_micro,
-            'determinism_uri': determinism_uri,
-            'execution_id': str(execution.id),
-            'plan_id': plan.key
-        })
-        
+        payload = {
+            "kind": "execution.settle.success",
+            "ts": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "actual_micro": int(actual_micro),
+            "estimate_hi_micro": int(estimate_hi_micro),
+            "refund_micro": refund_micro,
+            "determinism_uri": determinism_uri,
+            "execution_id": str(execution.id),
+            "plan_id": plan.key,
+        }
+
+        # Add optional canonical output metadata (additive, test-safe)
+        if outputs_index is not None:
+            payload["outputs_index"] = outputs_index
+        if outputs_count is not None:
+            payload["outputs_count"] = outputs_count
+
+        ledger_writer.append_event(plan, payload)
+
         return determinism_uri
+
 
 def settle_execution_failure(
     *,
@@ -60,7 +72,7 @@ def settle_execution_failure(
     execution: Execution,
     estimate_hi_micro: int,
     metered_actual_micro: int = 0,
-    reason: Optional[str] = None,
+    reason: str | None = None,
 ) -> None:
     """
     Failure path: clears full reserve; may record any metered actual spend.
@@ -72,15 +84,19 @@ def settle_execution_failure(
 
         # Emit ledger event for failure
         ledger_writer = LedgerWriter()
-        ledger_writer.append_event(plan, {
-            'kind': 'execution.settle.failure',
-            'ts': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
-            'estimate_hi_micro': int(estimate_hi_micro),
-            'metered_actual_micro': int(metered_actual_micro),
-            'reason': reason or '',
-            'execution_id': str(execution.id),
-            'plan_id': plan.key
-        })
+        ledger_writer.append_event(
+            plan,
+            {
+                "kind": "execution.settle.failure",
+                "ts": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                "estimate_hi_micro": int(estimate_hi_micro),
+                "metered_actual_micro": int(metered_actual_micro),
+                "reason": reason or "",
+                "execution_id": str(execution.id),
+                "plan_id": plan.key,
+            },
+        )
+
 
 def record_memo_hit(*, plan: Plan, execution: Execution, memo_key: str) -> None:
     """
@@ -88,10 +104,13 @@ def record_memo_hit(*, plan: Plan, execution: Execution, memo_key: str) -> None:
     reserve -> immediate refund; not implemented here).
     """
     ledger_writer = LedgerWriter()
-    ledger_writer.append_event(plan, {
-        'kind': 'execution.memo_hit',
-        'ts': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
-        'memo_key': memo_key,
-        'execution_id': str(execution.id),
-        'plan_id': plan.key
-    })
+    ledger_writer.append_event(
+        plan,
+        {
+            "kind": "execution.memo_hit",
+            "ts": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "memo_key": memo_key,
+            "execution_id": str(execution.id),
+            "plan_id": plan.key,
+        },
+    )

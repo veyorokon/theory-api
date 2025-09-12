@@ -2,12 +2,14 @@
 Determinism receipt helper (MVP).
 Writes /artifacts/execution/<id>/determinism.json and returns the WorldPath.
 """
+
 from __future__ import annotations
 import json
 from typing import List
 from apps.plans.models import Plan
 from apps.runtime.models import Execution
 from apps.storage.service import storage_service
+
 
 def write_determinism_receipt(
     plan: Plan,
@@ -26,7 +28,5 @@ def write_determinism_receipt(
     }
     data = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     path = f"/artifacts/execution/{execution.id}/determinism.json"
-    storage_service.upload_bytes(
-        data, key=path, content_type="application/json", bucket='default'
-    )
+    storage_service.upload_bytes(data, key=path, content_type="application/json", bucket="default")
     return path

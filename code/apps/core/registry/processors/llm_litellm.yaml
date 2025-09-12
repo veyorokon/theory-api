@@ -1,18 +1,15 @@
-ref: llm/litellm@1
-description: LLM processor using LiteLLM for multi-provider support
-version: 1
+name: llm/litellm@1
 image:
+  oci: ghcr.io/veyorokon/llm_litellm@sha256:b0b2041c6b427649230b9afc6ac8e5aae6fbfdbf5bd5bc5d5192dc61260ad039
+build:
+  context: .
   dockerfile: apps/core/processors/llm_litellm/Dockerfile
 runtime:
-  cpu: 1
-  memory: 512
-  timeout: 300
-adapter:
-  modal:
-    stub_name: llm_litellm_v1
-    function_name: process
+  cpu: "1"
+  memory_gb: 2
+  timeout_s: 60
 secrets:
-  - OPENAI_API_KEY
+  required: [OPENAI_API_KEY]
 inputs:
   schema:
     type: object

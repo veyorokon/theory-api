@@ -1,0 +1,34 @@
+# Reduce Docker build context for processor images
+# Keep this conservative to avoid leaking Django, tests, docs, and git history.
+
+# VCS & tooling
+.git
+.github
+.venv
+.vscode
+.idea
+**/__pycache__/
+**/*.pyc
+
+# Large/unneeded for processor images
+docs
+infra
+agents
+conda
+scripts
+*.log
+_build
+docs/_generated
+
+# Server/test code not needed in image
+code/apps/**/tests
+code/apps/**/migrations
+code/apps/**/management
+code/apps/**/admin.py
+code/apps/**/views.py
+code/apps/**/urls.py
+
+# Allow essential processor and shared lib paths (Dockerfile COPY will reference them)
+!code/apps/core/processors/**
+!code/libs/runtime_common/**
+!code/apps/core/processors/**/requirements.txt

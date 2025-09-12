@@ -7,6 +7,7 @@ ADR-template
 ADR-0001-docs-as-contracts
 ADR-0002-storage-adapter-pattern
 ADR-0003-branch-strategy-cicd
+ADR-0015-local-adapter-docker-execution
 ```
 
 ## Overview
@@ -29,6 +30,9 @@ Defines the vendor-neutral storage abstraction using the adapter pattern.
 
 ### [ADR-0003: Branch Strategy and CI/CD Pipeline](ADR-0003-branch-strategy-cicd)
 Establishes branching workflow and automated deployment pipeline for safe production releases.
+
+### [ADR-0015: Local Adapter Docker Execution](ADR-0015-local-adapter-docker-execution)
+Defines container-based execution model for local adapter to ensure isolation and consistency.
 
 ## Writing ADRs
 

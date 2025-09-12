@@ -12,8 +12,8 @@
 - [ ] All acceptance criteria from meta.yaml verified
 
 ## Validation
-- [ ] Meta schema: `python theory_api/agents/validate_chat_meta.py $(find theory_api/agents/chats -name meta.yaml)`
-- [ ] Message validation: `python theory_api/agents/validate_chat_msgs.py $(find theory_api/agents/chats -maxdepth 1 -type d)`
+- [ ] Meta schema: `python agents/validate_chat_meta.py $(find agents/chats -name meta.yaml)`
+- [ ] Message validation: `python agents/validate_chat_msgs.py $(find agents/chats -maxdepth 1 -type d)`
 - [ ] PR title matches pattern: `XXXX [area] slug` (for agent-coordinated work)
 
 ## Docs (required)

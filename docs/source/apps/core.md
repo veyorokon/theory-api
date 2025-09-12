@@ -8,6 +8,8 @@ Base functionality required by all other applications:
 - Custom user model with email-based authentication
 - Management commands for system operations
 - Documentation generation utilities
+- Processor execution adapters and interface contracts
+- Registry-based processor specifications
 
 ## Data Model & API
 
@@ -113,3 +115,68 @@ with lm("plan-456", [{"kind": "exact", "path": "/artifacts/result.json"}]) as ha
 paths_overlap("/artifacts/out", "/artifacts/out/frames")  # True
 paths_overlap("/artifacts/foo", "/artifacts/foobar")      # False
 ```
+
+## Processor Interface Contract
+
+Processors are stateless, containerized programs that execute within isolated Docker containers. They provide a standardized interface for processing inputs and generating outputs.
+
+### Interface Specification
+
+**Input Contract:**
+- Processors read JSON inputs from `/work/inputs.json` inside the container
+- Input JSON contains all necessary parameters and data references
+- Attachment references use `{"$artifact": "/artifacts/path"}` format
+
+**Output Contract:**  
+- All outputs must be written under `/work/out/` directory
+- Files can be organized in subdirectories (e.g., `/work/out/text/response.txt`)
+- Exit code 0 indicates success; non-zero indicates failure
+- Successful execution generates canonical outputs with index artifact at `/artifacts/execution/<id>/outputs.json`
+- See {doc}`Processor Outputs </guides/processor-outputs>` for canonical format specification
+
+**Environment Variables:**
+- `THEORY_OUTPUT_DIR=/work/out` - Standard output directory
+- Secret environment variables injected based on registry `secrets` specification
+
+**Container Execution:**
+- Working directory: `/work`
+- Read-write mount: Host workdir mounted at `/work`
+- Resource constraints: CPU, memory, timeout enforced via Docker flags
+- Isolated execution: No access to Django models or host resources
+
+### Registry Integration
+
+Processors are defined by YAML specifications in `apps/core/registry/processors/`:
+
+```yaml
+ref: llm/litellm@1
+description: LLM processor using LiteLLM for multi-provider support
+version: 1
+image:
+  dockerfile: apps/core/processors/llm_litellm/Dockerfile
+  oci: docker.io/library/python:3.11-slim
+entrypoint:
+  cmd: ["python", "/app/processor.py"]
+runtime:
+  cpu: 1
+  memory_gb: 0.5
+  timeout_s: 300
+secrets:
+  - OPENAI_API_KEY
+```
+
+### Adapter Implementation
+
+**Local Adapter (Docker):**
+- Reads registry specification for processor configuration
+- Creates isolated workdir under `settings.BASE_DIR/tmp/plan_id/execution_id`
+- Executes processor in Docker container with resource constraints
+- Uploads outputs to ArtifactStore under specified write prefix
+
+**Modal Adapter:**
+- Uses registry `image.oci` reference for Modal execution
+- Identical I/O contract with different execution environment
+
+**Mock Adapter:**
+- Simulates processor execution for testing and CI/CD
+- Returns structured mock outputs without container execution

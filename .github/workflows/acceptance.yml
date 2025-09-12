@@ -1,0 +1,71 @@
+name: Acceptance & Property
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+    branches: [dev, main]
+    types: [opened, synchronize, labeled]
+  schedule:
+    - cron: "0 6 * * *"  # daily 06:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    # Run on push to dev/main OR on PRs with 'run-acceptance' label
+    if: |
+      github.event_name == 'push' ||
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'run-acceptance')
+    permissions:
+      contents: read
+    env:
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      PYTHONUNBUFFERED: "1"
+      # Provide keys only if your tests call real providers
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY_DEV }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          pip install -U pip wheel
+          pip install -r requirements.txt
+
+      - name: Bring up services (Docker)
+        run: |
+          docker version
+          docker compose version
+          docker compose up -d postgres redis minio
+
+      - name: Wait for services
+        run: |
+          sleep 8
+          docker compose ps
+
+      - name: Acceptance tests
+        run: |
+          make test-acceptance
+
+      - name: Property tests
+        run: |
+          make test-property
+
+      - name: Integration tests
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY_DEV }}
+        run: |
+          cd code
+          pytest -m integration -q
+
+      - name: Teardown services
+        if: always()
+        run: |
+          docker compose down -v || { echo "compose down: nothing to stop (ok)"; exit 0; }

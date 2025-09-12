@@ -48,18 +48,20 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
-
+.claude/
 # Django stuff:
 *.log
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
 *.sqlite3
-
+coverage.json
 # Flask stuff:
 instance/
 .webassets-cache
-
+tests/.*/
+.grimp_cache/
+.ruff_cache/
 # Scrapy stuff:
 .scrapy
 

@@ -12,12 +12,7 @@ class Event(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=['plan', 'seq'], 
-                name='uq_event_plan_seq'
-            )
-        ]
+        constraints = [models.UniqueConstraint(fields=["plan", "seq"], name="uq_event_plan_seq")]
 
     def __str__(self):
         return f"{self.plan.key}.{self.seq} ({self.payload.get('event_type', 'unknown')})"

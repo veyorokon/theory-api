@@ -20,7 +20,16 @@ litellm
 requests
 pytest
 pytest-django
+pytest-cov
+coverage
+vulture
+diff-cover
+grimp
+deptry
+mutmut
+ruff
 blake3>=0.4.1
 jsonschema>=4.0.0
 jmespath>=1.0.0
 PyYAML>=6.0
+modal==1.1.4

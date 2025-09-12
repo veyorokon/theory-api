@@ -14,23 +14,88 @@ cd theory_api/code && python manage.py run_processor --ref llm/litellm@1 --adapt
 ```
 
 **Expected Output:**
+```json
+{
+  "status": "success",
+  "execution_id": "abc123",
+  "outputs": [
+    {
+      "path": "/artifacts/outputs/text/response.txt",
+      "cid": "b3:def456...",
+      "size_bytes": 26,
+      "mime": "text/plain"
+    },
+    {
+      "path": "/artifacts/outputs/meta.json",
+      "cid": "b3:789abc...", 
+      "size_bytes": 145,
+      "mime": "application/json"
+    }
+  ],
+  "index_path": "/artifacts/execution/abc123/outputs.json",
+  "meta": {
+    "model": "mock-llm",
+    "tokens_in": 1,
+    "tokens_out": 5,
+    "duration_ms": 100
+  }
+}
 ```
-Processor completed successfully
-Outputs: {
-  "/artifacts/outputs/text/response.txt": "Mock response to 1 messages",
-  "/artifacts/outputs/metadata.json": "{...}"
+
+### Local Adapter (Docker Execution)
+
+Run a processor locally using Docker containers:
+
+```bash
+# Requires Docker installed and running
+cd theory_api/code && python manage.py run_processor --ref llm/litellm@1 --adapter local --inputs-json '{"messages":[{"role":"user","content":"Hello!"}]}'
+```
+
+**Prerequisites:**
+- Docker installed and running
+- Processor image available (built from Dockerfile or pulled from registry)
+
+**Expected Output:**
+```json
+{
+  "status": "success",
+  "execution_id": "def789",
+  "outputs": [
+    {
+      "path": "/artifacts/outputs/text/response.txt",
+      "cid": "b3:123def...",
+      "size_bytes": 1247,
+      "mime": "text/plain"
+    },
+    {
+      "path": "/artifacts/outputs/meta.json",
+      "cid": "b3:456abc...",
+      "size_bytes": 198,
+      "mime": "application/json"
+    }
+  ],
+  "index_path": "/artifacts/execution/def789/outputs.json",
+  "meta": {
+    "image_digest": "sha256:abc123...",
+    "env_fingerprint": "linux_x64_py311_openai",
+    "duration_ms": 2341
+  }
 }
 ```
 
 ### Modal Adapter (Cloud Execution)
 
-With Modal token configured:
+With Modal token configured and `MODAL_ENABLED=True`:
 
 ```bash
-export MODAL_TOKEN_ID="your-token"
+export MODAL_TOKEN_ID="your-token-id"
+export MODAL_TOKEN_SECRET="your-token-secret"
 export OPENAI_API_KEY="your-key"
+export MODAL_ENABLED=True
 cd theory_api/code && python manage.py run_processor --ref llm/litellm@1 --adapter modal --inputs-json '{"messages":[{"role":"user","content":"Hello!"}]}'
 ```
+
+**Note:** Full canonical outputs parity for Modal adapter will land in 0022. Safe to run mock/local adapters now for canonical envelope testing.
 
 ## Attachments
 
@@ -65,22 +130,35 @@ python manage.py run_processor [options]
 
 **Optional:**
 - `--adapter`: Execution adapter (`local`, `mock`, `modal`) - default: `local`
+  - `local`: Docker container execution (requires Docker)
+  - `mock`: Simulated execution for testing/CI
+  - `modal`: Cloud execution via Modal platform
 - `--plan`: Plan key for budget tracking
 - `--write-prefix`: Output prefix path (must end with `/`) - default: `/artifacts/outputs/`
 - `--inputs-json`: JSON input for processor - default: `{}`
 - `--adapter-opts-json`: Adapter-specific options as JSON
 - `--attach name=path`: Attach file (can be used multiple times)
 - `--json`: Output JSON response
-- `--stream`: Stream output (if supported)
+- `--save-dir`: Save outputs to local directory
+- `--save-first`: Save only first output to local directory
+- `--stream`: Stream output *(future: 0022)*
 
 ## Examples
 
 ### Basic LLM Processing
 
 ```bash
+# Using mock adapter (fast, no dependencies)
 python manage.py run_processor \
   --ref llm/litellm@1 \
   --adapter mock \
+  --inputs-json '{"messages":[{"role":"user","content":"What is Theory?"}]}' \
+  --json
+
+# Using local Docker adapter  
+python manage.py run_processor \
+  --ref llm/litellm@1 \
+  --adapter local \
   --inputs-json '{"messages":[{"role":"user","content":"What is Theory?"}]}' \
   --json
 ```
@@ -114,6 +192,24 @@ python manage.py run_processor \
   --adapter mock \
   --write-prefix /artifacts/outputs/experiment-1/ \
   --inputs-json '{"messages":[{"role":"user","content":"Test"}]}'
+```
+
+### Save Outputs Locally
+
+```bash
+# Save all outputs to local directory
+python manage.py run_processor \
+  --ref llm/litellm@1 \
+  --adapter mock \
+  --save-dir ./outputs \
+  --inputs-json '{"messages":[{"role":"user","content":"Hello"}]}'
+
+# Save only first output to local directory  
+python manage.py run_processor \
+  --ref llm/litellm@1 \
+  --adapter mock \
+  --save-first ./first-output.txt \
+  --inputs-json '{"messages":[{"role":"user","content":"Hello"}]}'
 ```
 
 ## Processor Registry
@@ -152,6 +248,18 @@ Each successful execution generates a determinism receipt at `/artifacts/executi
 - `output_cids`: Content identifiers of outputs
 
 ## Troubleshooting
+
+### Docker Not Available (Local Adapter)
+```
+Error: Docker daemon not running or not installed
+```
+Solution: Install Docker and ensure Docker daemon is running. Use `mock` adapter for Docker-free testing.
+
+### Container Image Not Found
+```
+Error: Unable to find image 'docker.io/library/python:3.11-slim'
+```
+Solution: Pull the required image (`docker pull python:3.11-slim`) or build from Dockerfile.
 
 ### Modal Not Available
 ```
