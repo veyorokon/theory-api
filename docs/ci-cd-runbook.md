@@ -97,10 +97,10 @@ The CI/CD system uses a **build-once, deploy-many** strategy with digest pinning
 - PRs: Report-only for visibility
 
 ```yaml
-# .github/workflows/modal-drift.yml  
-- Query Modal apps for environment
-- Compare deployed vs expected state
-- Report drift or fail based on branch
+# .github/workflows/modal-drift.yml
+- Resolve expected app/function (app: {slug}-v{ver}-{env}; fn: run)
+- Compare against deployed via Modal SDK
+- dev/staging: report-only; main: fail-closed
 ```
 
 **Purpose**: Detect configuration drift between expected and deployed state.
@@ -121,7 +121,7 @@ git checkout <commit-sha>
 modal deploy -m modal_app
 
 # Verify deployment
-modal function logs <app-name>::run --env <environment>
+modal function logs <slug>-v<ver>-<env>::run --env <environment>
 ```
 
 **Purpose**: Emergency rollback to previous known-good state.
