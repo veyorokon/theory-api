@@ -91,8 +91,8 @@ class TestModalAdapter(TestCase):
                 registry_snapshot=snapshot, adapter_opts={}, secrets_present=[],
             )
         assert res['status'] == 'error'
-        # Canonicalization should reject dot-segment path
-        assert res['error']['code'] == 'ERR_OUTPUT_CANON'
+        # Canonicalization should fail with adapter invocation error for dot-segments
+        assert res['error']['code'] == 'ERR_ADAPTER_INVOCATION'
 
     def test_disabled_gate(self):
         # When MODAL_ENABLED is False, adapter returns disabled error envelope
@@ -105,4 +105,4 @@ class TestModalAdapter(TestCase):
                 adapter_opts={}, secrets_present=[],
             )
             assert res['status'] == 'error'
-            assert res['error']['code'] == 'ERR_MODAL_NOT_AVAILABLE'
+            assert res['error']['code'] == 'ERR_ADAPTER_INVOCATION'

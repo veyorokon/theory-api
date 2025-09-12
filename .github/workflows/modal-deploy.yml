@@ -2,47 +2,68 @@ name: Modal Deploy
 
 on:
   push:
-    branches: [ main ]
+    branches: [dev, staging, main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Modal environment override (dev|staging|main)"
+        required: false
+        default: ""
 
 jobs:
-  deploy-modal:
+  deploy:
+    name: Deploy to Modal
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Map git branch to GitHub Environment and Modal env
+    environment: ${{ inputs.environment != '' && inputs.environment || (github.ref_name == 'main' && 'prod' || github.ref_name) }}
+    permissions:
+      contents: read
     env:
-      MODAL_TOKEN_ID:     ${{ secrets.MODAL_TOKEN_ID }}
-      MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-
-      # Modal environment (dev|staging|main)
-      MODAL_ENVIRONMENT: dev
-
-      # Processor parameters (pin all)
-      PROCESSOR_REF: llm/litellm@1
-      IMAGE_REF: ghcr.io/veyorokon/llm_litellm@sha256:6314df9935cad6a69486f254c820c079702be35d7d11b604b2d0ea066d86d60b
-      TIMEOUT_S: "60"
-      CPU: "1"
-      MEMORY_MIB: "2048"
-      GPU: ""
-
-      # Tool secrets (names must match env vars used by processor)
-      TOOL_SECRETS: OPENAI_API_KEY
-
-      # Stable Modal app name
-      MODAL_APP_NAME: theory-rt
-
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      PYTHONUNBUFFERED: "1"
+      # Resolve Modal env name (dev|staging|main)
+      MODAL_ENVIRONMENT: ${{ inputs.environment != '' && inputs.environment || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Install Modal CLI
         run: |
-          python -m pip install --upgrade pip
-          pip install modal
+          pip install -U pip
+          pip install modal pyyaml
 
-      - name: Deploy Modal app module
-        working-directory: code
+      - name: Extract pinned IMAGE_REF from registry
+        id: image
         run: |
-          modal deploy --env "$MODAL_ENVIRONMENT" -m modal_app
+          set -euo pipefail
+          IMAGE_REF=$(python scripts/ci/get_image_ref.py)
+          echo "IMAGE_REF=${IMAGE_REF}" >> $GITHUB_OUTPUT
+
+      - name: Deploy Modal App (committed module)
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          IMAGE_REF: ${{ steps.image.outputs.IMAGE_REF }}
+          PROCESSOR_REF: "llm/litellm@1"
+          TOOL_SECRETS: "OPENAI_API_KEY"
+        run: |
+          set -euo pipefail
+          cd code
+          modal deploy --env "${MODAL_ENVIRONMENT}" -m modal_app
+
+      - name: Post-deploy smoke (single call)
+        env:
+          DJANGO_SETTINGS_MODULE: backend.settings.unittest
+          MODAL_ENABLED: "True"
+        run: |
+          cd code
+          python manage.py run_processor \
+            --ref llm/litellm@1 \
+            --adapter modal \
+            --write-prefix /artifacts/outputs/smoke/ \
+            --inputs-json '{"messages":[{"role":"user","content":"smoke"}]}' \
+            --json

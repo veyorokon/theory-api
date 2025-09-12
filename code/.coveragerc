@@ -1,0 +1,30 @@
+[run]
+source = apps, backend, libs
+omit = 
+    */migrations/*
+    */tests/*
+    */venv/*
+    */__pycache__/*
+    */test_*
+    conftest.py
+    manage.py
+    vulture_whitelist.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise AssertionError
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    class .*\(.*Protocol.*\):
+    @(abc\.)?abstractmethod
+
+[html]
+directory = coverage_html_report
+
+[xml]
+output = coverage.xml
+
+[json]
+output = coverage.json

@@ -1,0 +1,53 @@
+[tool.ruff]
+# Exclude auto-generated and vendor files
+exclude = [
+    "migrations",
+    "__pycache__",
+    ".git",
+    ".venv",
+    "venv",
+    ".mypy_cache",
+    ".pytest_cache",
+    "build",
+    "dist",
+]
+
+line-length = 120
+indent-width = 4
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings  
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "ERA",  # eradicate (commented-out code)
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+]
+
+ignore = [
+    "E501",  # line-too-long (handled by line-length)
+    "N805",  # first-argument-should-be-self (Django models can use different names)
+    "N806",  # non-lowercase-variable-in-function (Django allows uppercase in some contexts)
+]
+
+# Allow autofix for all enabled rules (when `--fix`) is provided.
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.lint.per-file-ignores]
+"*/tests/*" = ["F401", "F811", "N806"]  # Allow unused imports and redefinitions in tests
+"*/migrations/*" = ["ALL"]  # Skip all linting for migrations
+"conftest.py" = ["F401"]  # Allow unused imports in conftest
+"**/settings/*.py" = ["F403", "F405"]  # Allow wildcard imports in settings
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"

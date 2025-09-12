@@ -1,0 +1,6 @@
+[mutmut]
+paths_to_mutate = apps/core/adapters/,apps/core/utils/,apps/core/management/commands/
+backup = False
+runner = python -m pytest -x --tb=no -q
+tests_dir = tests/
+max_mutations = 50

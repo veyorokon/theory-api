@@ -65,6 +65,7 @@ class LocalAdapter(RuntimeAdapter):
         Keyword-only invoke that adapts to legacy implementation.
         """
         from .envelope import error_envelope
+        from apps.core.errors import ERR_ADAPTER_INVOCATION
         
         try:
             spec = registry_snapshot["processors"][processor_ref]
@@ -73,7 +74,7 @@ class LocalAdapter(RuntimeAdapter):
         except Exception as e:
             return error_envelope(
                 execution_id=execution_id,
-                code="ERR_SPEC_RESOLUTION",
+                code=ERR_ADAPTER_INVOCATION,
                 message=f"LocalAdapter: bad registry snapshot: {e}",
                 env_fingerprint="adapter=local",
             )

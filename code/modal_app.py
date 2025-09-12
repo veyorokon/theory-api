@@ -20,7 +20,19 @@ from typing import List
 import modal
 
 # Stable app name; environment is selected at deploy/invoke time
-APP_NAME = os.getenv("MODAL_APP_NAME", "theory-rt")
+def _slug_ver_env() -> str:
+    ref = os.environ.get("PROCESSOR_REF", "")
+    env = os.environ.get("MODAL_ENVIRONMENT") or os.environ.get("MODAL_ENV") or "dev"
+    try:
+        name, ver = ref.split("@", 1)
+        slug = name.replace("/", "-").lower()
+        ver_s = f"v{ver}" if not ver.startswith("v") else ver
+        return f"{slug}-{ver_s}-{env}"
+    except Exception:
+        # Fallback to explicit or default app name
+        return os.getenv("MODAL_APP_NAME", "theory-rt")
+
+APP_NAME = _slug_ver_env()
 app = modal.App(APP_NAME)
 
 # Deployment-time parameters (all via env)
@@ -52,11 +64,7 @@ def _fn_name(ref: str) -> str:
     return f"exec__{name.replace('/', '_')}__v{ver}"
 
 
-FN_NAME = _fn_name(PROCESSOR_REF)
-
-
 @app.function(
-    name=FN_NAME,                # deterministic; adapter can resolve by name
     image=image,
     timeout=TIMEOUT_S,
     cpu=CPU,
@@ -64,9 +72,8 @@ FN_NAME = _fn_name(PROCESSOR_REF)
     gpu=GPU,
     secrets=secrets,
     retries=0,                   # fail-fast; caller handles policy/retry
-    serialized=True,             # required when using custom name
 )
-def _exec(payload: dict) -> bytes:
+def run(payload: dict) -> bytes:
     """
     Execute processor inside container image and return gzipped tar of /work/out.
 

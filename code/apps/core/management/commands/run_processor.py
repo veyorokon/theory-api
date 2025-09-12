@@ -25,6 +25,7 @@ from apps.core.adapters.modal_adapter import ModalAdapter
 from apps.core.registry.loader import snapshot_for_ref, get_secrets_present_for_spec
 from apps.core.adapters.envelope import error_envelope
 from apps.core.utils.worldpath import canonicalize_worldpath
+from apps.core.errors import ERR_PREFIX_TEMPLATE, ERR_ADAPTER_INVOCATION
 
 
 class _Safe(dict):
@@ -37,11 +38,20 @@ def _expand_prefix(tpl: str, context: Dict[str, str]) -> str:
     """
     Expand template tokens in prefix path.
     
-    Supports: {execution_id}, {plan_id}, {date}, {datetime}, {short_id}
-    Unknown tokens are left as-is.
+    Currently supports: {execution_id}
+    Raises ValueError with ERR_PREFIX_TEMPLATE if template expansion fails.
     """
+    # Create restricted context with only supported tokens
+    supported_context = {}
+    if 'execution_id' in context:
+        supported_context['execution_id'] = context['execution_id']
+    
     # Expand tokens
-    s = tpl.format_map(_Safe(context))
+    s = tpl.format_map(_Safe(supported_context))
+    
+    # Guard: check for remaining template tokens
+    if '{' in s or '}' in s:
+        raise ValueError(f"{ERR_PREFIX_TEMPLATE}: Unsupported or malformed template tokens remain after expansion")
     
     # Normalize: ensure leading slash & trailing slash for prefix semantics
     if not s.startswith("/"):
@@ -52,8 +62,7 @@ def _expand_prefix(tpl: str, context: Dict[str, str]) -> str:
     # Canonicalize the prefix
     canonical, err = canonicalize_worldpath(s)
     if err:
-        # If canonicalization fails, return the normalized string
-        return s
+        raise ValueError(f"{ERR_PREFIX_TEMPLATE}: Invalid path after template expansion")
     return canonical
 
 
@@ -327,17 +336,36 @@ class Command(BaseCommand):
                 "datetime": datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ"),
             }
             
-            # Expand write_prefix template
+            # Expand write_prefix template with error handling
             write_prefix_tpl = options['write_prefix']
-            write_prefix = _expand_prefix(write_prefix_tpl, ctx)
+            try:
+                write_prefix = _expand_prefix(write_prefix_tpl, ctx)
+            except ValueError as e:
+                # Convert prefix template error to canonical envelope
+                error_message = str(e)
+                if error_message.startswith(ERR_PREFIX_TEMPLATE):
+                    error_code = ERR_PREFIX_TEMPLATE
+                    error_msg = error_message[len(f"{ERR_PREFIX_TEMPLATE}: "):]
+                else:
+                    error_code = ERR_PREFIX_TEMPLATE 
+                    error_msg = f"Template expansion failed: {error_message}"
+                
+                if options.get('json'):
+                    result = error_envelope(
+                        execution_id=execution_id,
+                        code=error_code,
+                        message=error_msg,
+                        env_fingerprint="template_expansion_error",
+                        meta_extra={"write_prefix_template": write_prefix_tpl}
+                    )
+                    self.stdout.write(json.dumps(result, separators=(',', ':')))
+                else:
+                    self.stderr.write(f"Error: {error_code} - {error_msg}")
+                return
             
-            # Warn if no templating was used
-            if "{" in write_prefix_tpl and "{" not in write_prefix:
-                if not options.get('json'):
-                    self.stdout.write(f"Expanded prefix: {write_prefix_tpl} -> {write_prefix}")
-            elif "{" in write_prefix:
-                if not options.get('json'):
-                    self.stderr.write(f"Warning: Unknown template tokens remain in prefix: {write_prefix}")
+            # Log successful expansion if templating was used
+            if "{" in write_prefix_tpl and not options.get('json'):
+                self.stdout.write(f"Expanded prefix: {write_prefix_tpl} -> {write_prefix}")
             
             # Invoke processor with new keyword-only signature
             try:
@@ -354,14 +382,14 @@ class Command(BaseCommand):
                 # Adapter doesn't implement new signature
                 result = error_envelope(
                     execution_id=execution_id,
-                    code="ERR_ADAPTER_SIGNATURE",
+                    code=ERR_ADAPTER_INVOCATION,
                     message=f"Adapter {options['adapter']} does not implement the new keyword-only signature: {te}",
                     env_fingerprint=f"adapter={options['adapter']}",
                 )
             except Exception as e:
                 result = error_envelope(
                     execution_id=execution_id,
-                    code="ERR_RUN_PROCESSOR",
+                    code=ERR_ADAPTER_INVOCATION,
                     message=f"{e.__class__.__name__}: {e}",
                     env_fingerprint=f"adapter={options['adapter']}",
                 )
@@ -383,6 +411,9 @@ class Command(BaseCommand):
                 )
                 
                 # Settle execution with canonical output metadata
+                # Include outputs_index/outputs_count only when outputs non-empty
+                outputs_index = result.get('index_path') if outputs else None
+                outputs_count = len(outputs) if outputs else None
                 settle_execution_success(
                     plan=plan,
                     execution=execution,
@@ -392,9 +423,8 @@ class Command(BaseCommand):
                     memo_key=result.get('memo_key', ''),
                     env_fingerprint=env_fp,
                     output_cids=output_cids,
-                    # Pass canonical output metadata
-                    outputs_index=result.get('index_path'),
-                    outputs_count=len(outputs) if outputs else 0
+                    outputs_index=outputs_index,
+                    outputs_count=outputs_count
                 )
                 
                 result['determinism_uri'] = determinism_uri

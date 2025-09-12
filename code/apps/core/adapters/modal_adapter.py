@@ -33,7 +33,10 @@ from ..utils.processor_ref import registry_path  # ref -> YAML path
 # Storage & utils (world writes + cid + mime)
 from apps.storage.service import storage_service
 from apps.core.utils.env_fingerprint import compose_env_fingerprint, collect_present_env_keys  # utility in your codebase
-from apps.core.utils.worldpath import canonicalize_worldpath, ERR_DECODED_SLASH, ERR_DOT_SEGMENTS  # canonicalizer
+from apps.core.utils.worldpath import canonicalize_worldpath, ERR_DECODED_SLASH, ERR_DOT_SEGMENTS
+from apps.core.errors import (
+    ERR_IMAGE_UNPINNED, ERR_MISSING_SECRET, ERR_OUTPUT_DUPLICATE, ERR_ADAPTER_INVOCATION
+)
 from apps.core.utils.mime import guess_mime  # simple extension->mime helper
 from apps.core.utils.hashing import blake3_cid  # returns "b3:<hex>"
 
@@ -93,7 +96,7 @@ class ModalAdapter(RuntimeAdapter):
         if not getattr(settings, "MODAL_ENABLED", False) or not _MODAL_AVAILABLE:
             return self._err(
                 execution_id,
-                code="ERR_MODAL_NOT_AVAILABLE",
+                code=ERR_ADAPTER_INVOCATION,
                 msg="Modal not available. Install 'modal' and set MODAL_ENABLED=True.",
             )
 
@@ -104,7 +107,7 @@ class ModalAdapter(RuntimeAdapter):
             if "@sha256:" not in image_digest:
                 return self._err(
                     execution_id,
-                    code="ERR_IMAGE_UNPINNED",
+                    code=ERR_IMAGE_UNPINNED,
                     msg=f"Processor image not pinned by digest: {image_digest}",
                 )
             runtime = spec.get("runtime", {}) or {}
@@ -123,7 +126,7 @@ class ModalAdapter(RuntimeAdapter):
         except Exception as e:
             return self._err(
                 execution_id,
-                code="ERR_SPEC_RESOLUTION",
+                code=ERR_ADAPTER_INVOCATION,
                 msg=f"Failed to resolve processor spec: {e}",
             )
 
@@ -132,7 +135,7 @@ class ModalAdapter(RuntimeAdapter):
         if missing:
             return self._err(
                 execution_id,
-                code="ERR_MISSING_SECRET",
+                code=ERR_MISSING_SECRET,
                 msg="Required secret(s) missing: " + ", ".join(missing),
             )
 
@@ -142,7 +145,7 @@ class ModalAdapter(RuntimeAdapter):
             # 0021: tar-pull only; presigned push lands in 0022
             return self._err(
                 execution_id,
-                code="ERR_PRESIGNED_PUSH_DISABLED",
+                code=ERR_ADAPTER_INVOCATION,
                 msg="Presigned push is disabled in 0021; use tar-pull.",
             )
 
@@ -169,7 +172,7 @@ class ModalAdapter(RuntimeAdapter):
         try:
             wp = self._canon_prefix(write_prefix)
         except ValueError as ve:
-            return self._err(execution_id, code="ERR_WRITE_PREFIX", msg=str(ve), env_fp=env_fingerprint)
+            return self._err(execution_id, code=ERR_ADAPTER_INVOCATION, msg=f"Write prefix validation failed: {ve}", env_fp=env_fingerprint)
 
         # ---- Execute on Modal ----
         try:
@@ -189,7 +192,7 @@ class ModalAdapter(RuntimeAdapter):
             error_msg = str(e)[:2000]
             return self._err(
                 execution_id,
-                code="ERR_MODAL_EXECUTION",
+                code=ERR_ADAPTER_INVOCATION,
                 msg=error_msg,
                 env_fp=env_fingerprint,
                 meta_extra={"traceback": tb},
@@ -203,11 +206,11 @@ class ModalAdapter(RuntimeAdapter):
                 execution_id=execution_id,
             )
         except DuplicateTargetError as de:
-            return self._err(execution_id, code="ERR_OUTPUT_DUPLICATE", msg=str(de), env_fp=env_fingerprint)
+            return self._err(execution_id, code=ERR_OUTPUT_DUPLICATE, msg=str(de), env_fp=env_fingerprint)
         except CanonicalizationError as ce:
-            return self._err(execution_id, code="ERR_OUTPUT_CANON", msg=str(ce), env_fp=env_fingerprint)
+            return self._err(execution_id, code=ERR_ADAPTER_INVOCATION, msg=f"Output canonicalization failed: {ce}", env_fp=env_fingerprint)
         except Exception as e:
-            return self._err(execution_id, code="ERR_OUTPUT_UPLOAD", msg=str(e), env_fp=env_fingerprint)
+            return self._err(execution_id, code=ERR_ADAPTER_INVOCATION, msg=f"Output upload failed: {e}", env_fp=env_fingerprint)
 
         duration_ms = int((time.time() - t0) * 1000)
 
@@ -262,10 +265,14 @@ class ModalAdapter(RuntimeAdapter):
         return p
 
     def _function_name_from_spec(self, ref: str, spec: Dict[str, Any]) -> str:
-        """Deterministic function name matching committed modal_app: exec__{slug}__v{ver}."""
+        """0021: functions are named 'run' in each app; keep API stable."""
+        return "run"
+
+    def _app_name_from_ref(self, ref: str, env: str) -> str:
         base, ver = (ref.split("@", 1) + ["1"])[:2]
-        slug = base.replace("/", "_")
-        return f"exec__{slug}__v{ver}"
+        slug = base.replace("/", "-").lower()
+        ver_s = f"v{ver}" if not ver.startswith("v") else ver
+        return f"{slug}-{ver_s}-{env}"
 
     def _call_modal_function(self, *, app_name: str, func_name: str, payload: Dict[str, Any], wait_s: Optional[int] = None) -> bytes:
         """Call Modal function with timeout-based fail-fast behavior."""
@@ -286,12 +293,13 @@ class ModalAdapter(RuntimeAdapter):
             # (includes exit code and stderr tail). Bubble it up to envelope builder.
             raise
 
-    def _call_generated(self, env: str, func_name: str, payload: Dict[str, Any]) -> bytes:
+    def _call_generated(self, env: str, func_name: str, payload: Dict[str, Any], *, app_name: str | None = None) -> bytes:
         """Call pre-deployed Modal function by name using Function.from_name."""
         if not _MODAL_AVAILABLE:
             raise RuntimeError("Modal SDK not available")
 
-        app_name = getattr(settings, 'MODAL_APP_NAME', 'theory-rt')
+        if not app_name:
+            app_name = getattr(settings, 'MODAL_APP_NAME', 'theory-rt')
 
         try:
             from modal import Function as _Fn
@@ -330,6 +338,7 @@ class ModalAdapter(RuntimeAdapter):
         env = settings.MODAL_ENV or "dev"
         spec = self._current_spec  # Set by caller
         func_name = self._function_name_from_spec(processor_ref, spec)
+        app_name = self._app_name_from_ref(processor_ref, env)
         
         # Prepare payload for pre-deployed function
         payload = {
@@ -338,7 +347,7 @@ class ModalAdapter(RuntimeAdapter):
         }
         
         # Call pre-deployed function
-        return self._call_generated(env, func_name, payload)
+        return self._call_generated(env, func_name, payload, app_name=app_name)
 
     def _canonicalize_and_upload(
         self, *, tar_bytes: bytes, write_prefix: str, execution_id: str
