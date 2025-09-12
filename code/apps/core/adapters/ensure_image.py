@@ -132,3 +132,33 @@ def _build_image(build_spec: Dict[str, Any]) -> str:
         raise RuntimeError(f"Failed to build image: {e.stderr}")
     except FileNotFoundError:
         raise RuntimeError("Docker not found. Please install Docker.")
+
+
+def ensure_image_pinned(adapter: str, spec: Dict[str, Any], build: bool = False) -> Dict[str, Any]:
+    """
+    Policy:
+      - modal: requires pinned digest (oci contains '@sha256:')
+      - local/mock: allows unpinned (development flexibility)
+      - others: require pinned by default
+    Returns canonical success/error envelope (no exceptions).
+    """
+    oci = ((spec or {}).get("image") or {}).get("oci", "") or ""
+    pinned = "@sha256:" in oci
+    
+    # Validate SHA256 format if present
+    if pinned:
+        digest_part = oci.split("@sha256:")[-1]
+        if len(digest_part) != 64 or not all(c in "0123456789abcdef" for c in digest_part.lower()):
+            return {"success": False, "error": {"code": "ERR_IMAGE_UNPINNED", "message": "Invalid SHA256 digest format"}}
+
+    if adapter == "modal" and not pinned:
+        return {"success": False, "error": {"code": "ERR_IMAGE_UNPINNED", "message": "Modal adapter requires pinned digest"}}
+
+    # Local and mock adapters allow unpinned for development flexibility
+    if adapter in ("local", "mock"):
+        return {"success": True, "image_ref": oci}
+
+    if not pinned:
+        return {"success": False, "error": {"code": "ERR_IMAGE_UNPINNED", "message": "Unpinned image not allowed"}}
+
+    return {"success": True, "image_ref": oci}
