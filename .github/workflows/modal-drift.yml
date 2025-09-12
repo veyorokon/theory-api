@@ -29,9 +29,8 @@ jobs:
           pip install -U pip wheel
           pip install -r requirements.txt
 
-      - name: Run drift audit (dev/staging - report only)
+      - name: Run drift audit (dev/staging - fail on errors)
         if: github.ref_name == 'dev' || github.ref_name == 'staging'
-        continue-on-error: true
         run: |
           cd code
           python scripts/drift_audit.py
