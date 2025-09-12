@@ -38,8 +38,6 @@ jobs:
         run: |
           pip install -U pip wheel
           pip install -r requirements.txt
-          pip install -r code/requirements.txt
-          pip install -r docs/requirements.txt
 
       - name: Bring up services (Docker)
         run: |

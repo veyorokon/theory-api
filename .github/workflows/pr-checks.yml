@@ -26,7 +26,6 @@ jobs:
         run: |
           pip install -U pip wheel
           pip install -r requirements.txt
-          pip install -r code/requirements.txt
 
       - name: Lint with ruff (style + eradicated code)
         run: |
