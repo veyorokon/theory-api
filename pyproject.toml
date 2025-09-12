@@ -63,8 +63,10 @@ unfixable = []
 [tool.ruff.lint.per-file-ignores]
 "*/tests/*" = ["F401", "F811", "N806"]  # Allow unused imports and redefinitions in tests
 "*/migrations/*" = ["ALL"]  # Skip all linting for migrations
+"*/admin.py" = ["F401"]  # Allow unused imports in Django admin
+"*/apps.py" = ["F401"]  # Allow unused imports in Django app config
 "conftest.py" = ["F401"]  # Allow unused imports in conftest
-"**/settings/*.py" = ["F403", "F405"]  # Allow wildcard imports in settings
+"**/settings/*.py" = ["F403", "F405", "E402"]  # Allow wildcard imports and import order in settings
 "code/vulture_whitelist.py" = ["B018", "F821"]  # Vulture whitelist has intentional "useless" expressions
 
 [tool.ruff.format]
@@ -145,12 +147,22 @@ min_confidence = 80
 sort_by_size = true
 
 [tool.coverage.run]
-source = ["code"]
+branch = true
+source = [
+    "code/apps",
+    "code/libs"
+]
 omit = [
+    "*/migrations/*",
+    "*/admin.py",
+    "*/apps.py",
+    "*/wsgi.py",
+    "*/asgi.py",
+    "code/backend/settings/*",
+    "code/manage.py",
     "*/tests/*",
     "*/test_*.py",
     "*_test.py",
-    "*/migrations/*",
     "*/venv/*",
     "*/__pycache__/*"
 ]
