@@ -62,7 +62,7 @@ def main() -> int:
     for ref, app_name, fn_name in checks:
         try:
             # Resolve by name in target environment
-            modal.Function.from_name(app=app_name, name=fn_name, environment_name=env)
+            modal.Function.from_name(app_name, fn_name, environment_name=env)
             print(f"[drift] OK: {ref} => {app_name}.{fn_name}")
         except Exception as e:
             print(f"[drift] MISSING: {ref} => {app_name}.{fn_name}: {e}")
