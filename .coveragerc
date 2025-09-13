@@ -1,0 +1,12 @@
+[run]
+branch = True
+source = code
+[report]
+omit =
+    */tests/*
+    */migrations/*
+    */admin.py
+    */apps.py
+    */wsgi.py
+    */asgi.py
+    code/backend/settings/*

@@ -77,20 +77,25 @@ ci-pin-processor:
 	python scripts/ci/pin_processor.py "$(PROCESSOR)" "$(IMAGE_BASE)" "$(DIGEST)"
 
 # --- Dead Code Detection ---
-# Full coverage with xml/json for diff-cover (no fail threshold - CI uses diff-cover)
+# --- Coverage (unit-only, hermetic, SQLite) ---
+# Produces coverage.xml/json at repo root for diff-cover.
+COVERAGE_ENV = COVERAGE_RCFILE=../.coveragerc COVERAGE_FILE=../.coverage
+
 test-coverage:
-	coverage erase
-	coverage run -m pytest -q
-	coverage xml
-	coverage json
-	coverage report
+	cd code && $(COVERAGE_ENV) coverage erase
+	# Sanity: show which DB engine we're about to test with
+	@echo "DB ENGINE:" && cd code && DJANGO_SETTINGS_MODULE=backend.settings.unittest python -c "from django.conf import settings; print(settings.DATABASES['default']['ENGINE'])"
+	cd code && DJANGO_SETTINGS_MODULE=backend.settings.unittest $(COVERAGE_ENV) coverage run -m pytest -q -m "unit and not integration and not requires_postgres"
+	cd code && $(COVERAGE_ENV) coverage xml -o ../coverage.xml
+	cd code && $(COVERAGE_ENV) coverage json -o ../coverage.json
+	cd code && $(COVERAGE_ENV) coverage report
 
 # Static dead-code check with allowlist (to handle dynamic usage)
 deadcode:
 	vulture code code/vulture_whitelist.py --min-confidence 80 --exclude "*/migrations/*,*/tests/*" > vulture_report.txt || true
 	python scripts/ci/vulture_gate.py vulture_report.txt
 
-# Import graph reachability: fails if a module isn't reachable from entrypoints  
+# Import graph reachability: fails if a module isn't reachable from entrypoints
 # NOTE: Disabled for Django code due to dynamic loading false positives
 import-graph:
 	cd code && python -m tests.tools.check_import_reachability
