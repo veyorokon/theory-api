@@ -21,6 +21,7 @@ jobs:
       contains(github.event.pull_request.labels.*.name, 'run-acceptance')
     permissions:
       contents: read
+      packages: read
     env:
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       PYTHONUNBUFFERED: "1"
@@ -50,6 +51,27 @@ jobs:
           sleep 8
           docker compose ps
 
+      - name: Assert pinned image exists in GHCR
+        run: |
+          set -euo pipefail
+          REF=$(python - <<'PY'
+          import yaml,sys
+          try:
+              doc=yaml.safe_load(open("code/apps/core/registry/processors/llm_litellm.yaml"))
+              print(doc["image"]["oci"])
+          except Exception as e:
+              print(f"ERROR: Could not read registry: {e}", file=sys.stderr)
+              sys.exit(1)
+          PY
+          )
+          echo "🔍 Checking $REF in GHCR…"
+          docker manifest inspect "$REF" >/dev/null || { 
+            echo "::error::Pinned image not found in GHCR: $REF";
+            echo "Run Build & Pin workflow and merge the PR.";
+            exit 1;
+          }
+          echo "✅ Image exists: $REF"
+
       - name: Sanity check - verify pytest context
         working-directory: code
         run: |
@@ -74,24 +96,7 @@ jobs:
           S3_BUCKET: default
         run: |
           # Authenticate Docker to GitHub Container Registry
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-          
-          # Test image accessibility before running integration tests
-          echo "🔍 Testing processor image accessibility..."
-          DIGEST_IMAGE="ghcr.io/veyorokon/llm_litellm@sha256:6314df9935cad6a69486f254c820c079702be35d7d11b604b2d0ea066d86d60b"
-          if ! docker manifest inspect "$DIGEST_IMAGE" > /dev/null 2>&1; then
-            echo "⚠️ Pinned digest not accessible: $DIGEST_IMAGE"
-            echo "Attempting to use :latest tag instead..."
-            if docker pull ghcr.io/veyorokon/llm_litellm:latest; then
-              LATEST_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/veyorokon/llm_litellm:latest)
-              echo "Using accessible image: $LATEST_DIGEST"
-            else
-              echo "❌ Cannot access processor image - check repository permissions"
-              exit 1
-            fi
-          else
-            echo "✅ Pinned digest accessible: $DIGEST_IMAGE"
-          fi
+          echo "${{ secrets.GHCR_RO || secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           
           # Verify MinIO connectivity
           echo "🔍 Testing MinIO connectivity..."

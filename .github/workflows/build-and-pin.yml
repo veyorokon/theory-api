@@ -69,6 +69,9 @@ jobs:
       TAG: sha-${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          ref: ${{ github.ref }}
 
       - name: Set up QEMU (multi-arch)
         uses: docker/setup-qemu-action@v3
@@ -127,8 +130,10 @@ jobs:
           python scripts/ci/pin_processor.py "$PROC" "$IMAGE_BASE" "$DIGEST"
 
       - name: Create pin PR
+        id: cpr
         uses: peter-evans/create-pull-request@v6
         with:
+          token: ${{ secrets.BOT_TOKEN || github.token }}
           branch: chore/pin-${{ matrix.processor }}-${{ github.sha }}
           title: "Pin digest for ${{ matrix.processor }} @ ${{ github.sha }}"
           commit-message: "chore(registry): pin ${{ matrix.processor }} to ${{ steps.digest.outputs.digest }}"
@@ -140,3 +145,12 @@ jobs:
             **Digest**: ${{ steps.digest.outputs.digest }}
             **Commit**: ${{ github.sha }}
           labels: registry, automation
+          base: dev
+          signoff: true
+
+      - name: Ensure PR exists (fail-closed)
+        if: ${{ steps.cpr.outputs.pull-request-number == '' }}
+        run: |
+          echo "::error::Pin branch pushed but PR was not created (policy/permissions?)."
+          echo "Ask an admin to enable 'Read/write' + PR creation for Actions, or provide BOT_TOKEN."
+          exit 1
