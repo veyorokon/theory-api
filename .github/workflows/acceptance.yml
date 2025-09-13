@@ -10,7 +10,7 @@ on:
     - cron: "0 6 * * *"  # daily 06:00 UTC
   workflow_dispatch: {}
 
-# Test authentication and preflight checks
+# Test Actions access to GHCR package
 jobs:
   acceptance:
     runs-on: ubuntu-latest
