@@ -64,6 +64,9 @@ jobs:
       contents: write
       packages: write
       pull-requests: write
+      actions: read
+      metadata: read
+      issues: write
     env:
       REGISTRY: ghcr.io
       TAG: sha-${{ github.sha }}
@@ -129,13 +132,35 @@ jobs:
 
           python scripts/ci/pin_processor.py "$PROC" "$IMAGE_BASE" "$DIGEST"
 
+      - name: Cleanup old pin branches
+        run: |
+          set -euo pipefail
+          PROC="${{ matrix.processor }}"
+
+          # List and delete old pin branches for this processor (keep only the one we're about to create)
+          git fetch origin
+          OLD_BRANCHES=$(git branch -r | grep "origin/chore/pin-${PROC}" | grep -v "chore/pin-${PROC}$" || true)
+
+          if [ -n "$OLD_BRANCHES" ]; then
+            echo "🧹 Cleaning up old pin branches for ${PROC}:"
+            echo "$OLD_BRANCHES"
+
+            for branch in $OLD_BRANCHES; do
+              branch_name=$(echo "$branch" | sed 's|origin/||')
+              echo "Deleting branch: $branch_name"
+              git push origin --delete "$branch_name" || echo "Failed to delete $branch_name (may not exist)"
+            done
+          else
+            echo "✅ No old pin branches to clean up for ${PROC}"
+          fi
+
       - name: Create pin PR
         id: cpr
         uses: peter-evans/create-pull-request@v6
         with:
-          token: ${{ secrets.BOT_TOKEN || github.token }}
-          branch: chore/pin-${{ matrix.processor }}-${{ github.sha }}
-          title: "Pin digest for ${{ matrix.processor }} @ ${{ github.sha }}"
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: chore/pin-${{ matrix.processor }}
+          title: "Pin digest for ${{ matrix.processor }}"
           commit-message: "chore(registry): pin ${{ matrix.processor }} to ${{ steps.digest.outputs.digest }}"
           body: |
             Auto-pinned by Build & Pin workflow.
@@ -144,13 +169,48 @@ jobs:
             **Image**: ${{ steps.img.outputs.image }}
             **Digest**: ${{ steps.digest.outputs.digest }}
             **Commit**: ${{ github.sha }}
+
+            This PR updates the registry with the latest built image digest.
           labels: registry, automation
           base: dev
           signoff: true
+          delete-branch: true
 
       - name: Ensure PR exists (fail-closed)
         if: ${{ steps.cpr.outputs.pull-request-number == '' }}
         run: |
           echo "::error::Pin branch pushed but PR was not created (policy/permissions?)."
-          echo "Ask an admin to enable 'Read/write' + PR creation for Actions, or provide BOT_TOKEN."
+          echo "This likely means GitHub Actions lacks permission to create PRs."
+          echo "The registry changes have been committed to branch chore/pin-${{ matrix.processor }}"
+          echo "Manual intervention required to merge these changes."
           exit 1
+
+      - name: Cleanup on failure
+        if: failure()
+        run: |
+          set +e  # Don't fail if cleanup fails
+          echo "🧹 Workflow failed, attempting cleanup..."
+
+          # If PR creation failed, the branch still exists - leave it for manual merge
+          # But clean up any truly orphaned branches from previous failed runs
+          git fetch origin
+
+          # Find branches older than the current one (based on commit timestamp)
+          PROC="${{ matrix.processor }}"
+          CURRENT_COMMIT="${{ github.sha }}"
+
+          # Get list of all pin branches for this processor except current
+          OLD_PIN_BRANCHES=$(git branch -r | grep "origin/chore/pin-${PROC}-" | grep -v "${CURRENT_COMMIT}" || true)
+
+          if [ -n "$OLD_PIN_BRANCHES" ]; then
+            echo "Found old pin branches to clean up:"
+            echo "$OLD_PIN_BRANCHES"
+
+            for branch in $OLD_PIN_BRANCHES; do
+              branch_name=$(echo "$branch" | sed 's|origin/||' | xargs)
+              echo "Deleting old branch: $branch_name"
+              git push origin --delete "$branch_name" || echo "Could not delete $branch_name"
+            done
+          fi
+
+          echo "Cleanup completed (non-fatal)"

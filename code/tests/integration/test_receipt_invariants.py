@@ -147,8 +147,8 @@ class TestReceiptInvariants:
         # Should be a pinned digest (contains @sha256:)
         assert "@sha256:" in image_digest, f"Image digest not pinned: {image_digest}"
 
-        # Should be the expected processor image
-        assert "llm_litellm" in image_digest, f"Unexpected image: {image_digest}"
+        # Should be the expected processor image (hyphenated in GHCR)
+        assert "llm-litellm" in image_digest, f"Unexpected image: {image_digest}"
 
     def test_receipt_timestamp_format(self):
         """Test that timestamps are in expected ISO format."""
@@ -210,9 +210,9 @@ class TestReceiptInvariants:
         for field_name, expected_type in type_checks:
             if field_name in receipt:
                 value = receipt[field_name]
-                assert isinstance(value, expected_type), (
-                    f"Field {field_name} should be {expected_type}, got {type(value)}"
-                )
+                assert isinstance(
+                    value, expected_type
+                ), f"Field {field_name} should be {expected_type}, got {type(value)}"
 
         # Receipt should be serializable back to JSON
         try:
