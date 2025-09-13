@@ -1,6 +1,7 @@
 import os
 import pytest
 
+
 # Auto-mark by folder conventions
 def pytest_collection_modifyitems(config, items):
     for item in items:
@@ -13,6 +14,7 @@ def pytest_collection_modifyitems(config, items):
         # Optional: default-mark plain tests as unit to be explicit
         elif "/tests/" in p:
             item.add_marker(pytest.mark.unit)
+
 
 # Skip requires_postgres when not on a Postgres settings module
 def pytest_runtest_setup(item):

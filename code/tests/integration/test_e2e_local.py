@@ -38,26 +38,32 @@ class TestE2ELocal:
     def test_local_adapter_e2e_minio_success(self):
         """Test complete local adapter execution with MinIO storage."""
         _ensure_bucket_exists()
-        
+
         # Use templated write prefix with execution_id
         prefix = "/artifacts/outputs/text/{execution_id}/"
-        
+
         cmd = [
-            "python", "manage.py", "run_processor",
-            "--ref", "llm/litellm@1",
-            "--adapter", "local",
-            "--write-prefix", prefix,
-            "--inputs-json", '{"messages":[{"role":"user","content":"Hello integration test"}]}',
-            "--json"
+            "python",
+            "manage.py",
+            "run_processor",
+            "--ref",
+            "llm/litellm@1",
+            "--adapter",
+            "local",
+            "--write-prefix",
+            prefix,
+            "--inputs-json",
+            '{"messages":[{"role":"user","content":"Hello integration test"}]}',
+            "--json",
         ]
-        
+
         # Set mock mode to avoid network calls
         env = os.environ.copy()
         env["LLM_PROVIDER"] = "mock"
-        
+
         # Execute processor
         result = subprocess.run(cmd, cwd=".", env=env, capture_output=True, text=True)
-        
+
         # Debug output for CI diagnostics
         if result.returncode != 0:
             print("❌ Processor command failed:")
@@ -65,48 +71,48 @@ class TestE2ELocal:
             print(f"Return code: {result.returncode}")
             print(f"STDERR: {result.stderr}")
             print(f"STDOUT: {result.stdout}")
-            
+
         assert result.returncode == 0, f"Command failed: {result.stderr}"
-        
+
         # Parse JSON response
         payload = json.loads(result.stdout)
-        
+
         # Debug output for error envelopes
         if payload.get("status") == "error":
             print("❌ Processor returned error envelope:")
             print(json.dumps(payload, indent=2))
-        
+
         # Verify success envelope shape
         assert payload["status"] == "success"
         assert "execution_id" in payload
         assert "outputs" in payload
         assert "index_path" in payload
         assert "meta" in payload
-        
+
         exec_id = payload["execution_id"]
         bucket = os.environ.get("S3_BUCKET", "default")
-        
+
         # Verify MinIO objects exist
         s3 = _minio_client()
-        
+
         # Check response.json exists
         response_key = f"artifacts/outputs/text/{exec_id}/response.json"
         response_obj = s3.get_object(Bucket=bucket, Key=response_key)
         response_data = json.loads(response_obj["Body"].read().decode())
-        
+
         # Verify response contains mock LLM output
         assert response_data["status"] == "ok"
         assert "Mock LLM response" in response_data["response"]
-        
+
         # Check receipt.json exists
         receipt_key = f"artifacts/outputs/text/{exec_id}/receipt.json"
         receipt_obj = s3.get_object(Bucket=bucket, Key=receipt_key)
         receipt_data = json.loads(receipt_obj["Body"].read().decode())
-        
+
         # Verify receipt shape
         assert "env_fingerprint" in receipt_data
         assert "duration_ms" in receipt_data
-        
+
         # Verify outputs metadata
         assert len(payload["outputs"]) >= 2  # At least response.json + receipt.json
         output_paths = [output["path"] for output in payload["outputs"]]
@@ -116,24 +122,32 @@ class TestE2ELocal:
     def test_local_adapter_error_handling(self):
         """Test local adapter properly handles processor failures."""
         cmd = [
-            "python", "manage.py", "run_processor", 
-            "--ref", "nonexistent/processor@1",
-            "--adapter", "local",
-            "--write-prefix", "/artifacts/outputs/error/",
-            "--inputs-json", '{"messages":[]}',
-            "--json"
+            "python",
+            "manage.py",
+            "run_processor",
+            "--ref",
+            "nonexistent/processor@1",
+            "--adapter",
+            "local",
+            "--write-prefix",
+            "/artifacts/outputs/error/",
+            "--inputs-json",
+            '{"messages":[]}',
+            "--json",
         ]
-        
+
         env = os.environ.copy()
         env["LLM_PROVIDER"] = "mock"
-        
+
         result = subprocess.run(cmd, cwd=".", env=env, capture_output=True, text=True)
-        
+
         # Should fail gracefully with error envelope
         try:
             payload = json.loads(result.stdout)
             assert payload.get("status") == "error", "Expected error status for nonexistent processor"
-            assert "ERR_ADAPTER_INVOCATION" in payload.get("error", {}).get("code", ""), f"Expected adapter invocation error: {payload}"
+            assert "ERR_ADAPTER_INVOCATION" in payload.get("error", {}).get("code", ""), (
+                f"Expected adapter invocation error: {payload}"
+            )
         except json.JSONDecodeError:
             # If JSON parsing fails, expect non-zero exit code (fallback behavior)
             assert result.returncode != 0

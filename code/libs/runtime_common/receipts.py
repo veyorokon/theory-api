@@ -8,17 +8,17 @@ from typing import Dict, Any
 
 @dataclass
 class Receipt:
-    processor: str               # e.g., "llm/litellm@1"
-    model: str | None           # "gpt-4o-mini" or None
-    status: str                 # "completed" | "failed"
-    success: bool               # True for completed, False for failed
-    execution_id: str           # UUID for this run
-    inputs_fingerprint: str     # stable int/hash as string
-    env_fingerprint: str        # adapter/image/memory/timeout/gpu/snapshot/region...
-    image_digest: str | None    # "sha256:..." if known
+    processor: str  # e.g., "llm/litellm@1"
+    model: str | None  # "gpt-4o-mini" or None
+    status: str  # "completed" | "failed"
+    success: bool  # True for completed, False for failed
+    execution_id: str  # UUID for this run
+    inputs_fingerprint: str  # stable int/hash as string
+    env_fingerprint: str  # adapter/image/memory/timeout/gpu/snapshot/region...
+    image_digest: str | None  # "sha256:..." if known
     duration_ms: int
-    timestamp_utc: str          # ISO 8601 Z
-    extra: Dict[str, Any]       # any adapter-specific extras
+    timestamp_utc: str  # ISO 8601 Z
+    extra: Dict[str, Any]  # any adapter-specific extras
 
 
 def _iso_utc(dt: datetime) -> str:
@@ -30,11 +30,11 @@ def build_receipt(
     *,
     processor: str,
     model: str | None,
-    status: str,                   # "completed" | "failed"
+    status: str,  # "completed" | "failed"
     execution_id: str,
     inputs_fingerprint: str,
     env_fingerprint: str,
-    image_ref: str | None,         # raw oci ref (for fallback)
+    image_ref: str | None,  # raw oci ref (for fallback)
     image_digest: str | None,
     started_at: datetime,
     finished_at: datetime | None = None,

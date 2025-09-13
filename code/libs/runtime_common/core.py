@@ -57,16 +57,14 @@ def run_processor_core(
     """
     if started_at is None:
         started_at = datetime.datetime.now(datetime.UTC)
-    
+
     adapter_opts = adapter_opts or {}
-    
+
     # Get or create plan if specified
     plan_obj = None
     execution = None
     if plan:
-        plan_obj, created = Plan.objects.get_or_create(
-            key=plan, defaults={"reserved_micro": 100000, "spent_micro": 0}
-        )
+        plan_obj, created = Plan.objects.get_or_create(key=plan, defaults={"reserved_micro": 100000, "spent_micro": 0})
 
         # Create transition and execution
         with transaction.atomic():
@@ -80,9 +78,7 @@ def run_processor_core(
             spec = registry_snapshot["processors"][ref]
         except Exception as e:
             execution_id = str(execution.id) if execution else str(uuid.uuid4())
-            logger.error("Registry loading failed", 
-                        extra={"execution_id": execution_id, "ref": ref},
-                        exc_info=True)
+            logger.error("Registry loading failed", extra={"execution_id": execution_id, "ref": ref}, exc_info=True)
             return error_envelope(
                 execution_id=execution_id,
                 code=ERR_ADAPTER_INVOCATION,
@@ -98,9 +94,9 @@ def run_processor_core(
             adapter_instance = _get_adapter(adapter)
         except ValueError as e:
             execution_id = str(execution.id) if execution else str(uuid.uuid4())
-            logger.error("Adapter initialization failed",
-                        extra={"execution_id": execution_id, "adapter": adapter},
-                        exc_info=True)
+            logger.error(
+                "Adapter initialization failed", extra={"execution_id": execution_id, "adapter": adapter}, exc_info=True
+            )
             return error_envelope(
                 execution_id=execution_id,
                 code=ERR_ADAPTER_INVOCATION,
@@ -145,9 +141,9 @@ def run_processor_core(
                 env_fingerprint=f"adapter={adapter}",
             )
         except Exception as e:
-            logger.error("Adapter invocation failed",
-                        extra={"execution_id": execution_id, "adapter": adapter},
-                        exc_info=True)
+            logger.error(
+                "Adapter invocation failed", extra={"execution_id": execution_id, "adapter": adapter}, exc_info=True
+            )
             result = error_envelope(
                 execution_id=execution_id,
                 code=ERR_ADAPTER_INVOCATION,
@@ -157,10 +153,10 @@ def run_processor_core(
 
         # Generate receipt for every run (success and error)
         finished_at = datetime.datetime.now(datetime.UTC)
-        
+
         # Generate inputs fingerprint
         inputs_fingerprint = str(hash(json.dumps(inputs_json, sort_keys=True)))
-        
+
         # Extract model from inputs if available
         model = None
         if "model" in inputs_json:
@@ -168,25 +164,25 @@ def run_processor_core(
         elif "messages" in inputs_json and inputs_json["messages"]:
             # Try to extract from LLM-style inputs
             model = inputs_json.get("model", "gpt-4o-mini")  # Default fallback
-        
+
         # Determine status and extract metadata
         status = "completed" if result.get("status") == "success" else "failed"
         result_meta = result.get("meta", {})
-        
+
         # Extract image reference for digest fallback
         image_ref = None
         try:
             image_ref = registry_snapshot["processors"][ref]["image"]["oci"]
         except (KeyError, TypeError):
             pass
-        
+
         # Plan information for extras (optional)
         plan_extras = {}
         if plan_obj:
             plan_extras["plan_id"] = plan_obj.id
         if execution:
             plan_extras["execution_pk"] = execution.id
-        
+
         # Build complete receipt with new signature
         receipt_data = build_receipt(
             processor=ref,
@@ -201,7 +197,7 @@ def run_processor_core(
             finished_at=finished_at,
             extra=plan_extras,
         )
-        
+
         # Write receipt to write_prefix location alongside outputs
         receipt_path = f"{write_prefix}receipt.json"
         receipt_bytes = json.dumps(receipt_data, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
@@ -249,7 +245,7 @@ def run_processor_core(
 
     except Exception as e:
         execution_id = str(execution.id) if execution else str(uuid.uuid4())
-        
+
         if execution:
             # Settle as failure
             settle_execution_failure(
@@ -261,5 +257,5 @@ def run_processor_core(
             "status": "error",
             "execution_id": execution_id,
             "error": {"code": "ERR_COMMAND_EXCEPTION", "message": str(e)},
-            "meta": {"env_fingerprint": "command_error"}
+            "meta": {"env_fingerprint": "command_error"},
         }
