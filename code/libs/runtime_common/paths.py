@@ -5,6 +5,7 @@ from pathlib import PurePosixPath
 
 class PrefixError(Exception):
     """Raised when write prefix validation fails."""
+
     pass
 
 
@@ -22,7 +23,7 @@ def validate_write_prefix(prefix: str, execution_id: str) -> str:
 
     if not prefix.endswith("/"):
         raise PrefixError("write_prefix must end with '/'")
-    
+
     if not prefix.startswith("/"):
         raise PrefixError("write_prefix must start with '/'")
 
@@ -42,5 +43,5 @@ def validate_write_prefix(prefix: str, execution_id: str) -> str:
     # Ensure trailing slash for adapter compatibility
     if not norm.endswith("/"):
         norm += "/"
-    
+
     return norm

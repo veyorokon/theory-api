@@ -16,8 +16,6 @@ from libs.runtime_common.core import run_processor_core
 from apps.storage.artifact_store import artifact_store
 
 
-
-
 class Command(BaseCommand):
     """Run processor CLI - prints JSON envelope to stdout."""
 
@@ -104,7 +102,6 @@ class Command(BaseCommand):
         elif isinstance(obj, list):
             return [self.rewrite_attach_references(item, attachment_map) for item in obj]
         return obj
-
 
     def _download_all_outputs(self, outputs: List[Dict[str, Any]], save_dir: str) -> None:
         """Download all outputs to save_dir, mirroring world paths."""
@@ -197,6 +194,6 @@ class Command(BaseCommand):
 
         # Always output JSON (for both success and error)
         self.stdout.write(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
-        
+
         # Return None to satisfy Django management command contract
         return None

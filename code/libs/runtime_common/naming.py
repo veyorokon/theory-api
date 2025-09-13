@@ -1,4 +1,5 @@
 """Django-free helpers for Modal app/function naming."""
+
 from __future__ import annotations
 
 
@@ -19,4 +20,3 @@ def modal_app_name_from_ref(processor_ref: str, env: str) -> str:
 def modal_fn_name() -> str:
     """Return the Modal function name for 0021."""
     return "run"
-

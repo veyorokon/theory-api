@@ -26,6 +26,7 @@ from libs.runtime_common.naming import modal_app_name_from_ref, modal_fn_name
 
 # ---------- Naming ----------
 
+
 def _app_name_from_env() -> str:
     """Build app name from PROCESSOR_REF and MODAL_ENVIRONMENT using shared helper."""
     ref = os.environ.get("PROCESSOR_REF", "")
@@ -42,14 +43,14 @@ app = modal.App(APP_NAME)
 # ---------- Parameters (env-only) ----------
 
 # Required
-PROCESSOR_REF = os.environ["PROCESSOR_REF"]          # e.g. "llm/litellm@1"
-IMAGE_REF = os.environ["IMAGE_REF"]                  # e.g. "ghcr.io/...@sha256:deadbeef..."
+PROCESSOR_REF = os.environ["PROCESSOR_REF"]  # e.g. "llm/litellm@1"
+IMAGE_REF = os.environ["IMAGE_REF"]  # e.g. "ghcr.io/...@sha256:deadbeef..."
 
 # Optional
 TIMEOUT_S = int(os.getenv("TIMEOUT_S", "60"))
 CPU = int(os.getenv("CPU", "1"))
-MEMORY_MIB = int(os.getenv("MEMORY_MIB", "2048"))    # MiB
-GPU: str | None = os.getenv("GPU") or None        # e.g., "A10G" or unset
+MEMORY_MIB = int(os.getenv("MEMORY_MIB", "2048"))  # MiB
+GPU: str | None = os.getenv("GPU") or None  # e.g., "A10G" or unset
 
 # Registry secret (must contain REGISTRY_USERNAME + REGISTRY_PASSWORD)
 REGISTRY_SECRET_NAME = os.getenv("REGISTRY_SECRET_NAME", "REGISTRY_AUTH")
@@ -69,6 +70,7 @@ for s in TOOL_SECRETS:
 
 
 # ---------- Shared execution ----------
+
 
 def _exec(payload: dict, *, extra_env: dict | None = None) -> bytes:
     """
@@ -117,6 +119,7 @@ def _exec(payload: dict, *, extra_env: dict | None = None) -> bytes:
 
 # ---------- Functions ----------
 
+
 # Real function: used in production/runtime
 @app.function(
     name="run",
@@ -126,8 +129,8 @@ def _exec(payload: dict, *, extra_env: dict | None = None) -> bytes:
     memory=MEMORY_MIB,
     gpu=GPU,
     secrets=secrets,
-    retries=0,            # fail-fast; policy is upstream
-    serialized=True,      # stable name requires serialization
+    retries=0,  # fail-fast; policy is upstream
+    serialized=True,  # stable name requires serialization
 )
 def run(payload: dict) -> bytes:
     return _exec(payload)

@@ -144,15 +144,21 @@ def ensure_image_pinned(adapter: str, spec: Dict[str, Any], build: bool = False)
     """
     oci = ((spec or {}).get("image") or {}).get("oci", "") or ""
     pinned = "@sha256:" in oci
-    
+
     # Validate SHA256 format if present
     if pinned:
         digest_part = oci.split("@sha256:")[-1]
         if len(digest_part) != 64 or not all(c in "0123456789abcdef" for c in digest_part.lower()):
-            return {"success": False, "error": {"code": "ERR_IMAGE_UNPINNED", "message": "Invalid SHA256 digest format"}}
+            return {
+                "success": False,
+                "error": {"code": "ERR_IMAGE_UNPINNED", "message": "Invalid SHA256 digest format"},
+            }
 
     if adapter == "modal" and not pinned:
-        return {"success": False, "error": {"code": "ERR_IMAGE_UNPINNED", "message": "Modal adapter requires pinned digest"}}
+        return {
+            "success": False,
+            "error": {"code": "ERR_IMAGE_UNPINNED", "message": "Modal adapter requires pinned digest"},
+        }
 
     # Local and mock adapters allow unpinned for development flexibility
     if adapter in ("local", "mock"):
