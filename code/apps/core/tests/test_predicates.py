@@ -6,11 +6,11 @@ Tests both unit behavior and acceptance paths with fixtures.
 
 import json
 import tempfile
+import unittest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import pytest
-from django.test import TestCase
 
 from apps.core.predicates import (
     artifact_exists,
@@ -20,7 +20,7 @@ from apps.core.predicates import (
 )
 
 
-class TestPredicateRegistry(TestCase):
+class TestPredicateRegistry(unittest.TestCase):
     """Test predicate registry structure and entries."""
 
     def test_registry_has_all_predicates(self):
@@ -44,7 +44,7 @@ class TestPredicateRegistry(TestCase):
                 self.assertEqual(entry["returns"], "bool")
 
 
-class TestArtifactExists(TestCase):
+class TestArtifactExists(unittest.TestCase):
     """Test artifact.exists predicate."""
 
     @patch("apps.storage.service.storage_service")
@@ -76,7 +76,7 @@ class TestArtifactExists(TestCase):
         self.assertFalse(result)
 
 
-class TestSeriesHasNew(TestCase):
+class TestSeriesHasNew(unittest.TestCase):
     """Test series.has_new predicate."""
 
     @patch("apps.core.predicates.builtins.series_watermark_idx")
@@ -96,7 +96,7 @@ class TestSeriesHasNew(TestCase):
         self.assertFalse(result)
 
 
-class TestJsonSchemaOk(TestCase):
+class TestJsonSchemaOk(unittest.TestCase):
     """Test json.schema_ok predicate."""
 
     @patch("apps.core.predicates.builtins.artifact_read_json")
@@ -161,7 +161,7 @@ class TestJsonSchemaOk(TestCase):
 
 # Acceptance tests
 @pytest.mark.unit
-class TestPredicateAcceptance(TestCase):
+class TestPredicateAcceptance(unittest.TestCase):
     """Acceptance tests for predicate evaluation paths."""
 
     def test_predicate_functions_are_callable(self):
