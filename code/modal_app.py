@@ -18,29 +18,21 @@ import os
 import json
 import tarfile
 import subprocess
-from typing import List, Optional
+from typing import List
 
 import modal
+from libs.runtime_common.naming import modal_app_name_from_ref, modal_fn_name
 
 
 # ---------- Naming ----------
 
 def _app_name_from_env() -> str:
-    """
-    Build app name from PROCESSOR_REF and MODAL_ENVIRONMENT.
-    ref "ns/name@1" -> app "{ns-name}-v1-{env}"
-    """
+    """Build app name from PROCESSOR_REF and MODAL_ENVIRONMENT using shared helper."""
     ref = os.environ.get("PROCESSOR_REF", "")
-    env = os.environ.get("MODAL_ENVIRONMENT") or "dev"
-
-    try:
-        name_part, version = ref.split("@", 1)
-        slug = name_part.replace("/", "-").lower()
-        ver = version if version.startswith("v") else f"v{version}"
-        return f"{slug}-{ver}-{env}"
-    except Exception:
-        # Fallback if env is missing or malformed
-        return os.getenv("MODAL_APP_NAME", "theory-rt")
+    env = os.environ.get("MODAL_ENVIRONMENT") or os.environ.get("MODAL_ENV") or "dev"
+    if ref:
+        return modal_app_name_from_ref(ref, env)
+    return os.getenv("MODAL_APP_NAME", "theory-rt")
 
 
 APP_NAME = _app_name_from_env()
@@ -57,7 +49,7 @@ IMAGE_REF = os.environ["IMAGE_REF"]                  # e.g. "ghcr.io/...@sha256:
 TIMEOUT_S = int(os.getenv("TIMEOUT_S", "60"))
 CPU = int(os.getenv("CPU", "1"))
 MEMORY_MIB = int(os.getenv("MEMORY_MIB", "2048"))    # MiB
-GPU: Optional[str] = os.getenv("GPU") or None        # e.g., "A10G" or unset
+GPU: str | None = os.getenv("GPU") or None        # e.g., "A10G" or unset
 
 # Registry secret (must contain REGISTRY_USERNAME + REGISTRY_PASSWORD)
 REGISTRY_SECRET_NAME = os.getenv("REGISTRY_SECRET_NAME", "REGISTRY_AUTH")
@@ -78,7 +70,7 @@ for s in TOOL_SECRETS:
 
 # ---------- Shared execution ----------
 
-def _exec(payload: dict, *, extra_env: Optional[dict] = None) -> bytes:
+def _exec(payload: dict, *, extra_env: dict | None = None) -> bytes:
     """
     Write inputs -> call /app/main.py -> tar /work/out into gzipped bytes.
     """

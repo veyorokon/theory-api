@@ -2,7 +2,7 @@
 
 import uuid
 import pytest
-from apps.core.management.commands.run_processor import Command
+from libs.runtime_common.core import run_processor_core
 
 
 pytestmark = pytest.mark.integration
@@ -17,27 +17,12 @@ class TestExecutionIdContracts:
         adapters_to_test = ["local", "mock"]
         
         for adapter in adapters_to_test:
-            cmd = Command()
-            options = {
-                "ref": "llm/litellm@1",
-                "adapter": adapter,
-                "inputs_json": '{"messages":[{"role":"user","content":"test"}]}',
-                "write_prefix": "/artifacts/outputs/uuid-test/{execution_id}/",
-                "json": True,
-                "plan": None,
-                "build": False,
-                "adapter_opts_json": "{}",
-                "save_dir": None,
-                "save_first": None,
-                "attachments": [],
-            }
-            
-            result = cmd.handle(**options)
-            
-            # Parse result if it's JSON string
-            if isinstance(result, str):
-                import json
-                result = json.loads(result)
+            result = run_processor_core(
+                ref="llm/litellm@1",
+                adapter=adapter,
+                inputs_json={"messages":[{"role":"user","content":"test"}]},
+                write_prefix="/artifacts/outputs/uuid-test/{execution_id}/",
+            )
             
             # Verify execution_id is present and is a valid UUID
             assert "execution_id" in result, f"Missing execution_id in {adapter} result"
@@ -58,30 +43,19 @@ class TestExecutionIdContracts:
 
     def test_execution_id_uniqueness_across_concurrent_runs(self):
         """Test that concurrent runs generate unique execution IDs."""
-        cmd = Command()
-        options = {
-            "ref": "llm/litellm@1", 
-            "adapter": "local",
-            "inputs_json": '{"messages":[{"role":"user","content":"concurrent test"}]}',
-            "write_prefix": "/artifacts/outputs/concurrent/{execution_id}/",
-            "json": True,
-            "plan": None,
-            "build": False,
-            "adapter_opts_json": "{}",
-            "save_dir": None,
-            "save_first": None,
-            "attachments": [],
-        }
-        
         # Run twice and verify different execution IDs
-        result1 = cmd.handle(**options)
-        result2 = cmd.handle(**options)
-        
-        # Parse results
-        if isinstance(result1, str):
-            import json
-            result1 = json.loads(result1)
-            result2 = json.loads(result2)
+        result1 = run_processor_core(
+            ref="llm/litellm@1",
+            adapter="local",
+            inputs_json={"messages":[{"role":"user","content":"concurrent test"}]},
+            write_prefix="/artifacts/outputs/concurrent/{execution_id}/",
+        )
+        result2 = run_processor_core(
+            ref="llm/litellm@1",
+            adapter="local", 
+            inputs_json={"messages":[{"role":"user","content":"concurrent test"}]},
+            write_prefix="/artifacts/outputs/concurrent/{execution_id}/",
+        )
         
         exec_id1 = result1["execution_id"] 
         exec_id2 = result2["execution_id"]

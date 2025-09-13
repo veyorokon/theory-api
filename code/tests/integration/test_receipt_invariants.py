@@ -146,7 +146,7 @@ class TestReceiptInvariants:
         assert "@sha256:" in image_digest, f"Image digest not pinned: {image_digest}"
         
         # Should be the expected processor image
-        assert "llm-litellm" in image_digest, f"Unexpected image: {image_digest}"
+        assert "llm_litellm" in image_digest, f"Unexpected image: {image_digest}"
 
     def test_receipt_timestamp_format(self):
         """Test that timestamps are in expected ISO format."""

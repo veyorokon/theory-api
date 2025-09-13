@@ -60,7 +60,7 @@ class TestE2ELocal:
         
         # Debug output for CI diagnostics
         if result.returncode != 0:
-            print(f"❌ Processor command failed:")
+            print("❌ Processor command failed:")
             print(f"Command: {' '.join(cmd)}")
             print(f"Return code: {result.returncode}")
             print(f"STDERR: {result.stderr}")
@@ -73,7 +73,7 @@ class TestE2ELocal:
         
         # Debug output for error envelopes
         if payload.get("status") == "error":
-            print(f"❌ Processor returned error envelope:")
+            print("❌ Processor returned error envelope:")
             print(json.dumps(payload, indent=2))
         
         # Verify success envelope shape
@@ -130,5 +130,11 @@ class TestE2ELocal:
         result = subprocess.run(cmd, cwd=".", env=env, capture_output=True, text=True)
         
         # Should fail gracefully with error envelope
-        assert result.returncode != 0
+        try:
+            payload = json.loads(result.stdout)
+            assert payload.get("status") == "error", "Expected error status for nonexistent processor"
+            assert "ERR_ADAPTER_INVOCATION" in payload.get("error", {}).get("code", ""), f"Expected adapter invocation error: {payload}"
+        except json.JSONDecodeError:
+            # If JSON parsing fails, expect non-zero exit code (fallback behavior)
+            assert result.returncode != 0
         # Error details should be in stderr or error envelope format

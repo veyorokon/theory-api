@@ -153,5 +153,11 @@ class TestWritePrefixTemplating:
             
             result = subprocess.run(cmd, cwd=".", env=env, capture_output=True, text=True)
             
-            # Should fail with validation error
-            assert result.returncode != 0, f"Expected failure for invalid prefix: {invalid_prefix}"
+            # Should return structured error envelope for validation failure
+            try:
+                payload = json.loads(result.stdout)
+                assert payload.get("status") == "error", f"Expected error status for invalid prefix: {invalid_prefix}"
+                assert "ERR_PREFIX_TEMPLATE" in payload.get("error", {}).get("code", ""), f"Expected prefix validation error: {payload}"
+            except json.JSONDecodeError:
+                # If JSON parsing fails, expect non-zero exit code (fallback behavior)
+                assert result.returncode != 0, f"Expected failure for invalid prefix: {invalid_prefix}"
