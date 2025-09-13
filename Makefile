@@ -106,6 +106,15 @@ deps-lint:
 # Convenience meta target used in PR checks
 lint-deadcode: deadcode import-graph-pure deps-lint
 
+# --- Pre-commit Hooks ---
+precommit-install:
+	python -m pip install -U pre-commit ruff
+	pre-commit install
+
+format:
+	ruff check --fix .
+	ruff format .
+
 # --- Mutation Testing ---
 # Reset mutation testing database
 mutmut-reset:

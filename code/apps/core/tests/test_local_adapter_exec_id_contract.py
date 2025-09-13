@@ -3,17 +3,23 @@
 import uuid
 import pytest
 from pathlib import Path
+from unittest.mock import patch
 from apps.core.adapters.local_adapter import LocalAdapter
 
 
+@pytest.mark.unit
 class TestLocalAdapterExecutionIdContract:
     """Test execution ID contract compliance in local adapter."""
 
-    def test_canonicalize_outputs_uses_execution_id_in_errors(self, tmp_path):
+    @patch("apps.storage.artifact_store.artifact_store.put_bytes")
+    def test_canonicalize_outputs_uses_execution_id_in_errors(self, mock_put_bytes, tmp_path):
         """Regression test: _canonicalize_outputs must use execution_id in error envelopes, not plan_id."""
         adapter = LocalAdapter()
+        
+        # Mock successful storage
+        mock_put_bytes.return_value = True
 
-        # Create test file that will trigger duplicate path error
+        # Create test file 
         outdir = tmp_path / "out"
         outdir.mkdir()
         (outdir / "test.txt").write_text("content")
@@ -27,8 +33,10 @@ class TestLocalAdapterExecutionIdContract:
             outdir=outdir, write_prefix=write_prefix, registry_spec=registry_spec, execution_id=exec_id
         )
 
-        # Should succeed for normal case
+        # Should succeed for normal case with mocked storage
         assert result.get("status") == "success" or "outputs" in result
+        # Verify storage was called
+        assert mock_put_bytes.called
 
     def test_process_failure_outputs_uses_execution_id(self):
         """Regression test: _process_failure_outputs must accept and use execution_id."""
