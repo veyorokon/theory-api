@@ -1,10 +1,10 @@
 import pytest
+import unittest
 from unittest.mock import patch, MagicMock
-from django.test import TestCase
 from apps.core.adapters.modal_adapter import ModalAdapter
 
 
-class TestModalAdapter(TestCase):
+class TestModalAdapter(unittest.TestCase):
     def setUp(self):
         self.adapter = ModalAdapter()
         self.invoke_kwargs = {
