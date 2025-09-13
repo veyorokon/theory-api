@@ -1,15 +1,16 @@
 name: llm/litellm@1
 image:
-  oci: ghcr.io/veyorokon/llm_litellm@sha256:6314df9935cad6a69486f254c820c079702be35d7d11b604b2d0ea066d86d60b
+  oci: ghcr.io/veyorokon/llm-litellm@sha256:14e6ecb2817b3fe75408b61381290039a18a760db0c7c41abb84de6b013e9d92
 build:
   context: .
   dockerfile: apps/core/processors/llm_litellm/Dockerfile
 runtime:
-  cpu: "1"
+  cpu: '1'
   memory_gb: 2
   timeout_s: 60
 secrets:
-  required: [OPENAI_API_KEY]
+  required:
+  - OPENAI_API_KEY
 inputs:
   schema:
     type: object
@@ -21,13 +22,16 @@ inputs:
           properties:
             role:
               type: string
-              enum: [system, user, assistant]
+              enum:
+              - system
+              - user
+              - assistant
             content:
               oneOf:
-                - type: string
-                - type: array
-                  items:
-                    type: object
+              - type: string
+              - type: array
+                items:
+                  type: object
       model:
         type: string
         default: openai/gpt-4o-mini
@@ -41,11 +45,11 @@ inputs:
         minimum: 1
         default: 1000
     required:
-      - messages
+    - messages
 outputs:
-  - path: text/response.txt
-    description: LLM response text
-    mime: text/plain
-  - path: metadata.json
-    description: Execution metadata
-    mime: application/json
+- path: text/response.txt
+  description: LLM response text
+  mime: text/plain
+- path: metadata.json
+  description: Execution metadata
+  mime: application/json
