@@ -15,11 +15,11 @@ class TestLocalAdapterExecutionIdContract:
     def test_canonicalize_outputs_uses_execution_id_in_errors(self, mock_put_bytes, tmp_path):
         """Regression test: _canonicalize_outputs must use execution_id in error envelopes, not plan_id."""
         adapter = LocalAdapter()
-        
+
         # Mock successful storage
         mock_put_bytes.return_value = True
 
-        # Create test file 
+        # Create test file
         outdir = tmp_path / "out"
         outdir.mkdir()
         (outdir / "test.txt").write_text("content")
