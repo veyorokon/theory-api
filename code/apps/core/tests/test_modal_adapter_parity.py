@@ -5,10 +5,11 @@ duplicate detection, and disabled gating. Avoids internal method coupling.
 
 import json
 import tarfile
+import unittest
 from io import BytesIO
 from unittest.mock import patch
 
-from django.test import TestCase, override_settings
+from django.test import override_settings
 
 from apps.core.adapters.modal_adapter import ModalAdapter
 
@@ -23,7 +24,7 @@ def make_tar_bytes(files: dict[str, bytes]) -> bytes:
     return buf.getvalue()
 
 
-class TestModalAdapter(TestCase):
+class TestModalAdapter(unittest.TestCase):
     @override_settings(MODAL_ENABLED=True, MODAL_ENVIRONMENT="dev")
     @patch("apps.core.adapters.modal_adapter.storage_service")
     def test_success_envelope_from_tar(self, mock_storage_service):
