@@ -107,7 +107,11 @@ jobs:
           # Run integration tests with verbose output for debugging
           python -m pytest -s -v -m integration tests/integration
 
-      - name: Teardown services
+      - name: Teardown & logs
         if: always()
         run: |
+          echo "----- docker compose ps -----"
+          docker compose ps || true
+          echo "----- docker compose logs (last 200 lines) -----"
+          docker compose logs --tail=200 || true
           docker compose down -v || { echo "compose down: nothing to stop (ok)"; exit 0; }

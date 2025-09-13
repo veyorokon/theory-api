@@ -54,6 +54,7 @@ jobs:
         run: |
           set -euo pipefail
           cd code
+          echo "Deploying app for REF=$PROCESSOR_REF ENV=$MODAL_ENVIRONMENT IMAGE=$IMAGE_REF"
           modal deploy --env "${MODAL_ENVIRONMENT}" -m modal_app
 
       - name: Post-deploy smoke (Modal synthetic transaction)
