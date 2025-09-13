@@ -6,6 +6,9 @@ Uses SQLite for fast, isolated unit tests.
 
 from .base import *  # noqa
 
+# Hermetic settings for fast unit tests
+DEBUG = False
+
 # Use SQLite for unit tests (fast, no external dependencies)
 DATABASES = {
     "default": {
@@ -13,6 +16,11 @@ DATABASES = {
         "NAME": ":memory:",
     }
 }
+
+# Fast, in-memory backends for unit tests
+CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
+EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
 # Use in-memory channel layer for unit tests
 CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
