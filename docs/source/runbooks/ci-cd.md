@@ -86,6 +86,28 @@ image:
   oci: ghcr.io/veyorokon/llm_litellm@sha256:09e1fb31078db18369fa50c393ded009c88ef880754dbfc1131d750ce3f8f225
 ```
 
+### GHCR Package Access & Authentication
+
+GitHub Actions must be able to pull private images from GHCR. Configure GHCR package access and add an auth step in CI:
+
+- Package settings → Repository access → Add this repository → Permission: **Actions: Read** (not Codespaces).
+
+CI authentication step (example):
+```yaml
+- name: Authenticate Docker to GHCR
+  run: |
+    echo "${{ secrets.GHCR_RO || secrets.GITHUB_TOKEN }}" | \
+      docker login ghcr.io -u ${{ github.actor }} --password-stdin
+```
+
+Preflight manifest check (optional):
+```yaml
+- name: Assert pinned image exists in GHCR
+  run: |
+    REF=$(make ci-get-image-ref)
+    docker manifest inspect "$REF" || exit 1
+```
+
 ### 2. Secrets Ensure (Per Environment)
 
 **Trigger**: Registry YAML changes or manual dispatch
@@ -172,10 +194,10 @@ python manage.py sync_modal --env $MODAL_ENV
 
 ```
 .github/workflows/
-├── ci-cd.yml           # Main CI/CD pipeline
-├── docs.yml            # Documentation build
-├── processor-build.yml # Processor image builds
-└── modal-deploy.yml    # Modal function deployment (single committed module)
+├── pr-checks.yml       # Fast lane (lint, unit, docs, coverage, dead-code)
+├── acceptance.yml      # Docker lane (compose + acceptance/property)
+├── build-and-pin.yml   # Processor image builds + digest pin PR
+└── modal-deploy.yml    # Modal deploy (committed module) + smoke
 ```
 
 ### Pipeline Secrets

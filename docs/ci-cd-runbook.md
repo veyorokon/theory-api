@@ -70,6 +70,32 @@ The CI/CD system uses a **build-once, deploy-many** strategy with digest pinning
 
 **Purpose**: Automated image building with digest pinning for reproducible deployments.
 
+### GHCR Package Access & Authentication (Required)
+
+GitHub Actions must be able to pull private images from GitHub Container Registry (GHCR). Link the package to your repo with the correct permission:
+
+1) Repository → Packages → Select package (e.g., `llm_litellm`) → Package settings  
+2) Repository access → Add repository → Select your repo  
+3) Choose “Actions: Read” permission (NOT “Codespaces”).
+
+CI authentication (example):
+```yaml
+- name: Authenticate Docker to GHCR
+  run: |
+    echo "${{ secrets.GHCR_RO || secrets.GITHUB_TOKEN }}" | \
+      docker login ghcr.io -u ${{ github.actor }} --password-stdin
+```
+
+Preflight check (optional but recommended):
+```yaml
+- name: Assert pinned image exists in GHCR
+  run: |
+    REF=$(make ci-get-image-ref)
+    docker manifest inspect "$REF"
+```
+
+Distinction: “Codespaces” access is for dev environments; **CI/CD needs “Actions: Read”** so workflows can pull images.
+
 ### 4. Modal Deploy Lane
 **Trigger**: Push to `dev`, `staging`, `main` branches
 **Runtime**: ~1-2 minutes
