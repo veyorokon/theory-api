@@ -3,11 +3,15 @@ Mock adapter for testing without real infrastructure.
 """
 
 import json
+import os
 import time
 from typing import Any, Dict, List
 
-from .base import RuntimeAdapter
-from .envelope import success_envelope, error_envelope
+from .base import RuntimeAdapter, guard_no_duplicates
+from .envelope import success_envelope, error_envelope, write_outputs_index
+from ..utils.env_fingerprint import compose_env_fingerprint
+from ..utils.hashing import inputs_hash
+from libs.runtime_common.receipts import write_dual_receipts
 
 
 class MockAdapter(RuntimeAdapter):
@@ -140,6 +144,26 @@ class MockAdapter(RuntimeAdapter):
 
         # Mock different processor types with canonical output format
         from apps.storage.artifact_store import artifact_store
+        from apps.core.errors import ERR_OUTPUT_DUPLICATE
+
+        # Idempotent re-run check as per Twin's spec
+        index_path = f"/artifacts/execution/{execution_id}/outputs.json"
+        if os.path.exists(index_path):
+            try:
+                with open(index_path, encoding="utf-8") as f:
+                    prev = json.loads(f.read())
+                # For mock adapter, outputs are deterministic, so we can return existing
+                return success_envelope(
+                    execution_id=execution_id,
+                    outputs=prev.get("outputs", []),
+                    index_path=index_path,
+                    image_digest=f"mock-{image_digest}",
+                    env_fingerprint=f"mock-{image_digest}-generic",
+                    duration_ms=0,
+                )
+            except (json.JSONDecodeError, OSError):
+                # Corrupted index file - proceed with normal execution
+                pass
 
         if "llm" in processor_ref:
             # Mock LLM processor
@@ -161,6 +185,14 @@ class MockAdapter(RuntimeAdapter):
             # Response text file (matches /work/out/text/response.txt)
             response_bytes = response_text.encode("utf-8")
             p1 = f"{write_prefix}text/response.txt"
+
+            # Check for duplicates
+            from apps.core.adapters.base import guard_no_duplicates
+
+            dup_check = guard_no_duplicates([p1], execution_id)
+            if dup_check:
+                return dup_check
+
             c1 = artifact_store.compute_cid(response_bytes)
             artifact_store.put_bytes(p1, response_bytes, "text/plain")
             entries.append({"path": p1, "cid": c1, "size_bytes": len(response_bytes), "mime": "text/plain"})
@@ -176,16 +208,19 @@ class MockAdapter(RuntimeAdapter):
             )
             meta_bytes = meta_json.encode("utf-8")
             p2 = f"{write_prefix}meta.json"
+
+            # Check for duplicates including both paths
+            dup_check = guard_no_duplicates([p1, p2], execution_id)
+            if dup_check:
+                return dup_check
+
             c2 = artifact_store.compute_cid(meta_bytes)
             artifact_store.put_bytes(p2, meta_bytes, "application/json")
             entries.append({"path": p2, "cid": c2, "size_bytes": len(meta_bytes), "mime": "application/json"})
 
-            # Sort entries by path
-            entries.sort(key=lambda x: x["path"])
-
-            # Create index artifact with object wrapper
+            # Create index artifact with centralized helper
             index_path = f"/artifacts/execution/{execution_id}/outputs.json"
-            index_bytes = json.dumps({"outputs": entries}, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+            index_bytes = write_outputs_index(index_path, entries)
             artifact_store.put_bytes(index_path, index_bytes, "application/json")
 
             # Use shared envelope serializer
@@ -208,9 +243,9 @@ class MockAdapter(RuntimeAdapter):
 
             entries = [{"path": p1, "cid": c1, "size_bytes": len(result_bytes), "mime": "application/json"}]
 
-            # Create index artifact with object wrapper
+            # Create index artifact with centralized helper
             index_path = f"/artifacts/execution/{execution_id}/outputs.json"
-            index_bytes = json.dumps({"outputs": entries}, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+            index_bytes = write_outputs_index(index_path, entries)
             artifact_store.put_bytes(index_path, index_bytes, "application/json")
 
             # Use shared envelope serializer

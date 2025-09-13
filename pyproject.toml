@@ -19,7 +19,7 @@ target-version = "py311"
 [tool.ruff.lint]
 select = [
     "E",    # pycodestyle errors
-    "W",    # pycodestyle warnings  
+    "W",    # pycodestyle warnings
     "F",    # pyflakes
     "I",    # isort
     "N",    # pep8-naming
@@ -89,7 +89,7 @@ extend_exclude = [
 DEP002 = [
     "django-environ",      # Used in settings (dynamic)
     "psycopg2-binary",     # Database driver (runtime)
-    "redis",               # Cache backend (runtime) 
+    "redis",               # Cache backend (runtime)
     "celery",              # Task queue (runtime)
     "djangorestframework", # API framework (via INSTALLED_APPS)
     "django-cors-headers", # Middleware (via settings)
@@ -111,6 +111,7 @@ DEP002 = [
     "ruff",                # Linter/formatter
     "grimp",               # Import graph tool
     "dj-database-url",     # Used in settings (dynamic)
+    "hypothesis",          # Property-based testing (test files only)
 ]
 DEP001 = [
     "foundation",          # Local processor module (not a real package)
@@ -128,7 +129,7 @@ exclude = [
 ignore_decorators = [
     "@receiver",           # Django signals
     "@admin.register",
-    "@admin.action", 
+    "@admin.action",
     "@register.filter",    # Template tags
     "@register.simple_tag",
     "@register.inclusion_tag",

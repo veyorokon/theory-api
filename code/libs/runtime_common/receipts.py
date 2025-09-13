@@ -1,8 +1,11 @@
 """Determinism receipt generation utilities."""
 
 from __future__ import annotations
+import json
+import os
 from dataclasses import dataclass, asdict
 from datetime import datetime, UTC
+from pathlib import Path
 from typing import Dict, Any
 
 
@@ -62,3 +65,32 @@ def build_receipt(
         extra=extra or {},
     )
     return asdict(rec)
+
+
+def write_dual_receipts(
+    execution_id: str, write_prefix: str, receipt: Dict[str, Any], global_base: str = "/artifacts"
+) -> Dict[str, str]:
+    """
+    Write identical receipts to both global and local locations.
+
+    Args:
+        execution_id: Unique execution identifier
+        write_prefix: Local write prefix (with trailing /)
+        receipt: Receipt dictionary to write
+        global_base: Base path for global receipts (for testing)
+
+    Returns:
+        Dictionary with global_path and local_path of written receipts
+    """
+    global_path = f"{global_base}/execution/{execution_id}/determinism.json"
+    local_path = f"{write_prefix.rstrip('/')}/receipt.json"
+
+    # JSON bytes (identical for both locations)
+    receipt_bytes = json.dumps(receipt, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+    # Write to both locations
+    for path in (global_path, local_path):
+        Path(os.path.dirname(path)).mkdir(parents=True, exist_ok=True)
+        Path(path).write_bytes(receipt_bytes)
+
+    return {"global_path": global_path, "local_path": local_path}

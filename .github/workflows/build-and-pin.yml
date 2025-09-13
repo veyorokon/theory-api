@@ -65,7 +65,6 @@ jobs:
       packages: write
       pull-requests: write
       actions: read
-      metadata: read
       issues: write
     env:
       REGISTRY: ghcr.io

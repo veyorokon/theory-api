@@ -22,6 +22,7 @@ pytest
 pytest-django
 pytest-cov
 coverage
+hypothesis
 vulture
 diff-cover
 grimp

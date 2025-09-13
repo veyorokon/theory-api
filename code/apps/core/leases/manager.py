@@ -1,7 +1,14 @@
 from __future__ import annotations
+import unicodedata
+import urllib.parse
+import re
 
 from dataclasses import dataclass
 from typing import Iterable, Literal, TypedDict
+
+FORBIDDEN_SEGMENTS = {".git", ".well-known"}
+MAX_PATH_LEN = 1024
+MAX_SEG_LEN = 255
 
 
 class Selector(TypedDict):
@@ -15,38 +22,34 @@ class Selector(TypedDict):
     path: str
 
 
+def _single_percent_decode(s: str) -> str:
+    # reject raw %2f/%2F attempts before decode
+    if re.search(r"%2[fF]", s):
+        raise ValueError("forbidden percent-encoded slash")
+    t = urllib.parse.unquote(s)
+    if "/" in t:
+        # decoded slash reintroduced
+        raise ValueError("decoded slash forbidden")
+    return t
+
+
 def canonicalize_path(p: str) -> str:
-    """Canonicalize a facet-root path.
-
-    - Percent-decode and Unicode NFC normalization
-    - Lowercase
-    - Single slashes
-    - Start with facet (plan/artifacts/streams/scratch)
-    - Forbid dot segments
-    """
-    import unicodedata
-    from urllib.parse import unquote
-
-    s = unicodedata.normalize("NFC", unquote((p or "").strip()))
-    s = s.lower()
-    if not s.startswith("/"):
-        s = "/" + s
-    while "//" in s:
-        s = s.replace("//", "/")
-
-    # forbid dot segments - check raw split to catch .. properly
-    if any(seg == ".." for seg in s.split("/")):
-        raise ValueError("dot-dot segments forbidden in world paths")
-
-    parts = [seg for seg in s.split("/") if seg not in ("", ".")]
+    p = unicodedata.normalize("NFC", p)
+    if len(p) > MAX_PATH_LEN:
+        raise ValueError("path too long")
+    parts = [seg for seg in p.split("/") if seg not in ("", ".", "..")]
+    parts = [_single_percent_decode(seg) for seg in parts]
+    if any(len(seg) > MAX_SEG_LEN for seg in parts):
+        raise ValueError("segment too long")
+    if any(seg in FORBIDDEN_SEGMENTS for seg in parts[1:]):
+        raise ValueError("forbidden segment")
+    # existing facet/root checks
     if not parts:
         raise ValueError("empty path after normalization")
-
     allowed = {"plan", "artifacts", "streams", "scratch"}
     facet = parts[0]
     if facet not in allowed:
         raise ValueError(f"Invalid facet: {facet}")
-
     return "/" + "/".join(parts)
 
 

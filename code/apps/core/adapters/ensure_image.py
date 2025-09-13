@@ -7,7 +7,7 @@ Provides unified image handling with build support.
 from __future__ import annotations
 import os
 import subprocess
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 
 def ensure_image(proc_spec: Dict[str, Any], *, adapter: str, build: bool = False, force_build: bool = False) -> str:

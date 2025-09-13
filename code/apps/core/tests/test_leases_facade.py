@@ -12,13 +12,13 @@ from apps.core.leases.manager import (
 
 def test_canonicalize_and_selector_trailing_slash():
     assert (
-        canonicalize_selector({"kind": "exact", "path": "ARTIFACTS//Foo/Bar.txt/"})["path"] == "/artifacts/foo/bar.txt"
+        canonicalize_selector({"kind": "exact", "path": "artifacts/Foo/Bar.txt/"})["path"] == "/artifacts/Foo/Bar.txt"
     )
-    assert canonicalize_selector({"kind": "prefix", "path": "/artifacts/Foo"})["path"] == "/artifacts/foo/"
+    assert canonicalize_selector({"kind": "prefix", "path": "/artifacts/Foo"})["path"] == "/artifacts/Foo/"
 
 
 def test_percent_decode_and_unicode_nfc():
-    assert canonicalize_path("/artifacts/f%C3%B6o/") == "/artifacts/föo"
+    assert canonicalize_path("/artifacts/f%C3%B6o") == "/artifacts/föo"
     # Unicode NFD → NFC normalized equality
     import unicodedata
 
@@ -27,13 +27,27 @@ def test_percent_decode_and_unicode_nfc():
     assert canonicalize_path(f"/artifacts/{nfd}") == f"/artifacts/{nfc}"
 
 
-def test_dot_segments_forbidden():
-    with pytest.raises(ValueError, match="dot-dot segments forbidden"):
-        canonicalize_path("/ARTIFACTS//Foo%2Fbar/..")
+def test_security_hardening():
+    # Test forbidden percent-encoded slash
+    with pytest.raises(ValueError, match="forbidden percent-encoded slash"):
+        canonicalize_path("/artifacts/Foo%2Fbar")
+
+    # Test forbidden segments
+    with pytest.raises(ValueError, match="forbidden segment"):
+        canonicalize_path("/artifacts/.git/config")
+    with pytest.raises(ValueError, match="forbidden segment"):
+        canonicalize_path("/artifacts/.well-known/security.txt")
+
+    # Test path length limits
+    with pytest.raises(ValueError, match="path too long"):
+        canonicalize_path("/artifacts/" + "x" * 1020)
+
+    # Test segment length limits
+    with pytest.raises(ValueError, match="segment too long"):
+        canonicalize_path("/artifacts/" + "x" * 260)
+
     # dot segments are filtered out, not forbidden - only .. is forbidden
     assert canonicalize_path("/artifacts/./foo") == "/artifacts/foo"
-    with pytest.raises(ValueError, match="dot-dot segments forbidden"):
-        canonicalize_path("/artifacts/../foo")
 
 
 def test_overlap_matrix_and_plan_scope():

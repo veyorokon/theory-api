@@ -2,6 +2,8 @@
 Shared envelope serializers for adapter canonical outputs.
 """
 
+from pathlib import Path, PurePosixPath
+import json
 from typing import Any, Dict, List
 
 
@@ -37,3 +39,14 @@ def error_envelope(
         meta.update(meta_extra)
 
     return {"status": "error", "execution_id": execution_id, "error": {"code": code, "message": message}, "meta": meta}
+
+
+def write_outputs_index(index_path: str, entries: List[Dict[str, Any]]) -> bytes:
+    """
+    Write {"outputs":[...]} with sorted entries.
+    Returns the JSON bytes for storage via artifact_store.
+    """
+    # Sort by path for deterministic output
+    sorted_entries = sorted(entries, key=lambda e: e["path"])
+    idx = {"outputs": sorted_entries}
+    return json.dumps(idx, separators=(",", ":"), ensure_ascii=False).encode("utf-8")

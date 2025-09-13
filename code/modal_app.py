@@ -149,6 +149,9 @@ def run(payload: dict) -> bytes:
     serialized=True,
 )
 def smoke(payload: dict) -> bytes:
-    # Force deterministic provider selection without changing processor code.
-    # Your provider shim already treats LLM_PROVIDER=mock as zero-cost mode.
-    return _exec(payload, extra_env={"LLM_PROVIDER": "mock"})
+    import os
+
+    os.environ["LLM_PROVIDER"] = "mock"
+    for k in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"):
+        os.environ.pop(k, None)
+    return run(payload)
