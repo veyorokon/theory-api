@@ -102,7 +102,7 @@ class TestE2ELocal:
 
         # Verify response contains mock LLM output
         assert response_data["status"] == "ok"
-        assert "Mock LLM response" in response_data["response"]
+        assert "Mock LLM response to:" in response_data["response"]
 
         # Check receipt.json exists
         receipt_key = f"artifacts/outputs/text/{exec_id}/receipt.json"
@@ -145,9 +145,9 @@ class TestE2ELocal:
         try:
             payload = json.loads(result.stdout)
             assert payload.get("status") == "error", "Expected error status for nonexistent processor"
-            assert "ERR_ADAPTER_INVOCATION" in payload.get("error", {}).get("code", ""), (
-                f"Expected adapter invocation error: {payload}"
-            )
+            assert "ERR_ADAPTER_INVOCATION" in payload.get("error", {}).get(
+                "code", ""
+            ), f"Expected adapter invocation error: {payload}"
         except json.JSONDecodeError:
             # If JSON parsing fails, expect non-zero exit code (fallback behavior)
             assert result.returncode != 0

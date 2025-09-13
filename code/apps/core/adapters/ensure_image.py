@@ -61,8 +61,11 @@ def _ensure_image_pulled(image_ref: str) -> None:
             # Image exists locally
             return
 
-        # Pull image
-        subprocess.run(["docker", "pull", image_ref], capture_output=True, text=True, check=True)
+        # Pull image with explicit platform for AMD64 compatibility
+        # This ensures CI (linux/amd64) can pull images built for AMD64
+        subprocess.run(
+            ["docker", "pull", "--platform", "linux/amd64", image_ref], capture_output=True, text=True, check=True
+        )
 
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Failed to pull image {image_ref}: {e.stderr}")

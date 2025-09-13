@@ -30,19 +30,19 @@ jobs:
         id: set
         run: |
           set -euo pipefail
-          
+
           if [[ "${{ steps.changes.outputs.processors }}" != 'true' ]]; then
             echo 'matrix={"include":[]}' >> $GITHUB_OUTPUT
             exit 0
           fi
-          
+
           # Find processor directories
           procs=$(ls -1 code/apps/core/processors 2>/dev/null | tr '\n' ' ' || echo "")
           if [ -z "$procs" ]; then
             echo 'matrix={"include":[]}' >> $GITHUB_OUTPUT
             exit 0
           fi
-          
+
           # Build matrix JSON
           matrix_items=""
           for p in $procs; do
@@ -51,7 +51,7 @@ jobs:
             fi
           done
           matrix_items=$(echo "$matrix_items" | sed 's/,$//')
-          
+
           echo "matrix={\"include\":[$matrix_items]}" >> $GITHUB_OUTPUT
 
   build-and-pin:
@@ -95,19 +95,19 @@ jobs:
           IMAGE="${REGISTRY}/${{ github.repository_owner }}/${SLUG}"
           echo "image=${IMAGE}" >> $GITHUB_OUTPUT
 
-      - name: Build & Push (linux/amd64)
+      - name: Build & Push (multi-platform)
         run: |
           set -euo pipefail
           PROC="${{ matrix.processor }}"
           DOCKERFILE="code/apps/core/processors/${PROC}/Dockerfile"
-          
+
           if [ ! -f "$DOCKERFILE" ]; then
             echo "ERROR: Dockerfile not found: $DOCKERFILE"
             exit 1
           fi
-          
+
           docker buildx build \
-            --platform linux/amd64 \
+            --platform linux/amd64,linux/arm64 \
             -f "${DOCKERFILE}" \
             -t "${{ steps.img.outputs.image }}:${TAG}" \
             --push \
@@ -126,7 +126,7 @@ jobs:
           PROC="${{ matrix.processor }}"
           IMAGE_BASE="${{ steps.img.outputs.image }}"
           DIGEST="${{ steps.digest.outputs.digest }}"
-          
+
           python scripts/ci/pin_processor.py "$PROC" "$IMAGE_BASE" "$DIGEST"
 
       - name: Create pin PR
@@ -139,7 +139,7 @@ jobs:
           commit-message: "chore(registry): pin ${{ matrix.processor }} to ${{ steps.digest.outputs.digest }}"
           body: |
             Auto-pinned by Build & Pin workflow.
-            
+
             **Processor**: ${{ matrix.processor }}
             **Image**: ${{ steps.img.outputs.image }}
             **Digest**: ${{ steps.digest.outputs.digest }}
