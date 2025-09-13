@@ -177,7 +177,7 @@ class LocalAdapter(RuntimeAdapter):
                     outdir=output_dir, write_prefix=write_prefix, registry_spec=registry_spec, execution_id=execution_id
                 )
             else:
-                return self._process_failure_outputs(result, registry_spec)
+                return self._process_failure_outputs(result, registry_spec, execution_id)
 
         finally:
             # Clean up workdir
@@ -309,7 +309,7 @@ class LocalAdapter(RuntimeAdapter):
             if world_path in seen:
                 env_fingerprint = self._compose_env_fingerprint(registry_spec)
                 return error_envelope(
-                    plan_id, "duplicate_target_path", f"Duplicate target path: {world_path}", env_fingerprint
+                    execution_id, "duplicate_target_path", f"Duplicate target path: {world_path}", env_fingerprint
                 )
             seen.add(world_path)
 
@@ -328,7 +328,7 @@ class LocalAdapter(RuntimeAdapter):
 
         # Create index artifact with object wrapper
         index_bytes = json.dumps({"outputs": entries}, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-        index_path = f"/artifacts/execution/{plan_id}/outputs.json"
+        index_path = f"/artifacts/execution/{execution_id}/outputs.json"
         artifact_store.put_bytes(index_path, index_bytes, "application/json")
 
         # Use shared envelope serializer
@@ -336,10 +336,10 @@ class LocalAdapter(RuntimeAdapter):
         env_fingerprint = self._compose_env_fingerprint(registry_spec)
         meta_extra = {"io_bytes": io_bytes}
 
-        return success_envelope(plan_id, entries, index_path, image_digest, env_fingerprint, 0, meta_extra)
+        return success_envelope(execution_id, entries, index_path, image_digest, env_fingerprint, 0, meta_extra)
 
     def _process_failure_outputs(
-        self, result: subprocess.CompletedProcess, registry_spec: Dict[str, Any]
+        self, result: subprocess.CompletedProcess, registry_spec: Dict[str, Any], execution_id: str
     ) -> Dict[str, Any]:
         """Process failed container execution."""
         error_msg = f"Container failed with exit code {result.returncode}"
@@ -349,7 +349,7 @@ class LocalAdapter(RuntimeAdapter):
             error_msg += f". STDOUT: {result.stdout[:200]}"
 
         env_fingerprint = self._compose_env_fingerprint(registry_spec)
-        return error_envelope("local-error", "container_execution_failed", error_msg, env_fingerprint)
+        return error_envelope(execution_id, "container_execution_failed", error_msg, env_fingerprint)
 
     def _compose_env_fingerprint(self, registry_spec: Dict[str, Any]) -> str:
         """Compose environment fingerprint from registry specification."""
