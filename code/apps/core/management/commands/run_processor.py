@@ -383,6 +383,9 @@ class Command(BaseCommand):
 
                 result["determinism_uri"] = determinism_uri
 
+            # Ensure execution_id is in result envelope (contract guarantee)
+            result["execution_id"] = execution_id
+
             # Download outputs if requested
             if result.get("status") == "success" and result.get("outputs"):
                 if options.get("save_dir"):

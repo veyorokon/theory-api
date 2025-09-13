@@ -143,9 +143,8 @@ class LocalAdapter(RuntimeAdapter):
             except json.JSONDecodeError:
                 pass
 
-        # Create workdir under BASE_DIR/tmp/plan_id/execution_id
-        execution_id = adapter_opts.get("execution_id", "local")
-        workdir = self._create_workdir(plan_id, execution_id)
+        # Use orchestrator-provided execution_id (never generate/override)
+        workdir = self._create_workdir(plan_id, plan_id)
 
         try:
             # Write inputs.json to workdir
@@ -310,7 +309,7 @@ class LocalAdapter(RuntimeAdapter):
             if world_path in seen:
                 env_fingerprint = self._compose_env_fingerprint(registry_spec)
                 return error_envelope(
-                    execution_id, "duplicate_target_path", f"Duplicate target path: {world_path}", env_fingerprint
+                    plan_id, "duplicate_target_path", f"Duplicate target path: {world_path}", env_fingerprint
                 )
             seen.add(world_path)
 
@@ -329,7 +328,7 @@ class LocalAdapter(RuntimeAdapter):
 
         # Create index artifact with object wrapper
         index_bytes = json.dumps({"outputs": entries}, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-        index_path = f"/artifacts/execution/{execution_id}/outputs.json"
+        index_path = f"/artifacts/execution/{plan_id}/outputs.json"
         artifact_store.put_bytes(index_path, index_bytes, "application/json")
 
         # Use shared envelope serializer
@@ -337,7 +336,7 @@ class LocalAdapter(RuntimeAdapter):
         env_fingerprint = self._compose_env_fingerprint(registry_spec)
         meta_extra = {"io_bytes": io_bytes}
 
-        return success_envelope(execution_id, entries, index_path, image_digest, env_fingerprint, 0, meta_extra)
+        return success_envelope(plan_id, entries, index_path, image_digest, env_fingerprint, 0, meta_extra)
 
     def _process_failure_outputs(
         self, result: subprocess.CompletedProcess, registry_spec: Dict[str, Any]
