@@ -70,7 +70,7 @@ jobs:
           PY
           )
           echo "🔍 Checking $REF in GHCR…"
-          docker manifest inspect "$REF" >/dev/null || { 
+          docker manifest inspect "$REF" >/dev/null || {
             echo "::error::Pinned image not found in GHCR: $REF";
             echo "Run Build & Pin workflow and merge the PR.";
             exit 1;
@@ -95,6 +95,7 @@ jobs:
         env:
           DJANGO_SETTINGS_MODULE: backend.settings.test
           LLM_PROVIDER: mock
+          DOCKER_PULL_PLATFORM: linux/amd64
           S3_ENDPOINT: http://127.0.0.1:9000
           S3_ACCESS_KEY: minioadmin
           S3_SECRET_KEY: minioadmin
@@ -103,7 +104,7 @@ jobs:
           # Verify MinIO connectivity
           echo "🔍 Testing MinIO connectivity..."
           curl -f http://127.0.0.1:9000/minio/health/live || echo "⚠️ MinIO health check failed"
-          
+
           # Run integration tests with verbose output for debugging
           python -m pytest -s -v -m integration tests/integration
 

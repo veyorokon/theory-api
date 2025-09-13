@@ -135,7 +135,7 @@ class LocalAdapter(RuntimeAdapter):
         registry_spec = self._load_registry_spec(processor_ref)
 
         # Ensure container image is available
-        image_ref = ensure_image(registry_spec, build=build)
+        image_ref = ensure_image(registry_spec, adapter="local", build=build)
 
         # Parse adapter options
         adapter_opts = {}

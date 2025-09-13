@@ -4,43 +4,60 @@ Shared image resolution for local and modal adapters.
 Provides unified image handling with build support.
 """
 
+from __future__ import annotations
+import os
 import subprocess
-from typing import Dict, Any
+from typing import Any, Dict, Optional
 
 
-def ensure_image(proc_spec: Dict[str, Any], build: bool = False) -> str:
+def ensure_image(proc_spec: Dict[str, Any], *, adapter: str, build: bool = False, force_build: bool = False) -> str:
     """
-    Ensure container image is available and return digest.
+    Return an image reference to run.
+
+    Rules:
+      - adapter == "modal" (or any remote runtime): must use pinned digest. We never build here.
+      - adapter == "local":
+          * if force_build and build_spec: build and return local tag
+          * elif build and build_spec: build and return local tag
+          * elif image.oci present: pull and return digest
+          * else: error
 
     Args:
         proc_spec: Processor specification from registry
-        build: Whether to build if no OCI digest available
+        adapter: Adapter type ("local", "modal", etc.)
+        build: Whether to build from source for local adapter
+        force_build: Force build even if OCI is present (local adapter only)
 
     Returns:
-        Image reference (repo@sha256:... or repo:tag)
+        Image reference (digest for remote, tag or digest for local)
 
     Raises:
-        ValueError: If no image available and build not permitted
-        RuntimeError: If build or pull operation fails
+        RuntimeError: If requirements cannot be satisfied
     """
-    image_spec = proc_spec.get("image", {})
-    build_spec = proc_spec.get("build", {})
+    image_spec = proc_spec.get("image", {}) or {}
+    build_spec = proc_spec.get("build", {}) or {}
 
-    # First preference: use existing OCI digest
-    if "oci" in image_spec:
-        oci_ref = image_spec["oci"]
-        _ensure_image_pulled(oci_ref)
-        return oci_ref
+    if adapter != "local":
+        # Remote runtimes are digest-only for determinism.
+        oci = image_spec.get("oci")
+        if not oci:
+            raise RuntimeError("Remote adapters require a pinned image digest (image.oci).")
+        _ensure_image_pulled(oci)
+        return oci
 
-    # Second preference: build if requested and build spec exists
+    # Local adapter
+    if force_build and build_spec:
+        return _build_local_image(build_spec)
+
     if build and build_spec:
-        return _build_image(build_spec)
+        return _build_local_image(build_spec)
 
-    # No image available
-    if build_spec:
-        raise ValueError(f"No image.oci specified and --build not enabled. Use --build to build from {build_spec}")
-    else:
-        raise ValueError("No image.oci specified and no build configuration available")
+    oci = image_spec.get("oci")
+    if oci:
+        _ensure_image_pulled(oci)
+        return oci
+
+    raise RuntimeError("No usable image reference: provide image.oci or build spec (for local builds).")
 
 
 def _ensure_image_pulled(image_ref: str) -> None:
@@ -61,14 +78,64 @@ def _ensure_image_pulled(image_ref: str) -> None:
             # Image exists locally
             return
 
-        # Pull image with explicit platform for AMD64 compatibility
-        # This ensures CI (linux/amd64) can pull images built for AMD64
-        subprocess.run(
-            ["docker", "pull", "--platform", "linux/amd64", image_ref], capture_output=True, text=True, check=True
-        )
+        # Optional explicit platform for CI/codespaces
+        platform = os.getenv("DOCKER_PULL_PLATFORM")  # e.g., "linux/amd64"
+        if platform:
+            subprocess.run(
+                ["docker", "pull", "--platform", platform, image_ref], capture_output=True, text=True, check=True
+            )
+        else:
+            subprocess.run(["docker", "pull", image_ref], capture_output=True, text=True, check=True)
 
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"Failed to pull image {image_ref}: {e.stderr}")
+    except FileNotFoundError:
+        raise RuntimeError("Docker not found. Please install Docker.")
+
+
+def _build_local_image(build_spec: Dict[str, Any], tag: str | None = None) -> str:
+    """
+    Build a local image for the *local adapter* only.
+    Returns a tag suitable for `docker run` (not a digest).
+    """
+    from django.conf import settings
+    from pathlib import Path
+
+    context = build_spec.get("context", ".")
+    dockerfile = build_spec.get("dockerfile", "Dockerfile")
+    tag = tag or build_spec.get("tag") or "theory-local-build:dev"
+
+    # Make context path absolute from BASE_DIR
+    if not Path(context).is_absolute():
+        context_path = Path(settings.BASE_DIR) / context
+    else:
+        context_path = Path(context)
+
+    dockerfile_path = context_path / dockerfile
+    platform = os.getenv("DOCKER_BUILD_PLATFORM")  # optional (e.g., "linux/amd64")
+
+    if platform:
+        cmd = [
+            "docker",
+            "buildx",
+            "build",
+            "--platform",
+            platform,
+            "-f",
+            str(dockerfile_path),
+            "-t",
+            tag,
+            "--load",
+            str(context_path),
+        ]
+    else:
+        cmd = ["docker", "build", "-f", str(dockerfile_path), "-t", tag, str(context_path)]
+
+    try:
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
+        return tag
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Failed to build local image: {e.stderr}")
     except FileNotFoundError:
         raise RuntimeError("Docker not found. Please install Docker.")
 
