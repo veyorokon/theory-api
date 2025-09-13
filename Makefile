@@ -20,19 +20,19 @@ makemigrations:
 
 # --- Tests ---
 test-unit:
-	cd code && python -m pytest -q -m "unit and not integration and not requires_postgres"
+	@echo "DB ENGINE:" && cd code && DJANGO_SETTINGS_MODULE=backend.settings.unittest python -c "from django.conf import settings; print(settings.DATABASES['default']['ENGINE'])"
+	cd code && DJANGO_SETTINGS_MODULE=backend.settings.unittest python -m pytest -q -m "unit and not integration and not requires_postgres"
 
 test-acceptance:
 	$(MAKE) compose-up
 	$(MAKE) wait-db
 	cd code && DJANGO_SETTINGS_MODULE=backend.settings.test python manage.py migrate --noinput
-	cd code && python -m pytest -q -m "ledger_acceptance or requires_postgres"
+	@echo "DB ENGINE:" && cd code && DJANGO_SETTINGS_MODULE=backend.settings.test python -c "from django.conf import settings; print(settings.DATABASES['default']['ENGINE'])"
+	cd code && DJANGO_SETTINGS_MODULE=backend.settings.test python -m pytest -q -m "ledger_acceptance or requires_postgres"
 
 test-property:
-	$(MAKE) compose-up
-	$(MAKE) wait-db
-	cd code && DJANGO_SETTINGS_MODULE=backend.settings.test python manage.py migrate --noinput
-	cd code && python -m pytest -q tests/property
+	@echo "DB ENGINE:" && cd code && DJANGO_SETTINGS_MODULE=backend.settings.unittest python -c "from django.conf import settings; print(settings.DATABASES['default']['ENGINE'])"
+	cd code && DJANGO_SETTINGS_MODULE=backend.settings.unittest python -m pytest -q tests/property
 
 test-all:
 	DJANGO_SETTINGS_MODULE=backend.settings.unittest \

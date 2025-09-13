@@ -2,13 +2,13 @@
 Tests for provider factory and system integration.
 """
 
-from django.test import TestCase
+import unittest
 
 from apps.core.integrations import get_llm_provider
 from apps.core.integrations.mock import MockLLM
 
 
-class TestProviderFactory(TestCase):
+class TestProviderFactory(unittest.TestCase):
     """Test the provider factory function."""
 
     def test_get_mock_provider(self):
