@@ -210,9 +210,9 @@ class TestReceiptInvariants:
         for field_name, expected_type in type_checks:
             if field_name in receipt:
                 value = receipt[field_name]
-                assert isinstance(
-                    value, expected_type
-                ), f"Field {field_name} should be {expected_type}, got {type(value)}"
+                assert isinstance(value, expected_type), (
+                    f"Field {field_name} should be {expected_type}, got {type(value)}"
+                )
 
         # Receipt should be serializable back to JSON
         try:

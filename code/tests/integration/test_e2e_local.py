@@ -145,9 +145,9 @@ class TestE2ELocal:
         try:
             payload = json.loads(result.stdout)
             assert payload.get("status") == "error", "Expected error status for nonexistent processor"
-            assert "ERR_ADAPTER_INVOCATION" in payload.get("error", {}).get(
-                "code", ""
-            ), f"Expected adapter invocation error: {payload}"
+            assert "ERR_ADAPTER_INVOCATION" in payload.get("error", {}).get("code", ""), (
+                f"Expected adapter invocation error: {payload}"
+            )
         except json.JSONDecodeError:
             # If JSON parsing fails, expect non-zero exit code (fallback behavior)
             assert result.returncode != 0
