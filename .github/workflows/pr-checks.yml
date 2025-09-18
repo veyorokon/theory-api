@@ -38,8 +38,8 @@ jobs:
         run: |
           cd code
           set -euo pipefail
-          c=$(pytest --collect-only -q | tail -n1 | awk '{print $1}' || echo 0)
-          echo "collected=$c"
+          c=$(DJANGO_SETTINGS_MODULE=backend.settings.unittest python -m pytest --collect-only -q -m "unit and not integration and not requires_postgres" | wc -l || echo 0)
+          echo "collected=$c tests"
           test "${c:-0}" -gt 0 || (echo "FAIL: no tests collected" && exit 1)
 
       - name: Unit tests (no Docker; skip integration/property)
