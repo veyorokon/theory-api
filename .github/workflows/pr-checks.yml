@@ -34,6 +34,14 @@ jobs:
           ruff check code/
           ruff format --check code/
 
+      - name: Pytest (collect-only guard)
+        run: |
+          cd code
+          set -euo pipefail
+          c=$(DJANGO_SETTINGS_MODULE=backend.settings.unittest python -m pytest --collect-only -q -m "unit and not integration and not requires_postgres" | wc -l || echo 0)
+          echo "collected=$c tests"
+          test "${c:-0}" -gt 0 || (echo "FAIL: no tests collected" && exit 1)
+
       - name: Unit tests (no Docker; skip integration/property)
         run: |
           make test-unit
@@ -43,14 +51,14 @@ jobs:
           BASELINE_COVERAGE: "30"
         run: |
           make test-coverage
-          
+
           # Determine base branch for this PR (default to dev on pushes)
           BASE_BRANCH="${{ github.event.pull_request.base.ref || 'dev' }}"
-          
+
           # 1) Changed-lines gate (strong) - temporarily skip for infrastructure setup
           # diff-cover coverage.xml --compare-branch="origin/${BASE_BRANCH}" --fail-under=85
           echo "Skipping diff-cover for infrastructure PR - will re-enable after basic adapter coverage"
-          
+
           # 2) Baseline gate (project total)
           python - <<'PY'
           import os, xml.etree.ElementTree as ET

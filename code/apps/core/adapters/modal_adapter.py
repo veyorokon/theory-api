@@ -27,7 +27,7 @@ from typing import Any, Dict, List, Tuple
 from django.conf import settings
 
 from .base import RuntimeAdapter  # same base class used by local/mock
-from .envelope import success_envelope, error_envelope  # shared serializers
+from .envelope import success_envelope, error_envelope, write_outputs_index  # shared serializers
 from .modal.naming import modal_app_name_from_ref, modal_fn_name
 
 # Storage & utils (world writes + cid + mime)
@@ -414,15 +414,12 @@ class ModalAdapter(RuntimeAdapter):
                 # Record output entry
                 outputs.append({"path": canon, "cid": cid, "size_bytes": size_bytes, "mime": mime})
 
-        # Sort outputs lexicographically by path
-        outputs.sort(key=lambda o: o["path"])
-
-        # Write index (object-wrapped) with compact separators, UTF-8
+        # Write index with centralized helper
         index_path = f"/artifacts/execution/{execution_id}/outputs.json"
-        index_obj = {"outputs": outputs}
+        index_bytes = write_outputs_index(index_path, outputs)
         storage_service.write_file(
             index_path,
-            json.dumps(index_obj, separators=(",", ":"), ensure_ascii=False).encode("utf-8"),
+            index_bytes,
             mime="application/json",
         )
 

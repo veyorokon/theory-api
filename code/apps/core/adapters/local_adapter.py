@@ -15,7 +15,7 @@ from django.conf import settings
 
 from .base import RuntimeAdapter
 from .ensure_image import ensure_image
-from .envelope import success_envelope, error_envelope
+from .envelope import success_envelope, error_envelope, write_outputs_index
 from apps.core.utils.processor_ref import registry_path
 
 
@@ -296,8 +296,48 @@ class LocalAdapter(RuntimeAdapter):
         """Canonicalize outputs with deterministic ordering and index artifact."""
         from apps.storage.artifact_store import artifact_store
         from apps.core.predicates.builtins import canon_path_facet_root
+        from apps.core.errors import ERR_OUTPUT_DUPLICATE
         import mimetypes
         import json
+        import os
+
+        # Idempotent re-run check as per Twin's spec
+        index_path = f"/artifacts/execution/{execution_id}/outputs.json"
+        if os.path.exists(index_path):
+            try:
+                with open(index_path, encoding="utf-8") as f:
+                    prev = json.loads(f.read())
+
+                # Compute current outputs (canon_paths → expected outputs)
+                files = [p for p in outdir.rglob("*") if p.is_file()]
+                expected_outputs = []
+                for f in files:
+                    rel = f.relative_to(outdir).as_posix()
+                    world_path = canon_path_facet_root(f"{write_prefix}{rel}")
+                    expected_outputs.append(world_path)
+
+                cur = {"outputs": sorted(expected_outputs)}
+                if prev.get("outputs") == cur["outputs"]:
+                    # Exact match - return success envelope using existing index
+                    image_digest = registry_spec.get("image", {}).get("oci") or "local-build"
+                    env_fingerprint = self._compose_env_fingerprint(registry_spec)
+                    return success_envelope(
+                        execution_id=execution_id,
+                        outputs=prev["outputs"],
+                        index_path=index_path,
+                        image_digest=image_digest,
+                        env_fingerprint=env_fingerprint,
+                        duration_ms=0,
+                    )
+                else:
+                    # Conflict with prior outputs
+                    env_fingerprint = self._compose_env_fingerprint(registry_spec)
+                    return error_envelope(
+                        execution_id, ERR_OUTPUT_DUPLICATE, "conflict with prior outputs", env_fingerprint
+                    )
+            except (json.JSONDecodeError, OSError):
+                # Corrupted index file - proceed with normal execution
+                pass
 
         files = [p for p in outdir.rglob("*") if p.is_file()]
         seen = set()
@@ -309,9 +349,11 @@ class LocalAdapter(RuntimeAdapter):
             world_path = canon_path_facet_root(f"{write_prefix}{rel}")
 
             if world_path in seen:
+                from apps.core.errors import ERR_OUTPUT_DUPLICATE
+
                 env_fingerprint = self._compose_env_fingerprint(registry_spec)
                 return error_envelope(
-                    execution_id, "duplicate_target_path", f"Duplicate target path: {world_path}", env_fingerprint
+                    execution_id, ERR_OUTPUT_DUPLICATE, f"Duplicate target path: {world_path}", env_fingerprint
                 )
             seen.add(world_path)
 
@@ -325,12 +367,9 @@ class LocalAdapter(RuntimeAdapter):
 
             entries.append({"path": stored, "cid": cid, "size_bytes": size, "mime": mime})
 
-        # Sort deterministically by path
-        entries.sort(key=lambda e: e["path"])
-
-        # Create index artifact with object wrapper
-        index_bytes = json.dumps({"outputs": entries}, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        # Create index artifact with centralized helper
         index_path = f"/artifacts/execution/{execution_id}/outputs.json"
+        index_bytes = write_outputs_index(index_path, entries)
         artifact_store.put_bytes(index_path, index_bytes, "application/json")
 
         # Use shared envelope serializer

@@ -7,7 +7,7 @@ This is the new foundation-based structure that will replace processor.py.
 import os
 import sys
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Tuple
 from foundation.cli import parse_args
 from foundation.workspace import Workspace
 from foundation.io import load_json, write_json
