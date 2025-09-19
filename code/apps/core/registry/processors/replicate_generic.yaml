@@ -1,0 +1,19 @@
+ref: replicate/generic@1
+runtime:
+  cpu: 1
+  memory: 2Gi
+  gpu: none
+image:
+  # Replace with actual digest once Build & Pin runs
+  oci: ghcr.io/veyorokon/replicate_generic@sha256:pending
+build:
+  context: .
+  dockerfile: apps/core/processors/replicate_generic/Dockerfile
+secrets:
+  required:
+    - REPLICATE_API_TOKEN
+  optional: []
+policy:
+  network: egress   # smoke will override with mock; no real network in CI
+  max_file_mb: 100
+  request_timeout_s: 120

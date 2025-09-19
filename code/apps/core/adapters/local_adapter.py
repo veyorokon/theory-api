@@ -16,6 +16,8 @@ from django.conf import settings
 from .base import RuntimeAdapter
 from .ensure_image import ensure_image
 from .envelope import success_envelope, error_envelope, write_outputs_index
+from libs.runtime_common.fingerprint import compose_env_fingerprint
+from .redaction import redact_msg
 from apps.core.utils.processor_ref import registry_path
 
 
@@ -94,7 +96,7 @@ class LocalAdapter(RuntimeAdapter):
             timeout_s=timeout_s,
             secrets=secrets_present,
             adapter_opts_json=legacy_opts,
-            build=False,
+            build=adapter_opts.get("build", False),
         )
 
     def _invoke_legacy(
@@ -134,9 +136,6 @@ class LocalAdapter(RuntimeAdapter):
         # Load processor registry specification
         registry_spec = self._load_registry_spec(processor_ref)
 
-        # Ensure container image is available
-        image_ref = ensure_image(registry_spec, adapter="local", build=build)
-
         # Parse adapter options
         adapter_opts = {}
         if adapter_opts_json:
@@ -144,6 +143,12 @@ class LocalAdapter(RuntimeAdapter):
                 adapter_opts = json.loads(adapter_opts_json)
             except json.JSONDecodeError:
                 pass
+
+        # Extract build flag from adapter options
+        build_flag = adapter_opts.get("build", build)
+
+        # Ensure container image is available
+        image_ref = ensure_image(registry_spec, adapter="local", build=build_flag)
 
         # Use orchestrator-provided execution_id (never generate/override)
         workdir = self._create_workdir(plan_id, plan_id)
@@ -165,7 +170,7 @@ class LocalAdapter(RuntimeAdapter):
 
             # Build Docker command
             docker_cmd = self._build_docker_command(
-                registry_spec, image_ref, workdir, env_vars, timeout_s, write_prefix
+                registry_spec, image_ref, workdir, env_vars, timeout_s, write_prefix, execution_id
             )
 
             # Execute container
@@ -251,12 +256,27 @@ class LocalAdapter(RuntimeAdapter):
         env_vars: Dict[str, str],
         timeout_s: int | None,
         write_prefix: str,
+        execution_id: str,
     ) -> List[str]:
         """Build Docker run command from registry specification."""
         runtime = registry_spec.get("runtime", {})
         entrypoint = registry_spec.get("entrypoint", {})
 
-        cmd = ["docker", "run", "--rm", "--workdir", "/work", "-v", f"{workdir}:/work:rw"]
+        # Ensure artifacts directory exists and is mounted
+        host_artifacts = os.environ.get("ARTIFACTS_HOST_DIR", os.path.abspath("./artifacts"))
+        os.makedirs(host_artifacts, exist_ok=True)
+
+        cmd = [
+            "docker",
+            "run",
+            "--rm",
+            "--workdir",
+            "/work",
+            "-v",
+            f"{workdir}:/work:rw",
+            "-v",
+            f"{host_artifacts}:/artifacts:rw",
+        ]
 
         # Add resource constraints
         if "cpu" in runtime:
@@ -270,10 +290,22 @@ class LocalAdapter(RuntimeAdapter):
 
         # Add standard environment variables
         cmd.extend(["-e", "THEORY_OUTPUT_DIR=/work/out"])
+        cmd.extend(["-e", "ARTIFACTS_BASE_DIR=/artifacts"])
 
         # Add image and explicit processor command (no ENTRYPOINT in image)
         cmd.append(image_ref)
-        cmd.extend(["python", "/app/main.py", "--inputs", "/work/inputs.json", "--write-prefix", write_prefix])
+        cmd.extend(
+            [
+                "python",
+                "/app/main.py",
+                "--inputs",
+                "/work/inputs.json",
+                "--write-prefix",
+                write_prefix,
+                "--execution-id",
+                execution_id,
+            ]
+        )
 
         return cmd
 
@@ -320,7 +352,7 @@ class LocalAdapter(RuntimeAdapter):
                 if prev.get("outputs") == cur["outputs"]:
                     # Exact match - return success envelope using existing index
                     image_digest = registry_spec.get("image", {}).get("oci") or "local-build"
-                    env_fingerprint = self._compose_env_fingerprint(registry_spec)
+                    env_fingerprint = self._build_env_fingerprint(registry_spec)
                     return success_envelope(
                         execution_id=execution_id,
                         outputs=prev["outputs"],
@@ -331,7 +363,7 @@ class LocalAdapter(RuntimeAdapter):
                     )
                 else:
                     # Conflict with prior outputs
-                    env_fingerprint = self._compose_env_fingerprint(registry_spec)
+                    env_fingerprint = self._build_env_fingerprint(registry_spec)
                     return error_envelope(
                         execution_id, ERR_OUTPUT_DUPLICATE, "conflict with prior outputs", env_fingerprint
                     )
@@ -351,7 +383,7 @@ class LocalAdapter(RuntimeAdapter):
             if world_path in seen:
                 from apps.core.errors import ERR_OUTPUT_DUPLICATE
 
-                env_fingerprint = self._compose_env_fingerprint(registry_spec)
+                env_fingerprint = self._build_env_fingerprint(registry_spec)
                 return error_envelope(
                     execution_id, ERR_OUTPUT_DUPLICATE, f"Duplicate target path: {world_path}", env_fingerprint
                 )
@@ -374,7 +406,7 @@ class LocalAdapter(RuntimeAdapter):
 
         # Use shared envelope serializer
         image_digest = registry_spec.get("image", {}).get("oci") or "local-build"
-        env_fingerprint = self._compose_env_fingerprint(registry_spec)
+        env_fingerprint = self._build_env_fingerprint(registry_spec)
         meta_extra = {"io_bytes": io_bytes}
 
         return success_envelope(execution_id, entries, index_path, image_digest, env_fingerprint, 0, meta_extra)
@@ -385,30 +417,40 @@ class LocalAdapter(RuntimeAdapter):
         """Process failed container execution."""
         error_msg = f"Container failed with exit code {result.returncode}"
         if result.stderr.strip():
-            error_msg += f". STDERR: {result.stderr[:200]}"
+            # Redact sensitive information from stderr
+            stderr_tail = redact_msg(result.stderr[:200])
+            error_msg += f". STDERR: {stderr_tail}"
         if result.stdout.strip():
-            error_msg += f". STDOUT: {result.stdout[:200]}"
+            # Redact sensitive information from stdout
+            stdout_tail = redact_msg(result.stdout[:200])
+            error_msg += f". STDOUT: {stdout_tail}"
 
-        env_fingerprint = self._compose_env_fingerprint(registry_spec)
+        env_fingerprint = self._build_env_fingerprint(registry_spec)
         return error_envelope(execution_id, "container_execution_failed", error_msg, env_fingerprint)
 
-    def _compose_env_fingerprint(self, registry_spec: Dict[str, Any]) -> str:
-        """Compose environment fingerprint from registry specification."""
+    def _build_env_fingerprint(self, registry_spec: Dict[str, Any]) -> str:
+        """Build environment fingerprint using shared function."""
         image = registry_spec.get("image", {})
         runtime = registry_spec.get("runtime", {})
         secrets = registry_spec.get("secrets", {})
 
-        components = []
-        if "oci" in image:
-            components.append(f"image:{image['oci']}")
-        if "cpu" in runtime:
-            components.append(f"cpu:{runtime['cpu']}")
-        if "memory_gb" in runtime:
-            components.append(f"memory:{runtime['memory_gb']}gb")
+        # Build key-value pairs for fingerprint
+        kv = {}
 
-        # Include secret names (not values) in fingerprint
+        # Add image if present
+        if "oci" in image:
+            kv["image"] = image["oci"]
+
+        # Add runtime specs
+        if "cpu" in runtime:
+            kv["cpu"] = str(runtime["cpu"])
+        if "memory_gb" in runtime:
+            kv["memory"] = f"{runtime['memory_gb']}gb"
+
+        # Add sorted secret names (not values)
         secret_names = secrets.get("required", []) + secrets.get("optional", [])
         if secret_names:
-            components.append(f"secrets:{','.join(sorted(secret_names))}")
+            kv["secrets"] = ",".join(sorted(secret_names))
 
-        return "-".join(components) if components else "local-docker"
+        # Use shared function to compose fingerprint
+        return compose_env_fingerprint(**kv) if kv else "local-docker"

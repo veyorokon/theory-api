@@ -12,16 +12,19 @@ RUN apt-get update \
         gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Install only what this processor needs
+# Install processor dependencies
 COPY code/apps/core/processors/llm_litellm/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Copy shared providers library (Django-free)
+# Copy shared runtime libraries (provider-agnostic)
 COPY code/libs/runtime_common /app/libs/runtime_common
 
-# Copy foundation and processor code
-COPY code/apps/core/processors/llm_litellm/foundation /app/foundation
+# Copy integrations (provider-specific)
+COPY code/apps/core/integrations /app/apps/core/integrations
+
+# Copy processor main
 COPY code/apps/core/processors/llm_litellm/main.py /app/main.py
 
-# Contract: read /work/inputs.json; write outputs under /work/out/**
-# No ENTRYPOINT; caller provides command to run main
+# Contract: Universal thin processor pattern
+# --inputs /work/inputs.json --write-prefix /work/out/ --execution-id <id>
+ENTRYPOINT ["python", "main.py"]

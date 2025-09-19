@@ -68,8 +68,8 @@ def build_receipt(
 
 
 def write_dual_receipts(
-    execution_id: str, write_prefix: str, receipt: Dict[str, Any], global_base: str = "/artifacts"
-) -> Dict[str, str]:
+    execution_id: str, write_prefix: str, receipt: Dict[str, Any], global_base: str | None = None
+) -> Dict[str, Any]:
     """
     Write identical receipts to both global and local locations.
 
@@ -77,20 +77,103 @@ def write_dual_receipts(
         execution_id: Unique execution identifier
         write_prefix: Local write prefix (with trailing /)
         receipt: Receipt dictionary to write
-        global_base: Base path for global receipts (for testing)
+        global_base: Base path for global receipts (defaults to env vars or tmp)
 
     Returns:
-        Dictionary with global_path and local_path of written receipts
+        Dictionary with paths and success status for both writes
     """
-    global_path = f"{global_base}/execution/{execution_id}/determinism.json"
+    # Resolve base for global receipts
+    base = global_base or os.getenv("ARTIFACTS_BASE_DIR") or os.path.join(os.getenv("TMPDIR", "/tmp"), "artifacts")
+
+    global_path = f"{base.rstrip('/')}/execution/{execution_id}/determinism.json"
     local_path = f"{write_prefix.rstrip('/')}/receipt.json"
+
+    # Write both; never crash the run if global write fails
+    statuses = {"global_path": global_path, "local_path": local_path, "global_ok": False, "local_ok": False}
 
     # JSON bytes (identical for both locations)
     receipt_bytes = json.dumps(receipt, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
-    # Write to both locations
-    for path in (global_path, local_path):
-        Path(os.path.dirname(path)).mkdir(parents=True, exist_ok=True)
-        Path(path).write_bytes(receipt_bytes)
+    # Write global receipt with error handling
+    try:
+        Path(os.path.dirname(global_path)).mkdir(parents=True, exist_ok=True)
+        Path(global_path).write_bytes(receipt_bytes)
+        statuses["global_ok"] = True
+    except Exception as e:
+        statuses["global_error"] = f"{type(e).__name__}: {e}"
 
-    return {"global_path": global_path, "local_path": local_path}
+    # Write local receipt with error handling
+    try:
+        Path(os.path.dirname(local_path)).mkdir(parents=True, exist_ok=True)
+        Path(local_path).write_bytes(receipt_bytes)
+        statuses["local_ok"] = True
+    except Exception as e:
+        statuses["local_error"] = f"{type(e).__name__}: {e}"
+
+    return statuses
+
+
+def build_processor_receipt(
+    *,
+    execution_id: str,
+    processor_ref: str,
+    schema: str,
+    provider: str,
+    model: str,
+    model_version: str | None,
+    inputs_hash: Dict[str, str],
+    memo_key: str,
+    env_fingerprint: str,
+    image_digest: str,
+    timestamp_utc: str,
+    duration_ms: int,
+    outputs_index_path: str,
+    output_cids: list[str],
+    stderr_tail: str,
+    logs_excerpt: str,
+    warnings: list[str],
+) -> Dict[str, Any]:
+    """
+    Build standardized processor receipt for new processors.
+
+    Args:
+        execution_id: Unique execution identifier
+        processor_ref: Processor reference (e.g., "replicate/generic@1")
+        schema: Input schema version
+        provider: Provider name (e.g., "replicate", "litellm")
+        model: Model name
+        model_version: Model version string
+        inputs_hash: Hash of canonicalized inputs
+        memo_key: Idempotency/memo key
+        env_fingerprint: Environment fingerprint
+        image_digest: Container image digest
+        timestamp_utc: ISO timestamp
+        duration_ms: Execution duration
+        outputs_index_path: Path to outputs.json
+        output_cids: List of output content IDs
+        stderr_tail: Error output tail
+        logs_excerpt: Execution logs excerpt
+        warnings: List of warning messages
+
+    Returns:
+        Complete receipt dictionary
+    """
+    return {
+        "execution_id": execution_id,
+        "processor_ref": processor_ref,
+        "schema": schema,
+        "provider": provider,
+        "model": model,
+        "model_version": model_version,
+        "inputs_hash": inputs_hash,
+        "memo_key": memo_key,
+        "env_fingerprint": env_fingerprint,
+        "image_digest": image_digest,
+        "timestamp_utc": timestamp_utc,
+        "duration_ms": duration_ms,
+        "outputs_index_path": outputs_index_path,
+        "output_cids": output_cids,
+        "stderr_tail": stderr_tail,
+        "logs_excerpt": logs_excerpt,
+        "warnings": warnings,
+    }

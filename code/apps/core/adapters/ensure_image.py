@@ -6,8 +6,22 @@ Provides unified image handling with build support.
 
 from __future__ import annotations
 import os
+import re
 import subprocess
 from typing import Any, Dict
+
+# Regex to validate SHA256 digest format
+_DIGEST_RE = re.compile(r"@sha256:[0-9a-fA-F]{64}$")
+
+
+def is_valid_sha256_digest(ref: str) -> bool:
+    """Check if image reference has a valid SHA256 digest."""
+    return bool(ref and _DIGEST_RE.search(ref))
+
+
+def _is_pinned(ref: str | None) -> bool:
+    """Check if image reference has a valid SHA256 digest."""
+    return is_valid_sha256_digest(ref or "")
 
 
 def ensure_image(proc_spec: Dict[str, Any], *, adapter: str, build: bool = False, force_build: bool = False) -> str:
@@ -40,24 +54,31 @@ def ensure_image(proc_spec: Dict[str, Any], *, adapter: str, build: bool = False
     if adapter != "local":
         # Remote runtimes are digest-only for determinism.
         oci = image_spec.get("oci")
-        if not oci:
+        if not oci or not _is_pinned(oci):
             raise RuntimeError("Remote adapters require a pinned image digest (image.oci).")
         _ensure_image_pulled(oci)
         return oci
 
-    # Local adapter
-    if force_build and build_spec:
-        return _build_local_image(build_spec)
-
-    if build and build_spec:
-        return _build_local_image(build_spec)
-
+    # Local adapter - follow Twin's specified order
     oci = image_spec.get("oci")
-    if oci:
+
+    # 1. If force_build and build_spec: build
+    if force_build and build_spec or build and build_spec:
+        return _build_local_image(build_spec)
+
+    # 3. Elif oci and is_valid_sha256_digest(oci): pull
+    elif oci and is_valid_sha256_digest(oci):
         _ensure_image_pulled(oci)
         return oci
 
-    raise RuntimeError("No usable image reference: provide image.oci or build spec (for local builds).")
+    # 4. Else: raise with clear message
+    else:
+        from apps.core.errors import ERR_IMAGE_UNPINNED
+
+        if oci and not is_valid_sha256_digest(oci):
+            raise RuntimeError(f"{ERR_IMAGE_UNPINNED}: Invalid or pending digest: {oci}")
+        else:
+            raise RuntimeError(f"{ERR_IMAGE_UNPINNED}: No usable image reference and no build spec")
 
 
 def _ensure_image_pulled(image_ref: str) -> None:

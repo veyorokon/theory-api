@@ -113,3 +113,35 @@ def guard_no_duplicates(canon_paths: List[str], execution_id: str) -> Dict[str, 
             )
         seen.add(p)
     return None
+
+
+def write_outputs_index(index_path: str, outputs: List[Dict[str, Any]]) -> bytes:
+    """
+    Write outputs index with sorted paths and canonical wrapper.
+
+    Args:
+        index_path: Path where to write the index
+        outputs: List of output dicts with path, cid, size_bytes, mime
+
+    Returns:
+        JSON bytes that were written
+    """
+    import json
+    import os
+
+    # Sort outputs by path for deterministic ordering
+    sorted_outputs = sorted(outputs, key=lambda x: x.get("path", ""))
+
+    index_data = {"outputs": sorted_outputs}
+
+    # Write with canonical JSON formatting
+    json_bytes = json.dumps(index_data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+    # Ensure directory exists
+    os.makedirs(os.path.dirname(index_path), exist_ok=True)
+
+    # Write to file
+    with open(index_path, "wb") as f:
+        f.write(json_bytes)
+
+    return json_bytes

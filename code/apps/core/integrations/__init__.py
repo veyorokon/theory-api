@@ -1,6 +1,9 @@
 from typing import Any
 
-from .mock import MockLLM
+try:
+    from .litellm_mock import run_llm as mock_run_llm
+except ImportError:
+    mock_run_llm = None
 
 try:
     from .litellm_provider import LiteLLMProvider
@@ -27,7 +30,9 @@ def get_llm_provider(name: str, *, model_default: str = "openai/gpt-4o-mini", ap
         raise ValueError(f"Unknown LLM provider: {name}. Available: {', '.join(available)}")
 
     if name == "mock":
-        return MockLLM()
+        if not mock_run_llm:
+            raise ValueError("Mock LLM runner unavailable")
+        return mock_run_llm  # Return function directly for legacy compatibility
 
     if name == "litellm":
         if not LiteLLMProvider:

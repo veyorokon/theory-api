@@ -39,7 +39,7 @@ from apps.core.utils.env_fingerprint import (
 from apps.core.utils.worldpath import canonicalize_worldpath, ERR_DECODED_SLASH, ERR_DOT_SEGMENTS
 from apps.core.errors import ERR_IMAGE_UNPINNED, ERR_MISSING_SECRET, ERR_OUTPUT_DUPLICATE, ERR_ADAPTER_INVOCATION
 from apps.core.utils.mime import guess_mime  # simple extension->mime helper
-from apps.core.utils.hashing import blake3_cid  # returns "b3:<hex>"
+from libs.runtime_common.hashing import blake3_cid  # returns "b3:<hex>"
 
 # Modal import guarded to keep import-time failures pretty
 try:

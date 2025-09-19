@@ -1,100 +1,118 @@
-"""
-Main entry point for llm_litellm processor.
+"""LiteLLM processor - universal thin pattern."""
 
-This is the new foundation-based structure that will replace processor.py.
-"""
-
+from __future__ import annotations
+import json
 import os
 import sys
+import time
 from pathlib import Path
-from typing import Tuple
-from foundation.cli import parse_args
-from foundation.workspace import Workspace
-from foundation.io import load_json, write_json
-from foundation.progress import log, progress
-from libs.runtime_common.llm_runner import run_llm as run_real
-from libs.runtime_common.mock_runner import run_llm as run_mock
+
+from libs.runtime_common.processor import parse_args, load_inputs_json, ensure_write_prefix
+from libs.runtime_common.hashing import inputs_hash
+from libs.runtime_common.fingerprint import compose_env_fingerprint
+from libs.runtime_common.outputs import write_outputs, write_outputs_index
+from libs.runtime_common.receipts import write_dual_receipts
+from apps.core.integrations.types import ProcessorResult, OutputItem
+from apps.core.integrations.litellm_provider import select_litellm_runner
 
 
-PLACEHOLDER_KEYS = {"", "placeholder", "fake", "test", "dummy", "mock"}
+def process_inputs(inputs: dict) -> ProcessorResult:
+    """Process LLM inputs using LiteLLM provider."""
+    # Select runner (mock vs real decided by provider)
+    ci = (os.getenv("CI") == "true") or (os.getenv("SMOKE") == "true")
+    key = os.getenv("OPENAI_API_KEY", "")
+    runner = select_litellm_runner(ci=ci, token_or_key=key)
+
+    # Execute provider
+    result = runner(inputs)
+
+    # Convert to universal format
+    outputs = []
+
+    # Write text choices
+    choices = result.get("choices", [])
+    for i, choice in enumerate(choices):
+        content = choice.get("message", {}).get("content", "")
+        if content:
+            output = OutputItem(relpath=f"outputs/choice_{i}.txt", bytes_=content.encode("utf-8"))
+            outputs.append(output)
+
+    # Write structured response
+    response_output = OutputItem(
+        relpath="outputs/response.json",
+        bytes_=json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
+    )
+    outputs.append(response_output)
+
+    # Extract usage info
+    usage = {}
+    if "usage" in result:
+        usage_data = result["usage"]
+        usage = {
+            "tokens_input": float(usage_data.get("prompt_tokens", 0)),
+            "tokens_output": float(usage_data.get("completion_tokens", 0)),
+        }
+
+    return ProcessorResult(
+        outputs=outputs,
+        processor_info=f"litellm/{result.get('model', 'unknown')}",
+        usage=usage,
+        extra={"provider": "mock" if ci else "openai"},
+    )
 
 
-def _looks_real_key(val: str | None) -> bool:
-    """Check if an API key looks real (non-empty and not a placeholder)."""
-    v = (val or "").strip()
-    return bool(v) and v.lower() not in PLACEHOLDER_KEYS
+def main() -> int:
+    """Universal thin processor main entry point."""
+    args = parse_args()
+    ensure_write_prefix(args.write_prefix)
+    payload = load_inputs_json(args.inputs)
 
+    # Canonical inputs hash
+    ih = inputs_hash(payload)
 
-def select_provider() -> Tuple[str, str | None]:
-    """
-    Resolve (provider, api_key) with sane safety + CI semantics.
+    # Process inputs
+    t0 = time.time()
+    result = process_inputs(payload)
+    duration_ms = int((time.time() - t0) * 1000)
 
-    Rules:
-    - provider in {"auto","",None}: "openai" if real key, else "mock"
-    - provider == "mock": always mock; warn if a real key is present, but ignore it
-    - provider == "openai": require a real key
-    """
-    provider = (os.getenv("LLM_PROVIDER") or "auto").strip().lower()
-    api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
-    has_real_key = _looks_real_key(api_key)
+    # Write outputs and index
+    abs_paths = write_outputs(args.write_prefix, result.outputs)
+    idx_path = write_outputs_index(execution_id=args.execution_id, write_prefix=args.write_prefix, paths=abs_paths)
 
-    if provider in ("", "auto"):
-        return ("openai", api_key) if has_real_key else ("mock", None)
+    # Environment fingerprint
+    env_fp = compose_env_fingerprint(
+        image=os.getenv("IMAGE_REF", "unknown"), cpu=os.getenv("CPU", "1"), memory=os.getenv("MEMORY", "2Gi")
+    )
 
-    if provider == "mock":
-        if has_real_key:
-            # Don't crash CI; make the choice explicit and safe.
-            print("[llm] LLM_PROVIDER=mock but OPENAI_API_KEY appears set; ignoring key.", file=sys.stderr)
-        return ("mock", None)
-
-    if provider == "openai":
-        if not has_real_key:
-            raise RuntimeError("LLM_PROVIDER=openai requires a non-empty OPENAI_API_KEY")
-        return ("openai", api_key)
-
-    raise RuntimeError(f"Unknown LLM_PROVIDER={provider!r}")
-
-
-def run(ws: Workspace, inputs: dict, write_prefix: str) -> int:
-    """Execute LLM LiteLLM processor."""
-    log("starting llm_litellm processor")
-    progress(0.02, phase="init")
-
-    # Select provider based on environment and safety rules
-    provider, api_key = select_provider()
-    log(f"using provider: {provider}")
-
-    # Execute with selected provider
-    if provider == "mock":
-        result = run_mock(inputs)
-    else:  # "openai"
-        result = run_real(inputs)
-
-    write_json(ws.outputs / "response.json", result)
-    progress(0.85, phase="generate")
-
-    # Write receipt for determinism
+    # Dual receipts
     receipt = {
-        "processor": "llm/litellm@1",
-        "status": "completed",
-        "inputs_fingerprint": str(hash(str(inputs))),
-        "model": result.get("model", "unknown"),
-        "provider": provider,
+        "execution_id": args.execution_id,
+        "processor_ref": os.getenv("PROCESSOR_REF", "llm/litellm@1"),
+        "image_digest": os.getenv("IMAGE_REF", "unknown"),
+        "env_fingerprint": env_fp,
+        "inputs_hash": ih["value"],
+        "hash_schema": ih["hash_schema"],
+        "outputs_index": str(idx_path),
+        "processor_info": result.processor_info,
+        "usage": result.usage,
+        "extra": result.extra,
+        "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "duration_ms": duration_ms,
     }
-    write_json(ws.outputs / "receipt.json", receipt)
+    write_dual_receipts(args.execution_id, args.write_prefix, receipt)
 
-    progress(1.0, phase="finalize")
-    log("llm_litellm processor completed")
+    # Optional CLI response
+    resp_path = Path(args.write_prefix) / "response.json"
+    resp_path.write_text(
+        json.dumps(
+            {"ok": True, "processor_info": result.processor_info, "outputs": [str(p) for p in abs_paths]},
+            separators=(",", ":"),
+        ),
+        encoding="utf-8",
+    )
+
     return 0
 
 
-def main(argv: list[str]) -> int:
-    """Main entry point for processor execution."""
-    args = parse_args(argv)
-    ws = Workspace.setup()
-    inputs = load_json(Path(args.inputs))
-    return run(ws, inputs, args.write_prefix)
-
-
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main())
