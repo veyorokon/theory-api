@@ -76,12 +76,13 @@ skip-magic-trailing-comma = false
 line-ending = "auto"
 
 [tool.deptry]
-# Skip checking these directories (Django dynamic loading)
+# Skip checking these directories (Django dynamic loading + processor containers)
 extend_exclude = [
     "code/apps/*/migrations/*",
     "code/apps/*/tests/*",
     "code/tests/*",
     "code/backend/settings/*",
+    "code/apps/core/processors/*",  # Processor containers have their own requirements.txt
 ]
 
 # Skip these dependencies (dev/runtime/Django framework tools)
@@ -101,6 +102,7 @@ DEP002 = [
     "sphinxcontrib-mermaid", # Sphinx extension
     "furo",                # Sphinx theme
     "requests",            # HTTP library (used in processors)
+    "pytest",              # Test framework
     "pytest-django",       # Test framework plugin
     "pytest-cov",          # Coverage plugin
     "coverage",            # Coverage tool

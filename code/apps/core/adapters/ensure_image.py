@@ -5,10 +5,13 @@ Provides unified image handling with build support.
 """
 
 from __future__ import annotations
+import logging
 import os
 import re
 import subprocess
 from typing import Any, Dict
+
+logger = logging.getLogger(__name__)
 
 # Regex to validate SHA256 digest format
 _DIGEST_RE = re.compile(r"@sha256:[0-9a-fA-F]{64}$")
@@ -59,26 +62,26 @@ def ensure_image(proc_spec: Dict[str, Any], *, adapter: str, build: bool = False
         _ensure_image_pulled(oci)
         return oci
 
-    # Local adapter - follow Twin's specified order
+    # Local adapter - prefer local build decisively when requested
     oci = image_spec.get("oci")
 
-    # 1. If force_build and build_spec: build
-    if force_build and build_spec or build and build_spec:
+    # 1. Local build wins when explicitly requested and build_spec is present
+    if (force_build or build) and build_spec:
         return _build_local_image(build_spec)
 
-    # 3. Elif oci and is_valid_sha256_digest(oci): pull
-    elif oci and is_valid_sha256_digest(oci):
+    # 2. Only accept real pinned digests (not pending)
+    if oci:
+        if not is_valid_sha256_digest(oci) or oci.endswith("@sha256:pending"):
+            from apps.core.errors import ERR_IMAGE_UNPINNED
+
+            raise RuntimeError(f"{ERR_IMAGE_UNPINNED}: Invalid or pending digest; use --build or pin a digest")
         _ensure_image_pulled(oci)
         return oci
 
-    # 4. Else: raise with clear message
-    else:
-        from apps.core.errors import ERR_IMAGE_UNPINNED
+    # 3. No usable image reference
+    from apps.core.errors import ERR_IMAGE_UNPINNED
 
-        if oci and not is_valid_sha256_digest(oci):
-            raise RuntimeError(f"{ERR_IMAGE_UNPINNED}: Invalid or pending digest: {oci}")
-        else:
-            raise RuntimeError(f"{ERR_IMAGE_UNPINNED}: No usable image reference and no build spec")
+    raise RuntimeError(f"{ERR_IMAGE_UNPINNED}: No usable image reference (no build spec and no pinned digest)")
 
 
 def _ensure_image_pulled(image_ref: str) -> None:

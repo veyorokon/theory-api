@@ -1,8 +1,18 @@
 import json
 import mimetypes
 import os
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Mapping
+
+
+@dataclass
+class OutputItem:
+    """Single output artifact from processor execution."""
+
+    relpath: str  # posix relative path under write_prefix (must start with outputs/)
+    bytes_: bytes  # raw bytes content
+    meta: Mapping[str, str] | None = None  # optional metadata
 
 
 def canonicalize_inputs(obj: Dict[str, Any]) -> Dict[str, Any]:
@@ -61,21 +71,22 @@ def write_blob(prefix: str, relpath: str, data: bytes) -> Dict[str, Any]:
     return {"path": full_path, "cid": cid, "size_bytes": size_bytes, "mime": mime_type}
 
 
-def write_outputs(write_prefix: str, output_items) -> List[Path]:
+def write_outputs(write_prefix: str, output_items, *, enforce_outputs_prefix: bool = True) -> List[Path]:
     """
     Write output items to disk and return absolute paths.
 
     Args:
         write_prefix: Base directory for outputs (e.g., "/artifacts/exec123/")
         output_items: List of OutputItem objects
+        enforce_outputs_prefix: Whether to enforce "outputs/" prefix (default True)
 
     Returns:
         List of absolute Path objects where files were written
 
     Raises:
-        ValueError: If any relpath doesn't start with "outputs/"
+        ValueError: If enforce_outputs_prefix=True and any relpath doesn't start with "outputs/"
     """
-    from apps.core.integrations.types import OutputItem
+    # OutputItem is now defined in this module
 
     abs_paths = []
     for item in output_items:
@@ -83,7 +94,7 @@ def write_outputs(write_prefix: str, output_items) -> List[Path]:
             raise TypeError(f"Expected OutputItem, got {type(item)}")
 
         # Enforce outputs/ prefix per Twin's requirement
-        if not item.relpath.startswith("outputs/"):
+        if enforce_outputs_prefix and not item.relpath.startswith("outputs/"):
             raise ValueError(f"OutputItem relpath must start with 'outputs/', got: {item.relpath}")
 
         # Ensure write_prefix ends with /

@@ -68,16 +68,15 @@ class TestEnsureImageLogic:
         assert result == "local-build:tag"
         mock_build.assert_called_once()
 
-    @pytest.mark.integration
     @patch("apps.core.adapters.ensure_image._ensure_image_pulled")
-    def test_valid_digest_is_pulled(self, mock_pull):
-        """Test valid digest is pulled instead of building."""
+    def test_valid_digest_is_pulled_when_no_build(self, mock_pull):
+        """Test valid digest is pulled when build=False."""
         mock_pull.return_value = None
 
         valid_digest = "ghcr.io/user/repo@sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
         proc_spec = {"image": {"oci": valid_digest}, "build": {"context": ".", "dockerfile": "Dockerfile"}}
 
-        result = ensure_image(proc_spec, adapter="local", build=True)
+        result = ensure_image(proc_spec, adapter="local", build=False)
 
         assert result == valid_digest
         mock_pull.assert_called_once_with(valid_digest)

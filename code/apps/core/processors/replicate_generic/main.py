@@ -1,128 +1,135 @@
-"""Replicate processor - universal thin pattern."""
+"""Replicate (generic) processor entrypoint (thin pattern, provider-agnostic).
+
+Contract:
+- No Django imports.
+- Uses shared runtime_common helpers for I/O, hashing, outputs, receipts.
+- Provider surface: make_runner(ProviderConfig) -> callable(inputs: dict) -> ProcessorResult
+"""
 
 from __future__ import annotations
-import json
+
 import os
 import sys
 import time
 from pathlib import Path
+from typing import Any, Dict
 
-from libs.runtime_common.processor import parse_args, load_inputs_json, ensure_write_prefix
+from libs.runtime_common.processor import parse_args, load_inputs, ensure_write_prefix, ProviderConfig
 from libs.runtime_common.hashing import inputs_hash
 from libs.runtime_common.fingerprint import compose_env_fingerprint
 from libs.runtime_common.outputs import write_outputs, write_outputs_index
 from libs.runtime_common.receipts import write_dual_receipts
-from apps.core.integrations.types import ProcessorResult, OutputItem
-from apps.core.integrations.replicate_provider import select_replicate_runner
+
+from .provider import make_runner  # module execution handles this correctly
 
 
-def process_inputs(inputs: dict) -> ProcessorResult:
-    """Process inputs using Replicate provider."""
-    # Select runner (mock vs real decided by provider)
-    ci = (os.getenv("CI") == "true") or (os.getenv("SMOKE") == "true")
-    token = os.getenv("REPLICATE_API_TOKEN", "")
-    runner = select_replicate_runner(ci=ci, token_or_key=token)
+# --- Input normalization (schema v1) -----------------------------------------
 
-    # Execute provider
-    result = runner(inputs)
 
-    # Convert to universal format
-    outputs = []
+def _normalize_inputs_legacy_to_v1(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Accept replicate legacy shapes and normalize to:
+    {
+      "schema": "v1",
+      "model": Optional[str],
+      "params": {...},    # replicate input/params
+      "files": {...},     # optional (urls or world:// refs)
+      "mode": "default|mock|orchestrator"
+    }
+    """
+    if payload.get("schema") == "v1":
+        return payload
 
-    # Handle different output types from Replicate
-    if isinstance(result, dict):
-        # Handle structured output
-        if "output" in result:
-            output_data = result["output"]
-            if isinstance(output_data, str):
-                # Text output
-                output = OutputItem(relpath="outputs/result.txt", bytes_=output_data.encode("utf-8"))
-                outputs.append(output)
-            elif isinstance(output_data, list):
-                # Multiple outputs
-                for i, item in enumerate(output_data):
-                    if isinstance(item, str):
-                        if item.startswith("http"):
-                            # URL - we'd need to download, for now just save URL
-                            output = OutputItem(relpath=f"outputs/url_{i}.txt", bytes_=item.encode("utf-8"))
-                        else:
-                            # Text content
-                            output = OutputItem(relpath=f"outputs/result_{i}.txt", bytes_=item.encode("utf-8"))
-                        outputs.append(output)
-
-        # Always save full response
-        response_output = OutputItem(
-            relpath="outputs/response.json",
-            bytes_=json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
-        )
-        outputs.append(response_output)
-
-    # Extract usage/metrics if available
-    usage = {}
-    if isinstance(result, dict) and "metrics" in result:
-        metrics = result["metrics"]
-        usage = {
-            "predict_time": float(metrics.get("predict_time", 0)),
-            "total_time": float(metrics.get("total_time", 0)),
+    # Replicate legacy could be {"model": "...", "input": {...}} or {"params": {...}}
+    if "input" in payload and "params" not in payload:
+        return {
+            "schema": "v1",
+            "model": payload.get("model"),
+            "params": payload["input"],
+            "files": payload.get("files", {}),
+            "mode": payload.get("mode", "default"),
+        }
+    if "params" in payload:
+        return {
+            "schema": "v1",
+            "model": payload.get("model"),
+            "params": payload["params"],
+            "files": payload.get("files", {}),
+            "mode": payload.get("mode", "default"),
         }
 
-    return ProcessorResult(
-        outputs=outputs,
-        processor_info=f"replicate/{inputs.get('version', 'unknown')}",
-        usage=usage,
-        extra={"provider": "mock" if ci else "replicate"},
+    # Fallback minimal wrapper
+    return {
+        "schema": "v1",
+        "model": payload.get("model"),
+        "params": payload,
+        "files": payload.get("files", {}),
+        "mode": payload.get("mode", "default"),
+    }
+
+
+def _should_mock(mode: str) -> bool:
+    if os.getenv("CI", "").lower() == "true":
+        return True
+    return mode.lower() == "mock"
+
+
+def _env_fingerprint() -> str:
+    return compose_env_fingerprint(
+        image=os.getenv("IMAGE_REF", "unknown"),
+        cpu=os.getenv("CPU", "1"),
+        memory=os.getenv("MEMORY", "2Gi"),
+        py=os.getenv("PYTHON_VERSION", ""),
+        gpu=os.getenv("GPU", "none"),
     )
+
+
+# --- Main --------------------------------------------------------------------
 
 
 def main() -> int:
-    """Universal thin processor main entry point."""
     args = parse_args()
-    ensure_write_prefix(args.write_prefix)
-    payload = load_inputs_json(args.inputs)
+    write_prefix = ensure_write_prefix(args.write_prefix)
+    raw_inputs = load_inputs(args.inputs)
+    inputs_v1 = _normalize_inputs_legacy_to_v1(raw_inputs)
 
-    # Canonical inputs hash
-    ih = inputs_hash(payload)
+    ih = inputs_hash(inputs_v1)
 
-    # Process inputs
-    t0 = time.time()
-    result = process_inputs(payload)
-    duration_ms = int((time.time() - t0) * 1000)
-
-    # Write outputs and index
-    abs_paths = write_outputs(args.write_prefix, result.outputs)
-    idx_path = write_outputs_index(execution_id=args.execution_id, write_prefix=args.write_prefix, paths=abs_paths)
-
-    # Environment fingerprint
-    env_fp = compose_env_fingerprint(
-        image=os.getenv("IMAGE_REF", "unknown"), cpu=os.getenv("CPU", "1"), memory=os.getenv("MEMORY", "2Gi")
+    mode = (inputs_v1.get("mode") or "default").lower()
+    cfg = ProviderConfig(
+        mock=_should_mock(mode),
+        model=inputs_v1.get("model"),
+        extra={},  # free-form metadata to the provider, if needed
     )
 
-    # Dual receipts
+    runner = make_runner(cfg)
+
+    t0 = time.time()
+    result = runner(inputs_v1)
+    duration_ms = int((time.time() - t0) * 1000)
+
+    abs_paths = write_outputs(write_prefix, result.outputs, enforce_outputs_prefix=True)
+    index_path = write_outputs_index(
+        execution_id=args.execution_id,
+        write_prefix=write_prefix,
+        paths=abs_paths,
+    )
+
     receipt = {
         "execution_id": args.execution_id,
         "processor_ref": os.getenv("PROCESSOR_REF", "replicate/generic@1"),
         "image_digest": os.getenv("IMAGE_REF", "unknown"),
-        "env_fingerprint": env_fp,
+        "env_fingerprint": _env_fingerprint(),
         "inputs_hash": ih["value"],
         "hash_schema": ih["hash_schema"],
-        "outputs_index": str(idx_path),
+        "outputs_index": str(index_path),
         "processor_info": result.processor_info,
         "usage": result.usage,
-        "extra": result.extra,
         "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "duration_ms": duration_ms,
+        "extra": result.extra,
     }
-    write_dual_receipts(args.execution_id, args.write_prefix, receipt)
-
-    # Optional CLI response
-    resp_path = Path(args.write_prefix) / "response.json"
-    resp_path.write_text(
-        json.dumps(
-            {"ok": True, "processor_info": result.processor_info, "outputs": [str(p) for p in abs_paths]},
-            separators=(",", ":"),
-        ),
-        encoding="utf-8",
-    )
+    write_dual_receipts(args.execution_id, write_prefix, receipt)
 
     return 0
 

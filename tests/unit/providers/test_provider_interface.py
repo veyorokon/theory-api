@@ -2,9 +2,15 @@
 
 import inspect
 import pytest
+import sys
+from pathlib import Path
 
-from apps.core.integrations import litellm_provider, replicate_provider
-from apps.core.integrations.types import ProviderRunner, ProcessorResult
+# Add processor paths to import from containers
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "code" / "apps" / "core" / "processors"))
+
+from apps.core.integrations.types import ProviderRunner
+from apps.core.processors.replicate_generic.provider import ProcessorResult
+from libs.runtime_common.processor import ProviderConfig
 
 
 pytestmark = pytest.mark.unit
@@ -16,43 +22,45 @@ def _is_callable_runner(obj):
 
 
 class TestProviderInterface:
-    """Test that all providers conform to the universal ProviderRunner interface."""
+    """Test that all providers conform to the universal make_runner interface."""
 
-    def test_all_providers_return_callable_runners(self):
-        """All providers must return callable runners matching ProviderRunner protocol."""
-        providers = [
-            litellm_provider,
-            replicate_provider,
-        ]
+    def test_all_providers_export_make_runner(self):
+        """All providers must export make_runner(config) -> callable."""
+        # Import from processor containers
+        from llm_litellm.provider import make_runner as make_litellm_runner
+        from replicate_generic.provider import make_runner as make_replicate_runner
 
-        for provider_module in providers:
-            # Test with CI mode (mock)
-            runner = (
-                provider_module.select_litellm_runner(ci=True, token_or_key="")
-                if hasattr(provider_module, "select_litellm_runner")
-                else provider_module.select_replicate_runner(ci=True, token_or_key="")
-            )
+        # Test both providers export make_runner
+        for make_runner_func, name in [(make_litellm_runner, "litellm"), (make_replicate_runner, "replicate")]:
+            # Test with mock config
+            config = ProviderConfig(mock=True)
+            runner = make_runner_func(config)
 
-            assert _is_callable_runner(runner), (
-                f"{provider_module.__name__} must return callable(inputs)->ProcessorResult"
-            )
+            assert _is_callable_runner(runner), f"{name} make_runner must return callable(inputs)->ProcessorResult"
 
     def test_provider_runners_return_processor_result(self):
         """All provider runners must return ProcessorResult instances."""
-        # Test LiteLLM
-        llm_runner = litellm_provider.select_litellm_runner(ci=True, token_or_key="")
-        llm_result = llm_runner({"messages": [{"role": "user", "content": "test"}]})
+        from llm_litellm.provider import make_runner as make_litellm_runner
+        from replicate_generic.provider import make_runner as make_replicate_runner
+
+        # Test LiteLLM with v1 inputs
+        config = ProviderConfig(mock=True)
+        llm_runner = make_litellm_runner(config)
+        llm_result = llm_runner({"schema": "v1", "params": {"messages": [{"role": "user", "content": "test"}]}})
         assert isinstance(llm_result, ProcessorResult), "LiteLLM runner must return ProcessorResult"
 
-        # Test Replicate
-        rep_runner = replicate_provider.select_replicate_runner(ci=True, token_or_key="")
-        rep_result = rep_runner({"model": "test/model@1", "params": {"prompt": "test"}})
+        # Test Replicate with v1 inputs
+        rep_runner = make_replicate_runner(config)
+        rep_result = rep_runner({"schema": "v1", "model": "test/model@1", "params": {"prompt": "test"}})
         assert isinstance(rep_result, ProcessorResult), "Replicate runner must return ProcessorResult"
 
     def test_processor_result_has_required_fields(self):
         """ProcessorResult must have all required fields for universal pattern."""
-        runner = litellm_provider.select_litellm_runner(ci=True, token_or_key="")
-        result = runner({"messages": [{"role": "user", "content": "test"}]})
+        from llm_litellm.provider import make_runner as make_litellm_runner
+
+        config = ProviderConfig(mock=True)
+        runner = make_litellm_runner(config)
+        result = runner({"schema": "v1", "params": {"messages": [{"role": "user", "content": "test"}]}})
 
         # Check required fields
         assert hasattr(result, "outputs"), "ProcessorResult must have outputs field"
@@ -68,10 +76,31 @@ class TestProviderInterface:
 
     def test_output_items_have_outputs_prefix(self):
         """All OutputItems must have relpath starting with 'outputs/'."""
-        runner = litellm_provider.select_litellm_runner(ci=True, token_or_key="")
-        result = runner({"messages": [{"role": "user", "content": "test"}]})
+        from llm_litellm.provider import make_runner as make_litellm_runner
+
+        config = ProviderConfig(mock=True)
+        runner = make_litellm_runner(config)
+        result = runner({"schema": "v1", "params": {"messages": [{"role": "user", "content": "test"}]}})
 
         for output in result.outputs:
             assert output.relpath.startswith("outputs/"), (
                 f"OutputItem relpath must start with 'outputs/', got: {output.relpath}"
             )
+
+    def test_v1_inputs_normalization(self):
+        """Test that legacy inputs are normalized to v1 schema."""
+        from libs.runtime_common.processor import validate_and_normalize_v1
+
+        # Test LiteLLM legacy format
+        legacy_llm = {"messages": [{"role": "user", "content": "test"}], "model": "gpt-4"}
+        normalized = validate_and_normalize_v1(legacy_llm)
+        assert normalized["schema"] == "v1"
+        assert normalized["model"] == "gpt-4"
+        assert normalized["params"]["messages"] == legacy_llm["messages"]
+
+        # Test Replicate legacy format
+        legacy_rep = {"model": "test/model", "input": {"prompt": "test"}}
+        normalized = validate_and_normalize_v1(legacy_rep)
+        assert normalized["schema"] == "v1"
+        assert normalized["model"] == "test/model"
+        assert normalized["params"] == {"prompt": "test"}

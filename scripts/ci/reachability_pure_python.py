@@ -22,8 +22,7 @@ from grimp import build_graph
 PURE_PYTHON_ENTRYPOINTS = {
     # Runtime libraries (Django-free)
     "libs.runtime_common.llm_runner",
-    "libs.runtime_common.mock_runner", 
-    
+    "libs.runtime_common.mock_runner",
     # Processor entry points (runtime containers)
     "apps.core.processors.llm_litellm.main",
 }
@@ -34,45 +33,44 @@ PURE_PYTHON_PACKAGES = [
 ]
 
 EXCLUDE_PATTERNS = (
-    ".tests.",      # Test modules
-    "conftest",     # pytest configuration
+    ".tests.",  # Test modules
+    "conftest",  # pytest configuration
 )
 
 
 def main() -> int:
     """Check for basic syntax in pure Python modules."""
     import ast
-    
+
     # Find Python files in pure Python directories
     code_dir = ROOT / "code"
     pure_python_paths = []
-    
+
     # Add libs/runtime_common files
     libs_dir = code_dir / "libs" / "runtime_common"
     if libs_dir.exists():
         pure_python_paths.extend(libs_dir.glob("**/*.py"))
-    
+
     # Add processor files
     processors_dir = code_dir / "apps" / "core" / "processors"
     if processors_dir.exists():
         pure_python_paths.extend(processors_dir.glob("**/*.py"))
-    
+
     # Exclude test files
     pure_python_paths = [
-        path for path in pure_python_paths
-        if not any(pattern in str(path) for pattern in EXCLUDE_PATTERNS)
+        path for path in pure_python_paths if not any(pattern in str(path) for pattern in EXCLUDE_PATTERNS)
     ]
-    
+
     if not pure_python_paths:
         print("⚠️  No pure Python files found to check.")
         return 0
-    
+
     syntax_errors = []
     modules_checked = 0
-    
+
     for py_file in pure_python_paths:
         try:
-            with open(py_file, 'r', encoding='utf-8') as f:
+            with open(py_file, encoding="utf-8") as f:
                 source = f.read()
             # Check basic Python syntax
             ast.parse(source)
@@ -81,7 +79,7 @@ def main() -> int:
             syntax_errors.append((py_file, f"Syntax error: {e}"))
         except Exception as e:
             syntax_errors.append((py_file, f"Parse error: {e}"))
-    
+
     if syntax_errors:
         print("🔍 Pure Python modules with syntax errors:")
         for path, error in syntax_errors:
@@ -89,7 +87,7 @@ def main() -> int:
             print(f"  ❌ {rel_path}: {error}")
         print(f"\n💡 Found {len(syntax_errors)} files with syntax issues.")
         return 1
-    
+
     print(f"✅ All {modules_checked} pure Python modules have valid syntax.")
     print("💡 Pure Python check validates syntax for libs and processors.")
     print("💡 (Import dependency validation skipped due to container isolation)")

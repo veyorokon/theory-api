@@ -5,6 +5,7 @@ Executes processors as isolated Docker containers with standardized I/O.
 """
 
 import json
+import logging
 import os
 import subprocess
 import yaml
@@ -19,6 +20,27 @@ from .envelope import success_envelope, error_envelope, write_outputs_index
 from libs.runtime_common.fingerprint import compose_env_fingerprint
 from .redaction import redact_msg
 from apps.core.utils.processor_ref import registry_path
+
+logger = logging.getLogger(__name__)
+
+
+def _world_to_host_artifacts(host_artifacts: Path, world_path: str) -> Path:
+    """Map world path (/artifacts/...) to host filesystem path."""
+    if not world_path.startswith("/artifacts/"):
+        raise ValueError(f"expected /artifacts/* path, got: {world_path}")
+    rel = world_path[len("/artifacts/") :]
+    return host_artifacts / rel
+
+
+def _extract_paths_from_outputs(outputs: List) -> List[str]:
+    """Extract path strings from output objects or return strings directly."""
+    paths = []
+    for output in outputs:
+        if isinstance(output, dict) and "path" in output:
+            paths.append(output["path"])
+        elif isinstance(output, str):
+            paths.append(output)
+    return paths
 
 
 class LocalAdapter(RuntimeAdapter):
@@ -180,11 +202,18 @@ class LocalAdapter(RuntimeAdapter):
 
             # Process outputs
             if result.returncode == 0:
+                # Get host_artifacts for path mapping
+                host_artifacts = os.environ.get("ARTIFACTS_HOST_DIR", os.path.abspath("./artifacts"))
                 return self._canonicalize_outputs(
-                    outdir=output_dir, write_prefix=write_prefix, registry_spec=registry_spec, execution_id=execution_id
+                    outdir=output_dir,
+                    write_prefix=write_prefix,
+                    registry_spec=registry_spec,
+                    execution_id=execution_id,
+                    image_ref=image_ref,
+                    host_artifacts=host_artifacts,
                 )
             else:
-                return self._process_failure_outputs(result, registry_spec, execution_id)
+                return self._process_failure_outputs(result, registry_spec, execution_id, image_ref=image_ref)
 
         finally:
             # Clean up workdir
@@ -273,7 +302,7 @@ class LocalAdapter(RuntimeAdapter):
             "--workdir",
             "/work",
             "-v",
-            f"{workdir}:/work:rw",
+            f"{workdir}:/tmp/execution:rw",
             "-v",
             f"{host_artifacts}:/artifacts:rw",
         ]
@@ -289,17 +318,16 @@ class LocalAdapter(RuntimeAdapter):
             cmd.extend(["-e", f"{key}={value}"])
 
         # Add standard environment variables
-        cmd.extend(["-e", "THEORY_OUTPUT_DIR=/work/out"])
+        cmd.extend(["-e", "THEORY_OUTPUT_DIR=/tmp/execution/out"])
         cmd.extend(["-e", "ARTIFACTS_BASE_DIR=/artifacts"])
+        cmd.extend(["-e", f"IMAGE_REF={image_ref}"])
 
-        # Add image and explicit processor command (no ENTRYPOINT in image)
+        # Add image and processor arguments (uses container's ENTRYPOINT)
         cmd.append(image_ref)
         cmd.extend(
             [
-                "python",
-                "/app/main.py",
                 "--inputs",
-                "/work/inputs.json",
+                "/tmp/execution/inputs.json",
                 "--write-prefix",
                 write_prefix,
                 "--execution-id",
@@ -307,6 +335,7 @@ class LocalAdapter(RuntimeAdapter):
             ]
         )
 
+        logger.debug("Built Docker command: %s", " ".join(cmd))
         return cmd
 
     def _execute_container(self, docker_cmd: List[str], timeout_s: int) -> subprocess.CompletedProcess:
@@ -323,7 +352,13 @@ class LocalAdapter(RuntimeAdapter):
             return subprocess.CompletedProcess(docker_cmd, 124, "", f"Container execution timed out after {timeout_s}s")
 
     def _canonicalize_outputs(
-        self, outdir: Path, write_prefix: str, registry_spec: Dict[str, Any], execution_id: str
+        self,
+        outdir: Path,
+        write_prefix: str,
+        registry_spec: Dict[str, Any],
+        execution_id: str,
+        image_ref: str,
+        host_artifacts: str = None,
     ) -> Dict[str, Any]:
         """Canonicalize outputs with deterministic ordering and index artifact."""
         from apps.storage.artifact_store import artifact_store
@@ -333,63 +368,102 @@ class LocalAdapter(RuntimeAdapter):
         import json
         import os
 
-        # Idempotent re-run check as per Twin's spec
-        index_path = f"/artifacts/execution/{execution_id}/outputs.json"
-        if os.path.exists(index_path):
+        # Use host_artifacts path mapping instead of scanning unused outdir
+        if host_artifacts is None:
+            host_artifacts = os.environ.get("ARTIFACTS_HOST_DIR", os.path.abspath("./artifacts"))
+
+        host_artifacts_path = Path(host_artifacts)
+
+        # Get world paths for files to process
+        paths: List[str] = []
+
+        # Primary: Check for processor-written global index
+        host_index_global = _world_to_host_artifacts(
+            host_artifacts_path, f"/artifacts/execution/{execution_id}/outputs.json"
+        )
+
+        # Secondary: Check for local index in write_prefix
+        host_index_local = _world_to_host_artifacts(host_artifacts_path, write_prefix) / "outputs.json"
+
+        if host_index_global.exists():
+            # Use processor-authored list (source of truth)
             try:
-                with open(index_path, encoding="utf-8") as f:
-                    prev = json.loads(f.read())
+                data = json.loads(host_index_global.read_text(encoding="utf-8"))
+                paths = _extract_paths_from_outputs(data.get("outputs", []))
+                logger.debug(f"Using processor global index with {len(paths)} outputs")
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"Failed to read global index {host_index_global}: {e}")
+                paths = []
+        elif host_index_local.exists():
+            # Use local index as fallback
+            try:
+                data = json.loads(host_index_local.read_text(encoding="utf-8"))
+                paths = _extract_paths_from_outputs(data.get("outputs", []))
+                logger.debug(f"Using processor local index with {len(paths)} outputs")
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"Failed to read local index {host_index_local}: {e}")
+                paths = []
 
-                # Compute current outputs (canon_paths → expected outputs)
-                files = [p for p in outdir.rglob("*") if p.is_file()]
-                expected_outputs = []
-                for f in files:
-                    rel = f.relative_to(outdir).as_posix()
-                    world_path = canon_path_facet_root(f"{write_prefix}{rel}")
-                    expected_outputs.append(world_path)
+        if not paths:
+            # Fallback: enumerate under the host prefix deterministically
+            host_prefix = _world_to_host_artifacts(host_artifacts_path, write_prefix)
+            outputs_dir = host_prefix / "outputs"
 
-                cur = {"outputs": sorted(expected_outputs)}
-                if prev.get("outputs") == cur["outputs"]:
+            if outputs_dir.exists():
+                files = [p for p in outputs_dir.rglob("*") if p.is_file()]
+                # Convert each host file path back to world paths
+                paths = [f"/artifacts/{p.relative_to(host_artifacts_path).as_posix()}" for p in sorted(files)]
+                logger.debug(f"Fallback scan found {len(paths)} outputs")
+            else:
+                logger.debug(f"No outputs directory found at {outputs_dir}")
+                paths = []
+
+        # Idempotent re-run check
+        index_path = f"/artifacts/execution/{execution_id}/outputs.json"
+        if host_index_global.exists():
+            try:
+                prev_data = json.loads(host_index_global.read_text(encoding="utf-8"))
+                prev_outputs = prev_data.get("outputs", [])
+
+                if sorted(prev_outputs) == sorted(paths):
                     # Exact match - return success envelope using existing index
-                    image_digest = registry_spec.get("image", {}).get("oci") or "local-build"
-                    env_fingerprint = self._build_env_fingerprint(registry_spec)
+                    image_digest = (
+                        image_ref if image_ref else registry_spec.get("image", {}).get("oci") or "local-build"
+                    )
+                    env_fingerprint = self._build_env_fingerprint(registry_spec, image_ref)
                     return success_envelope(
                         execution_id=execution_id,
-                        outputs=prev["outputs"],
+                        outputs=prev_outputs,
                         index_path=index_path,
                         image_digest=image_digest,
                         env_fingerprint=env_fingerprint,
                         duration_ms=0,
                     )
-                else:
-                    # Conflict with prior outputs
-                    env_fingerprint = self._build_env_fingerprint(registry_spec)
-                    return error_envelope(
-                        execution_id, ERR_OUTPUT_DUPLICATE, "conflict with prior outputs", env_fingerprint
-                    )
             except (json.JSONDecodeError, OSError):
                 # Corrupted index file - proceed with normal execution
                 pass
-
-        files = [p for p in outdir.rglob("*") if p.is_file()]
         seen = set()
         entries = []
         io_bytes = 0
 
-        for f in files:
-            rel = f.relative_to(outdir).as_posix()
-            world_path = canon_path_facet_root(f"{write_prefix}{rel}")
+        for world_path in paths:
+            # Map world path to host filesystem path
+            host_path = _world_to_host_artifacts(host_artifacts_path, world_path)
+
+            if not host_path.exists():
+                logger.warning(f"Expected file not found: {host_path} (world: {world_path})")
+                continue
 
             if world_path in seen:
                 from apps.core.errors import ERR_OUTPUT_DUPLICATE
 
-                env_fingerprint = self._build_env_fingerprint(registry_spec)
+                env_fingerprint = self._build_env_fingerprint(registry_spec, image_ref)
                 return error_envelope(
                     execution_id, ERR_OUTPUT_DUPLICATE, f"Duplicate target path: {world_path}", env_fingerprint
                 )
             seen.add(world_path)
 
-            data = f.read_bytes()
+            data = host_path.read_bytes()
             cid = artifact_store.compute_cid(data)
             size = len(data)
             io_bytes += size
@@ -405,14 +479,14 @@ class LocalAdapter(RuntimeAdapter):
         artifact_store.put_bytes(index_path, index_bytes, "application/json")
 
         # Use shared envelope serializer
-        image_digest = registry_spec.get("image", {}).get("oci") or "local-build"
-        env_fingerprint = self._build_env_fingerprint(registry_spec)
+        image_digest = image_ref if image_ref else registry_spec.get("image", {}).get("oci") or "local-build"
+        env_fingerprint = self._build_env_fingerprint(registry_spec, image_ref)
         meta_extra = {"io_bytes": io_bytes}
 
         return success_envelope(execution_id, entries, index_path, image_digest, env_fingerprint, 0, meta_extra)
 
     def _process_failure_outputs(
-        self, result: subprocess.CompletedProcess, registry_spec: Dict[str, Any], execution_id: str
+        self, result: subprocess.CompletedProcess, registry_spec: Dict[str, Any], execution_id: str, image_ref: str
     ) -> Dict[str, Any]:
         """Process failed container execution."""
         error_msg = f"Container failed with exit code {result.returncode}"
@@ -425,10 +499,10 @@ class LocalAdapter(RuntimeAdapter):
             stdout_tail = redact_msg(result.stdout[:200])
             error_msg += f". STDOUT: {stdout_tail}"
 
-        env_fingerprint = self._build_env_fingerprint(registry_spec)
+        env_fingerprint = self._build_env_fingerprint(registry_spec, image_ref)
         return error_envelope(execution_id, "container_execution_failed", error_msg, env_fingerprint)
 
-    def _build_env_fingerprint(self, registry_spec: Dict[str, Any]) -> str:
+    def _build_env_fingerprint(self, registry_spec: Dict[str, Any], image_ref: str = None) -> str:
         """Build environment fingerprint using shared function."""
         image = registry_spec.get("image", {})
         runtime = registry_spec.get("runtime", {})
@@ -437,8 +511,10 @@ class LocalAdapter(RuntimeAdapter):
         # Build key-value pairs for fingerprint
         kv = {}
 
-        # Add image if present
-        if "oci" in image:
+        # Add image - use actual image_ref if provided, otherwise fallback to registry OCI
+        if image_ref:
+            kv["image"] = image_ref
+        elif "oci" in image:
             kv["image"] = image["oci"]
 
         # Add runtime specs

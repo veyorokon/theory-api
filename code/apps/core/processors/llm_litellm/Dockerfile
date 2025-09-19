@@ -1,30 +1,26 @@
 FROM python:3.11-slim
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
 
-WORKDIR /app
-
-# Install system dependencies for building Python packages
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        build-essential \
-        gcc \
+# Minimal OS deps with build tools for Python packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    build-essential \
+    gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Install processor dependencies
-COPY code/apps/core/processors/llm_litellm/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+WORKDIR /work
 
-# Copy shared runtime libraries (provider-agnostic)
-COPY code/libs/runtime_common /app/libs/runtime_common
+# 1) Install Python deps for this processor only
+COPY apps/core/processors/llm_litellm/requirements.txt /work/requirements.txt
+RUN pip install --no-cache-dir -r /work/requirements.txt
 
-# Copy integrations (provider-specific)
-COPY code/apps/core/integrations /app/apps/core/integrations
+# 2) Copy shared runtime libs (no Django)
+COPY libs/runtime_common /work/libs/runtime_common
 
-# Copy processor main
-COPY code/apps/core/processors/llm_litellm/main.py /app/main.py
+# 3) Copy JUST the processor package
+COPY apps/core/processors/llm_litellm /work/apps/core/processors/llm_litellm
 
-# Contract: Universal thin processor pattern
-# --inputs /work/inputs.json --write-prefix /work/out/ --execution-id <id>
-ENTRYPOINT ["python", "main.py"]
+# 4) For module import resolution
+ENV PYTHONPATH=/work
+
+# 5) Standard entrypoint: module form (fixes relative import issues)
+ENTRYPOINT ["python", "-m", "apps.core.processors.llm_litellm.main"]

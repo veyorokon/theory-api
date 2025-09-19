@@ -63,7 +63,7 @@ class TestOutputs:
 
     def test_write_outputs_and_index(self):
         """Test universal outputs writing and index generation."""
-        from apps.core.integrations.types import OutputItem
+        from libs.runtime_common.outputs import OutputItem
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create test output items

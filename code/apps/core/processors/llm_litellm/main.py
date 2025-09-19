@@ -1,115 +1,143 @@
-"""LiteLLM processor - universal thin pattern."""
+"""LiteLLM processor entrypoint (thin pattern, provider-agnostic).
+
+Contract:
+- No Django imports.
+- Uses shared runtime_common helpers for I/O, hashing, outputs, receipts.
+- Provider surface: make_runner(ProviderConfig) -> callable(inputs: dict) -> ProcessorResult
+"""
 
 from __future__ import annotations
-import json
+
 import os
 import sys
 import time
 from pathlib import Path
+from typing import Any, Dict
 
-from libs.runtime_common.processor import parse_args, load_inputs_json, ensure_write_prefix
+from libs.runtime_common.processor import parse_args, load_inputs, ensure_write_prefix, ProviderConfig
 from libs.runtime_common.hashing import inputs_hash
 from libs.runtime_common.fingerprint import compose_env_fingerprint
 from libs.runtime_common.outputs import write_outputs, write_outputs_index
 from libs.runtime_common.receipts import write_dual_receipts
-from apps.core.integrations.types import ProcessorResult, OutputItem
-from apps.core.integrations.litellm_provider import select_litellm_runner
+
+from .provider import make_runner  # module execution handles this correctly
+# If you’ve placed ProcessorResult/OutputItem types centrally, import them here for type checks only:
+# from apps.core.integrations.types import ProcessorResult  # optional, not required at runtime
 
 
-def process_inputs(inputs: dict) -> ProcessorResult:
-    """Process LLM inputs using LiteLLM provider."""
-    # Select runner (mock vs real decided by provider)
-    ci = (os.getenv("CI") == "true") or (os.getenv("SMOKE") == "true")
-    key = os.getenv("OPENAI_API_KEY", "")
-    runner = select_litellm_runner(ci=ci, token_or_key=key)
+# --- Input normalization (schema v1) -----------------------------------------
 
-    # Execute provider
-    result = runner(inputs)
 
-    # Convert to universal format
-    outputs = []
+def _normalize_inputs_legacy_to_v1(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Accept legacy shapes and normalize to:
+    {
+      "schema": "v1",
+      "model": Optional[str],
+      "params": {...},    # processor-specific
+      "files": {...},     # optional
+      "mode": "default|mock|orchestrator"
+    }
+    """
+    if payload.get("schema") == "v1":
+        return payload
 
-    # Write text choices
-    choices = result.get("choices", [])
-    for i, choice in enumerate(choices):
-        content = choice.get("message", {}).get("content", "")
-        if content:
-            output = OutputItem(relpath=f"outputs/choice_{i}.txt", bytes_=content.encode("utf-8"))
-            outputs.append(output)
-
-    # Write structured response
-    response_output = OutputItem(
-        relpath="outputs/response.json",
-        bytes_=json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
-    )
-    outputs.append(response_output)
-
-    # Extract usage info
-    usage = {}
-    if "usage" in result:
-        usage_data = result["usage"]
-        usage = {
-            "tokens_input": float(usage_data.get("prompt_tokens", 0)),
-            "tokens_output": float(usage_data.get("completion_tokens", 0)),
+    # Legacy LiteLLM shape: {"messages":[...]} or {"params":{"messages":[...]}}
+    if "messages" in payload and "params" not in payload:
+        return {
+            "schema": "v1",
+            "model": payload.get("model"),  # optional in legacy
+            "params": {"messages": payload["messages"]},
+            "files": payload.get("files", {}),
+            "mode": payload.get("mode", "default"),
+        }
+    if "params" in payload:
+        return {
+            "schema": "v1",
+            "model": payload.get("model"),
+            "params": payload["params"],
+            "files": payload.get("files", {}),
+            "mode": payload.get("mode", "default"),
         }
 
-    return ProcessorResult(
-        outputs=outputs,
-        processor_info=f"litellm/{result.get('model', 'unknown')}",
-        usage=usage,
-        extra={"provider": "mock" if ci else "openai"},
+    # Fallback minimal wrapper
+    return {
+        "schema": "v1",
+        "model": payload.get("model"),
+        "params": payload,
+        "files": payload.get("files", {}),
+        "mode": payload.get("mode", "default"),
+    }
+
+
+def _should_mock(mode: str) -> bool:
+    # CI should force mock, regardless of secrets presence
+    if os.getenv("CI", "").lower() == "true":
+        return True
+    return mode.lower() == "mock"
+
+
+def _env_fingerprint() -> str:
+    # Keep this cheap, stable, and sorted (keys sorted inside compose_env_fingerprint)
+    return compose_env_fingerprint(
+        image=os.getenv("IMAGE_REF", "unknown"),
+        cpu=os.getenv("CPU", "1"),
+        memory=os.getenv("MEMORY", "2Gi"),
+        py=os.getenv("PYTHON_VERSION", ""),
+        gpu=os.getenv("GPU", "none"),
     )
+
+
+# --- Main --------------------------------------------------------------------
 
 
 def main() -> int:
-    """Universal thin processor main entry point."""
     args = parse_args()
-    ensure_write_prefix(args.write_prefix)
-    payload = load_inputs_json(args.inputs)
+    write_prefix = ensure_write_prefix(args.write_prefix)
+    raw_inputs = load_inputs(args.inputs)
+    inputs_v1 = _normalize_inputs_legacy_to_v1(raw_inputs)
 
-    # Canonical inputs hash
-    ih = inputs_hash(payload)
+    # Canonical inputs hash (JCS + blake3 underneath)
+    ih = inputs_hash(inputs_v1)
 
-    # Process inputs
-    t0 = time.time()
-    result = process_inputs(payload)
-    duration_ms = int((time.time() - t0) * 1000)
-
-    # Write outputs and index
-    abs_paths = write_outputs(args.write_prefix, result.outputs)
-    idx_path = write_outputs_index(execution_id=args.execution_id, write_prefix=args.write_prefix, paths=abs_paths)
-
-    # Environment fingerprint
-    env_fp = compose_env_fingerprint(
-        image=os.getenv("IMAGE_REF", "unknown"), cpu=os.getenv("CPU", "1"), memory=os.getenv("MEMORY", "2Gi")
+    # Select mock vs real runner
+    mode = (inputs_v1.get("mode") or "default").lower()
+    cfg = ProviderConfig(
+        mock=_should_mock(mode),
+        model=inputs_v1.get("model"),
+        extra={},  # free-form metadata to the provider, if needed
     )
 
-    # Dual receipts
+    runner = make_runner(cfg)
+
+    t0 = time.time()
+    result = runner(inputs_v1)  # returns ProcessorResult(outputs=[...], processor_info=..., usage=..., extra=...)
+    duration_ms = int((time.time() - t0) * 1000)
+
+    # Write outputs to disk and build sorted outputs index
+    abs_paths = write_outputs(write_prefix, result.outputs, enforce_outputs_prefix=True)
+    index_path = write_outputs_index(
+        execution_id=args.execution_id,
+        write_prefix=write_prefix,
+        paths=abs_paths,
+    )
+
+    # Determinism receipt (dual write)
     receipt = {
         "execution_id": args.execution_id,
         "processor_ref": os.getenv("PROCESSOR_REF", "llm/litellm@1"),
         "image_digest": os.getenv("IMAGE_REF", "unknown"),
-        "env_fingerprint": env_fp,
+        "env_fingerprint": _env_fingerprint(),
         "inputs_hash": ih["value"],
         "hash_schema": ih["hash_schema"],
-        "outputs_index": str(idx_path),
+        "outputs_index": str(index_path),
         "processor_info": result.processor_info,
         "usage": result.usage,
-        "extra": result.extra,
         "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "duration_ms": duration_ms,
+        "extra": result.extra,
     }
-    write_dual_receipts(args.execution_id, args.write_prefix, receipt)
-
-    # Optional CLI response
-    resp_path = Path(args.write_prefix) / "response.json"
-    resp_path.write_text(
-        json.dumps(
-            {"ok": True, "processor_info": result.processor_info, "outputs": [str(p) for p in abs_paths]},
-            separators=(",", ":"),
-        ),
-        encoding="utf-8",
-    )
+    write_dual_receipts(args.execution_id, write_prefix, receipt)
 
     return 0
 
