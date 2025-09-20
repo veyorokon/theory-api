@@ -38,7 +38,7 @@ jobs:
         run: |
           cd code
           set -euo pipefail
-          c=$(DJANGO_SETTINGS_MODULE=backend.settings.unittest python -m pytest --collect-only -q -m "unit and not integration and not requires_postgres" | wc -l || echo 0)
+          c=$(DJANGO_SETTINGS_MODULE=backend.settings.unittest python -m pytest --collect-only -q -m "unit and not integration and not requires_postgres" | tail -1 | grep -o '^[0-9]*' || echo 0)
           echo "collected=$c tests"
           test "${c:-0}" -gt 0 || (echo "FAIL: no tests collected" && exit 1)
 
