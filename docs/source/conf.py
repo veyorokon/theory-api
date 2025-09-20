@@ -3,13 +3,14 @@ import sys
 from datetime import datetime
 
 # Add project root to path so autodoc can import your Django apps
-sys.path.insert(0, os.path.abspath('../../code'))
-sys.path.insert(0, os.path.abspath('../../code/apps'))
+sys.path.insert(0, os.path.abspath("../../code"))
+sys.path.insert(0, os.path.abspath("../../code/apps"))
 
 # Setup Django
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings.development')
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "backend.settings.development")
 try:
     import django
+
     django.setup()
 except Exception as e:
     print(f"Warning: Django setup failed: {e}")

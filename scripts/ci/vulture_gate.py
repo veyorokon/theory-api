@@ -13,7 +13,7 @@ from pathlib import Path
 ALLOWED_PATTERNS = [
     r"/migrations/",
     r"/admin\.py$",
-    r"/apps\.py$", 
+    r"/apps\.py$",
     r"/wsgi\.py$",
     r"/asgi\.py$",
     r"/management/commands/",
@@ -32,20 +32,16 @@ def main():
     if len(sys.argv) != 2:
         print("Usage: python vulture_gate.py <vulture_report.txt>", file=sys.stderr)
         sys.exit(1)
-        
+
     report_path = Path(sys.argv[1])
-    
+
     if not report_path.exists():
         print(f"Vulture report file not found: {report_path}", file=sys.stderr)
         sys.exit(1)
-        
+
     text = report_path.read_text(encoding="utf-8")
-    violations = [
-        line.strip() 
-        for line in text.splitlines() 
-        if line.strip() and not allowed(line.strip())
-    ]
-    
+    violations = [line.strip() for line in text.splitlines() if line.strip() and not allowed(line.strip())]
+
     if violations:
         print("🔍 Vulture high-confidence findings (filtered):")
         for violation in violations:
@@ -53,7 +49,7 @@ def main():
         print(f"\n💡 Found {len(violations)} potential dead code issues.")
         print("💡 Review these findings or add to vulture_whitelist.py if intentional.")
         sys.exit(1)
-        
+
     print("✅ Vulture: no blocking findings after filtering Django patterns.")
     sys.exit(0)
 

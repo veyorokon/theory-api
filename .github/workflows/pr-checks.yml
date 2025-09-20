@@ -38,9 +38,18 @@ jobs:
         run: |
           cd code
           set -euo pipefail
-          c=$(DJANGO_SETTINGS_MODULE=backend.settings.unittest python -m pytest --collect-only -q -m "unit and not integration and not requires_postgres" | wc -l || echo 0)
-          echo "collected=$c tests"
-          test "${c:-0}" -gt 0 || (echo "FAIL: no tests collected" && exit 1)
+          # Count only collected test node ids (lines containing '::'), ignore summaries/warnings
+          c=$(
+            DJANGO_SETTINGS_MODULE=backend.settings.unittest \
+            python -m pytest -q --collect-only \
+              -m "unit and not integration and not requires_postgres" 2>/dev/null \
+            | grep -E '::' | wc -l | tr -d ' '
+          )
+          echo "collected=${c} tests"
+          if [ "${c:-0}" -le 0 ]; then
+            echo "FAIL: no tests collected"
+            exit 1
+          fi
 
       - name: Unit tests (no Docker; skip integration/property)
         run: |

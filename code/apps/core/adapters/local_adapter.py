@@ -5,6 +5,7 @@ Executes processors as isolated Docker containers with standardized I/O.
 """
 
 import json
+import logging
 import os
 import subprocess
 import yaml
@@ -16,7 +17,30 @@ from django.conf import settings
 from .base import RuntimeAdapter
 from .ensure_image import ensure_image
 from .envelope import success_envelope, error_envelope, write_outputs_index
+from libs.runtime_common.fingerprint import compose_env_fingerprint
+from .redaction import redact_msg
 from apps.core.utils.processor_ref import registry_path
+
+logger = logging.getLogger(__name__)
+
+
+def _world_to_host_artifacts(host_artifacts: Path, world_path: str) -> Path:
+    """Map world path (/artifacts/...) to host filesystem path."""
+    if not world_path.startswith("/artifacts/"):
+        raise ValueError(f"expected /artifacts/* path, got: {world_path}")
+    rel = world_path[len("/artifacts/") :]
+    return host_artifacts / rel
+
+
+def _extract_paths_from_outputs(outputs: List) -> List[str]:
+    """Extract path strings from output objects or return strings directly."""
+    paths = []
+    for output in outputs:
+        if isinstance(output, dict) and "path" in output:
+            paths.append(output["path"])
+        elif isinstance(output, str):
+            paths.append(output)
+    return paths
 
 
 class LocalAdapter(RuntimeAdapter):
@@ -30,6 +54,7 @@ class LocalAdapter(RuntimeAdapter):
         self,
         *,
         processor_ref: str,
+        mode: str = "default",
         inputs_json: Dict[str, Any],
         write_prefix: str,
         execution_id: str,
@@ -42,6 +67,7 @@ class LocalAdapter(RuntimeAdapter):
         """
         return self.invoke_kw(
             processor_ref=processor_ref,
+            mode=mode,
             inputs_json=inputs_json,
             write_prefix=write_prefix,
             execution_id=execution_id,
@@ -54,6 +80,7 @@ class LocalAdapter(RuntimeAdapter):
         self,
         *,
         processor_ref: str,
+        mode: str = "default",
         inputs_json: Dict[str, Any],
         write_prefix: str,
         execution_id: str,
@@ -79,6 +106,16 @@ class LocalAdapter(RuntimeAdapter):
                 env_fingerprint="adapter=local",
             )
 
+        # Handle smoke mode (hermetic execution, no external services)
+        if mode == "smoke":
+            return self._handle_smoke_mode_hermetic(
+                processor_ref=processor_ref,
+                inputs_json=inputs_json,
+                write_prefix=write_prefix,
+                execution_id=execution_id,
+                registry_spec=spec,
+            )
+
         # Call legacy implementation
         legacy_inputs = json.dumps(inputs_json, ensure_ascii=False)
         legacy_opts = json.dumps(adapter_opts, ensure_ascii=False)
@@ -94,7 +131,7 @@ class LocalAdapter(RuntimeAdapter):
             timeout_s=timeout_s,
             secrets=secrets_present,
             adapter_opts_json=legacy_opts,
-            build=False,
+            build=adapter_opts.get("build", False),
         )
 
     def _invoke_legacy(
@@ -134,9 +171,6 @@ class LocalAdapter(RuntimeAdapter):
         # Load processor registry specification
         registry_spec = self._load_registry_spec(processor_ref)
 
-        # Ensure container image is available
-        image_ref = ensure_image(registry_spec, adapter="local", build=build)
-
         # Parse adapter options
         adapter_opts = {}
         if adapter_opts_json:
@@ -144,6 +178,12 @@ class LocalAdapter(RuntimeAdapter):
                 adapter_opts = json.loads(adapter_opts_json)
             except json.JSONDecodeError:
                 pass
+
+        # Extract build flag from adapter options
+        build_flag = adapter_opts.get("build", build)
+
+        # Ensure container image is available
+        image_ref = ensure_image(registry_spec, adapter="local", build=build_flag)
 
         # Use orchestrator-provided execution_id (never generate/override)
         workdir = self._create_workdir(plan_id, plan_id)
@@ -165,7 +205,7 @@ class LocalAdapter(RuntimeAdapter):
 
             # Build Docker command
             docker_cmd = self._build_docker_command(
-                registry_spec, image_ref, workdir, env_vars, timeout_s, write_prefix
+                registry_spec, image_ref, workdir, env_vars, timeout_s, write_prefix, execution_id
             )
 
             # Execute container
@@ -175,11 +215,17 @@ class LocalAdapter(RuntimeAdapter):
 
             # Process outputs
             if result.returncode == 0:
+                # Get host_artifacts for path mapping
+                host_artifacts = os.environ.get("ARTIFACTS_HOST_DIR", os.path.abspath("./artifacts"))
                 return self._canonicalize_outputs(
-                    outdir=output_dir, write_prefix=write_prefix, registry_spec=registry_spec, execution_id=execution_id
+                    write_prefix=write_prefix,
+                    registry_spec=registry_spec,
+                    execution_id=execution_id,
+                    image_ref=image_ref,
+                    host_artifacts=host_artifacts,
                 )
             else:
-                return self._process_failure_outputs(result, registry_spec, execution_id)
+                return self._process_failure_outputs(result, registry_spec, execution_id, image_ref=image_ref)
 
         finally:
             # Clean up workdir
@@ -251,12 +297,27 @@ class LocalAdapter(RuntimeAdapter):
         env_vars: Dict[str, str],
         timeout_s: int | None,
         write_prefix: str,
+        execution_id: str,
     ) -> List[str]:
         """Build Docker run command from registry specification."""
         runtime = registry_spec.get("runtime", {})
         entrypoint = registry_spec.get("entrypoint", {})
 
-        cmd = ["docker", "run", "--rm", "--workdir", "/work", "-v", f"{workdir}:/work:rw"]
+        # Ensure artifacts directory exists and is mounted
+        host_artifacts = os.environ.get("ARTIFACTS_HOST_DIR", os.path.abspath("./artifacts"))
+        os.makedirs(host_artifacts, exist_ok=True)
+
+        cmd = [
+            "docker",
+            "run",
+            "--rm",
+            "--workdir",
+            "/work",
+            "-v",
+            f"{workdir}:/tmp/execution:rw",
+            "-v",
+            f"{host_artifacts}:/artifacts:rw",
+        ]
 
         # Add resource constraints
         if "cpu" in runtime:
@@ -269,12 +330,24 @@ class LocalAdapter(RuntimeAdapter):
             cmd.extend(["-e", f"{key}={value}"])
 
         # Add standard environment variables
-        cmd.extend(["-e", "THEORY_OUTPUT_DIR=/work/out"])
+        cmd.extend(["-e", "THEORY_OUTPUT_DIR=/tmp/execution/out"])
+        cmd.extend(["-e", "ARTIFACTS_BASE_DIR=/artifacts"])
+        cmd.extend(["-e", f"IMAGE_REF={image_ref}"])
 
-        # Add image and explicit processor command (no ENTRYPOINT in image)
+        # Add image and processor arguments (uses container's ENTRYPOINT)
         cmd.append(image_ref)
-        cmd.extend(["python", "/app/main.py", "--inputs", "/work/inputs.json", "--write-prefix", write_prefix])
+        cmd.extend(
+            [
+                "--inputs",
+                "/tmp/execution/inputs.json",
+                "--write-prefix",
+                write_prefix,
+                "--execution-id",
+                execution_id,
+            ]
+        )
 
+        logger.debug("Built Docker command: %s", " ".join(cmd))
         return cmd
 
     def _execute_container(self, docker_cmd: List[str], timeout_s: int) -> subprocess.CompletedProcess:
@@ -291,7 +364,12 @@ class LocalAdapter(RuntimeAdapter):
             return subprocess.CompletedProcess(docker_cmd, 124, "", f"Container execution timed out after {timeout_s}s")
 
     def _canonicalize_outputs(
-        self, outdir: Path, write_prefix: str, registry_spec: Dict[str, Any], execution_id: str
+        self,
+        write_prefix: str,
+        registry_spec: Dict[str, Any],
+        execution_id: str,
+        image_ref: str,
+        host_artifacts: str = None,
     ) -> Dict[str, Any]:
         """Canonicalize outputs with deterministic ordering and index artifact."""
         from apps.storage.artifact_store import artifact_store
@@ -301,63 +379,102 @@ class LocalAdapter(RuntimeAdapter):
         import json
         import os
 
-        # Idempotent re-run check as per Twin's spec
-        index_path = f"/artifacts/execution/{execution_id}/outputs.json"
-        if os.path.exists(index_path):
+        # Use host_artifacts path mapping instead of scanning unused outdir
+        if host_artifacts is None:
+            host_artifacts = os.environ.get("ARTIFACTS_HOST_DIR", os.path.abspath("./artifacts"))
+
+        host_artifacts_path = Path(host_artifacts)
+
+        # Get world paths for files to process
+        paths: List[str] = []
+
+        # Primary: Check for processor-written global index
+        host_index_global = _world_to_host_artifacts(
+            host_artifacts_path, f"/artifacts/execution/{execution_id}/outputs.json"
+        )
+
+        # Secondary: Check for local index in write_prefix
+        host_index_local = _world_to_host_artifacts(host_artifacts_path, write_prefix) / "outputs.json"
+
+        if host_index_global.exists():
+            # Use processor-authored list (source of truth)
             try:
-                with open(index_path, encoding="utf-8") as f:
-                    prev = json.loads(f.read())
+                data = json.loads(host_index_global.read_text(encoding="utf-8"))
+                paths = _extract_paths_from_outputs(data.get("outputs", []))
+                logger.debug(f"Using processor global index with {len(paths)} outputs")
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"Failed to read global index {host_index_global}: {e}")
+                paths = []
+        elif host_index_local.exists():
+            # Use local index as fallback
+            try:
+                data = json.loads(host_index_local.read_text(encoding="utf-8"))
+                paths = _extract_paths_from_outputs(data.get("outputs", []))
+                logger.debug(f"Using processor local index with {len(paths)} outputs")
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"Failed to read local index {host_index_local}: {e}")
+                paths = []
 
-                # Compute current outputs (canon_paths → expected outputs)
-                files = [p for p in outdir.rglob("*") if p.is_file()]
-                expected_outputs = []
-                for f in files:
-                    rel = f.relative_to(outdir).as_posix()
-                    world_path = canon_path_facet_root(f"{write_prefix}{rel}")
-                    expected_outputs.append(world_path)
+        if not paths:
+            # Fallback: enumerate under the host prefix deterministically
+            host_prefix = _world_to_host_artifacts(host_artifacts_path, write_prefix)
+            outputs_dir = host_prefix / "outputs"
 
-                cur = {"outputs": sorted(expected_outputs)}
-                if prev.get("outputs") == cur["outputs"]:
+            if outputs_dir.exists():
+                files = [p for p in outputs_dir.rglob("*") if p.is_file()]
+                # Convert each host file path back to world paths
+                paths = [f"/artifacts/{p.relative_to(host_artifacts_path).as_posix()}" for p in sorted(files)]
+                logger.debug(f"Fallback scan found {len(paths)} outputs")
+            else:
+                logger.debug(f"No outputs directory found at {outputs_dir}")
+                paths = []
+
+        # Idempotent re-run check
+        index_path = f"/artifacts/execution/{execution_id}/outputs.json"
+        if host_index_global.exists():
+            try:
+                prev_data = json.loads(host_index_global.read_text(encoding="utf-8"))
+                prev_outputs = prev_data.get("outputs", [])
+
+                if sorted(prev_outputs) == sorted(paths):
                     # Exact match - return success envelope using existing index
-                    image_digest = registry_spec.get("image", {}).get("oci") or "local-build"
-                    env_fingerprint = self._compose_env_fingerprint(registry_spec)
+                    image_digest = (
+                        image_ref if image_ref else registry_spec.get("image", {}).get("oci") or "local-build"
+                    )
+                    env_fingerprint = self._build_env_fingerprint(registry_spec, image_ref)
                     return success_envelope(
                         execution_id=execution_id,
-                        outputs=prev["outputs"],
+                        outputs=prev_outputs,
                         index_path=index_path,
                         image_digest=image_digest,
                         env_fingerprint=env_fingerprint,
                         duration_ms=0,
                     )
-                else:
-                    # Conflict with prior outputs
-                    env_fingerprint = self._compose_env_fingerprint(registry_spec)
-                    return error_envelope(
-                        execution_id, ERR_OUTPUT_DUPLICATE, "conflict with prior outputs", env_fingerprint
-                    )
             except (json.JSONDecodeError, OSError):
                 # Corrupted index file - proceed with normal execution
                 pass
-
-        files = [p for p in outdir.rglob("*") if p.is_file()]
         seen = set()
         entries = []
         io_bytes = 0
 
-        for f in files:
-            rel = f.relative_to(outdir).as_posix()
-            world_path = canon_path_facet_root(f"{write_prefix}{rel}")
+        for world_path in paths:
+            # Map world path to host filesystem path
+            host_path = _world_to_host_artifacts(host_artifacts_path, world_path)
+
+            if not host_path.exists():
+                logger.warning(f"Expected file not found: {host_path} (world: {world_path})")
+                continue
 
             if world_path in seen:
                 from apps.core.errors import ERR_OUTPUT_DUPLICATE
 
-                env_fingerprint = self._compose_env_fingerprint(registry_spec)
+                env_fingerprint = self._build_env_fingerprint(registry_spec, image_ref)
                 return error_envelope(
                     execution_id, ERR_OUTPUT_DUPLICATE, f"Duplicate target path: {world_path}", env_fingerprint
                 )
             seen.add(world_path)
 
-            data = f.read_bytes()
+            data = host_path.read_bytes()
             cid = artifact_store.compute_cid(data)
             size = len(data)
             io_bytes += size
@@ -373,42 +490,162 @@ class LocalAdapter(RuntimeAdapter):
         artifact_store.put_bytes(index_path, index_bytes, "application/json")
 
         # Use shared envelope serializer
-        image_digest = registry_spec.get("image", {}).get("oci") or "local-build"
-        env_fingerprint = self._compose_env_fingerprint(registry_spec)
+        image_digest = image_ref if image_ref else registry_spec.get("image", {}).get("oci") or "local-build"
+        env_fingerprint = self._build_env_fingerprint(registry_spec, image_ref)
         meta_extra = {"io_bytes": io_bytes}
 
         return success_envelope(execution_id, entries, index_path, image_digest, env_fingerprint, 0, meta_extra)
 
     def _process_failure_outputs(
-        self, result: subprocess.CompletedProcess, registry_spec: Dict[str, Any], execution_id: str
+        self, result: subprocess.CompletedProcess, registry_spec: Dict[str, Any], execution_id: str, image_ref: str
     ) -> Dict[str, Any]:
         """Process failed container execution."""
         error_msg = f"Container failed with exit code {result.returncode}"
         if result.stderr.strip():
-            error_msg += f". STDERR: {result.stderr[:200]}"
+            # Redact sensitive information from stderr
+            stderr_tail = redact_msg(result.stderr[:200])
+            error_msg += f". STDERR: {stderr_tail}"
         if result.stdout.strip():
-            error_msg += f". STDOUT: {result.stdout[:200]}"
+            # Redact sensitive information from stdout
+            stdout_tail = redact_msg(result.stdout[:200])
+            error_msg += f". STDOUT: {stdout_tail}"
 
-        env_fingerprint = self._compose_env_fingerprint(registry_spec)
+        env_fingerprint = self._build_env_fingerprint(registry_spec, image_ref)
         return error_envelope(execution_id, "container_execution_failed", error_msg, env_fingerprint)
 
-    def _compose_env_fingerprint(self, registry_spec: Dict[str, Any]) -> str:
-        """Compose environment fingerprint from registry specification."""
+    def _build_env_fingerprint(self, registry_spec: Dict[str, Any], image_ref: str = None) -> str:
+        """Build environment fingerprint using shared function."""
         image = registry_spec.get("image", {})
         runtime = registry_spec.get("runtime", {})
         secrets = registry_spec.get("secrets", {})
 
-        components = []
-        if "oci" in image:
-            components.append(f"image:{image['oci']}")
-        if "cpu" in runtime:
-            components.append(f"cpu:{runtime['cpu']}")
-        if "memory_gb" in runtime:
-            components.append(f"memory:{runtime['memory_gb']}gb")
+        # Build key-value pairs for fingerprint
+        kv = {}
 
-        # Include secret names (not values) in fingerprint
+        # Add image - use actual image_ref if provided, otherwise fallback to registry OCI
+        if image_ref:
+            kv["image"] = image_ref
+        elif "oci" in image:
+            kv["image"] = image["oci"]
+
+        # Add runtime specs
+        if "cpu" in runtime:
+            kv["cpu"] = str(runtime["cpu"])
+        if "memory_gb" in runtime:
+            kv["memory"] = f"{runtime['memory_gb']}gb"
+
+        # Add sorted secret names (not values)
         secret_names = secrets.get("required", []) + secrets.get("optional", [])
         if secret_names:
-            components.append(f"secrets:{','.join(sorted(secret_names))}")
+            kv["secrets"] = ",".join(sorted(secret_names))
 
-        return "-".join(components) if components else "local-docker"
+        # Use shared function to compose fingerprint
+        return compose_env_fingerprint(**kv) if kv else "local-docker"
+
+    def _handle_smoke_mode_hermetic(
+        self,
+        *,
+        processor_ref: str,
+        inputs_json: Dict[str, Any],
+        write_prefix: str,
+        execution_id: str,
+        registry_spec: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Handle smoke mode execution (hermetic, no external services)."""
+        import json
+        import hashlib
+        import os
+        from pathlib import Path
+
+        # Generate mock outputs based on processor type (filesystem only)
+        mock_outputs = []
+
+        # Create host filesystem path for outputs (no artifact_store)
+        host_artifacts = os.environ.get("ARTIFACTS_HOST_DIR", os.path.abspath("./artifacts"))
+        host_artifacts_path = Path(host_artifacts)
+
+        # Map write_prefix to host path
+        if write_prefix.startswith("/artifacts/"):
+            rel_path = write_prefix[len("/artifacts/") :]
+            output_host_dir = host_artifacts_path / rel_path / "outputs"
+        else:
+            # Fallback - should not happen with valid write_prefix
+            output_host_dir = host_artifacts_path / "smoke" / execution_id / "outputs"
+
+        # Ensure output directory exists
+        output_host_dir.mkdir(parents=True, exist_ok=True)
+
+        if "llm" in processor_ref.lower():
+            # Mock LLM response
+            mock_response = {
+                "choices": [
+                    {
+                        "message": {"role": "assistant", "content": "This is a mock response for testing purposes."},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 15, "total_tokens": 25},
+                "provider": "mock",
+            }
+
+            # Write response to filesystem (no artifact_store)
+            response_bytes = json.dumps(mock_response, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            response_file = output_host_dir / "response.json"
+            response_file.write_bytes(response_bytes)
+
+            # Create mock CID (no artifact_store)
+            mock_cid = "b3:" + hashlib.sha256(response_bytes).hexdigest()
+
+            # World path for envelope
+            response_path = f"{write_prefix}outputs/response.json"
+
+            mock_outputs.append(
+                {"path": response_path, "cid": mock_cid, "size_bytes": len(response_bytes), "mime": "application/json"}
+            )
+
+        elif "replicate" in processor_ref.lower():
+            # Mock Replicate response
+            mock_response = {
+                "status": "succeeded",
+                "output": "This is a mock output for testing purposes.",
+                "provider": "mock",
+            }
+
+            # Write response to filesystem (no artifact_store)
+            response_bytes = json.dumps(mock_response, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            response_file = output_host_dir / "response.json"
+            response_file.write_bytes(response_bytes)
+
+            # Create mock CID (no artifact_store)
+            mock_cid = "b3:" + hashlib.sha256(response_bytes).hexdigest()
+
+            # World path for envelope
+            response_path = f"{write_prefix}outputs/response.json"
+
+            mock_outputs.append(
+                {"path": response_path, "cid": mock_cid, "size_bytes": len(response_bytes), "mime": "application/json"}
+            )
+
+        # Create outputs index on filesystem (no artifact_store)
+        index_path = f"/artifacts/execution/{execution_id}/outputs.json"
+        index_data = {"outputs": mock_outputs}
+        index_bytes = json.dumps(index_data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+        # Write index to host filesystem
+        index_host_path = host_artifacts_path / "execution" / execution_id / "outputs.json"
+        index_host_path.parent.mkdir(parents=True, exist_ok=True)
+        index_host_path.write_bytes(index_bytes)
+
+        # Build environment fingerprint for smoke mode
+        env_fingerprint = f"smoke-mode:adapter=local:processor={processor_ref}"
+
+        # Return success envelope
+        return success_envelope(
+            execution_id=execution_id,
+            outputs=mock_outputs,
+            index_path=index_path,
+            image_digest="smoke-mode",
+            env_fingerprint=env_fingerprint,
+            duration_ms=0,
+            meta_extra={"smoke_mode": True, "io_bytes": sum(o["size_bytes"] for o in mock_outputs)},
+        )

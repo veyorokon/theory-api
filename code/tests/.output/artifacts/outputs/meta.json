@@ -1,7 +1,0 @@
-{
-  "model": "openai/gpt-4o-mini",
-  "tokens_in": 14,
-  "tokens_out": 72,
-  "duration_ms": 2429,
-  "warm_state_used": false
-}

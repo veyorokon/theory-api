@@ -16,7 +16,6 @@ sphinx==7.1.2
 myst-parser==2.0.0
 sphinxcontrib-mermaid==0.9.2
 furo==2024.1.29
-litellm
 requests
 pytest
 pytest-django

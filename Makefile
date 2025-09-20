@@ -32,11 +32,10 @@ test-acceptance:
 
 test-property:
 	@echo "DB ENGINE:" && cd code && DJANGO_SETTINGS_MODULE=backend.settings.unittest python -c "from django.conf import settings; print(settings.DATABASES['default']['ENGINE'])"
-	cd code && DJANGO_SETTINGS_MODULE=backend.settings.unittest python -m pytest -q tests/property
+	cd code && DJANGO_SETTINGS_MODULE=backend.settings.unittest python -m pytest -q ../tests/property
 
 test-all:
-	DJANGO_SETTINGS_MODULE=backend.settings.unittest \
-	pytest -q
+	cd code && DJANGO_SETTINGS_MODULE=backend.settings.unittest pytest -q
 
 # --- Docs as contracts ---
 docs-export:
@@ -92,13 +91,13 @@ test-coverage:
 
 # Static dead-code check with allowlist (to handle dynamic usage)
 deadcode:
-	vulture code code/vulture_whitelist.py --min-confidence 80 --exclude "*/migrations/*,*/tests/*" > vulture_report.txt || true
+	vulture code code/vulture_whitelist.py --min-confidence 80 --exclude "*/migrations/*" > vulture_report.txt || true
 	python scripts/ci/vulture_gate.py vulture_report.txt
 
 # Import graph reachability: fails if a module isn't reachable from entrypoints
 # NOTE: Disabled for Django code due to dynamic loading false positives
 import-graph:
-	cd code && python -m tests.tools.check_import_reachability
+	cd code && python ../tests/tools/check_import_reachability.py
 
 # Import reachability for pure Python modules only (libs, processors)
 import-graph-pure:
@@ -127,7 +126,7 @@ mutmut-reset:
 
 # Run mutation testing (heavy - use sparingly)
 mutmut-run:
-	cd code && mutmut run --paths-to-mutate apps/core/adapters/,apps/core/utils/ --tests-dir tests/ --runner "python -m pytest -x" --max-mutations 20
+	cd code && mutmut run --paths-to-mutate apps/core/adapters/,apps/core/utils/ --tests-dir ../tests/ --runner "python -m pytest -x" --max-mutations 20
 
 # Show mutation testing results
 mutmut-results:

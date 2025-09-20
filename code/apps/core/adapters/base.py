@@ -113,3 +113,6 @@ def guard_no_duplicates(canon_paths: List[str], execution_id: str) -> Dict[str, 
             )
         seen.add(p)
     return None
+
+
+# write_outputs_index moved to envelope.py for single source of truth

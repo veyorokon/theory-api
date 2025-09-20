@@ -12,7 +12,7 @@ from typing import Any, Dict, List
 
 from django.core.management.base import BaseCommand
 
-from libs.runtime_common.core import run_processor_core
+from apps.core.orchestrator import run_processor_core
 from apps.storage.artifact_store import artifact_store
 
 
@@ -24,8 +24,12 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         """Add command-line arguments."""
         parser.add_argument("--ref", required=True, help="Processor reference (e.g., llm/litellm@1)")
+        parser.add_argument("--adapter", choices=["local", "modal"], default="local", help="Execution adapter to use")
         parser.add_argument(
-            "--adapter", choices=["local", "mock", "modal"], default="local", help="Execution adapter to use"
+            "--mode",
+            choices=["default", "smoke"],
+            default="default",
+            help="Execution mode: 'default' (normal), 'smoke' (hermetic, no external services)",
         )
         parser.add_argument("--plan", help="Plan key for budget tracking (creates if not exists)")
         parser.add_argument(
@@ -43,6 +47,7 @@ class Command(BaseCommand):
         )
         parser.add_argument("--save-dir", help="Download all outputs into this directory (mirrors world paths)")
         parser.add_argument("--save-first", help="Download only the first output into this file path")
+        parser.add_argument("--global-receipt-base", default="/artifacts", help="Base path for global receipts")
 
     def materialize_attachments(self, attachments: List[str]) -> Dict[str, Dict[str, Any]]:
         """Materialize attachment files and return mapping."""
@@ -83,8 +88,7 @@ class Command(BaseCommand):
 
             attachment_map[name] = {"$artifact": artifact_path, "cid": cid, "mime": mime_type}
 
-            if not self.options.get("json"):
-                self.stdout.write(f"Materialized {name} -> {artifact_path} ({cid})")
+            # Note: will check json flag in caller context
 
         return attachment_map
 
@@ -103,7 +107,7 @@ class Command(BaseCommand):
             return [self.rewrite_attach_references(item, attachment_map) for item in obj]
         return obj
 
-    def _download_all_outputs(self, outputs: List[Dict[str, Any]], save_dir: str) -> None:
+    def _download_all_outputs(self, outputs: List[Dict[str, Any]], save_dir: str, options: Dict[str, Any]) -> None:
         """Download all outputs to save_dir, mirroring world paths."""
         save_path = Path(save_dir)
         save_path.mkdir(parents=True, exist_ok=True)
@@ -125,12 +129,12 @@ class Command(BaseCommand):
                 content = artifact_store.get_bytes(world_path)
                 with open(local_path, "wb") as f:
                     f.write(content)
-                if not self.options.get("json"):
+                if not options.get("json"):
                     self.stdout.write(f"Downloaded {world_path} -> {local_path}")
             except Exception as e:
                 self.stderr.write(f"Failed to download {world_path}: {e}")
 
-    def _download_first_output(self, outputs: List[Dict[str, Any]], save_path: str) -> None:
+    def _download_first_output(self, outputs: List[Dict[str, Any]], save_path: str, options: Dict[str, Any]) -> None:
         """Download only the first output to save_path."""
         if not outputs or not isinstance(outputs[0], dict) or "path" not in outputs[0]:
             return
@@ -147,13 +151,21 @@ class Command(BaseCommand):
             content = artifact_store.get_bytes(world_path)
             with open(local_path, "wb") as f:
                 f.write(content)
-            if not self.options.get("json"):
+            if not options.get("json"):
                 self.stdout.write(f"Downloaded first output {world_path} -> {local_path}")
         except Exception as e:
             self.stderr.write(f"Failed to download {world_path}: {e}")
 
     def handle(self, *args, **options):
         """Execute the command - calls core function and prints JSON to stdout."""
+
+        # Require {execution_id} in write prefix for collision prevention
+        write_prefix = options["write_prefix"]
+        if "{execution_id}" not in write_prefix:
+            from django.core.management.base import CommandError
+
+            raise CommandError("--write-prefix must include '{execution_id}' to prevent output collisions")
+
         # Parse inputs
         try:
             inputs_json = json.loads(options["inputs_json"])
@@ -165,6 +177,9 @@ class Command(BaseCommand):
         attachment_map = {}
         if options.get("attach"):
             attachment_map = self.materialize_attachments(options["attach"])
+            if not options.get("json"):
+                for name, info in attachment_map.items():
+                    self.stdout.write(f"Materialized {name} -> {info.get('$artifact')} ({info.get('cid')})")
 
         # Rewrite $attach references in inputs
         if attachment_map:
@@ -173,10 +188,16 @@ class Command(BaseCommand):
         # Parse adapter options
         adapter_opts = json.loads(options.get("adapter_opts_json") or "{}")
 
+        # Set global receipt base in environment for processors
+        import os
+
+        os.environ["GLOBAL_RECEIPT_BASE"] = options["global_receipt_base"]
+
         # Call core function
         result = run_processor_core(
             ref=options["ref"],
             adapter=options["adapter"],
+            mode=options["mode"],
             inputs_json=inputs_json,
             write_prefix=options["write_prefix"],
             plan=options.get("plan"),
@@ -188,9 +209,9 @@ class Command(BaseCommand):
         # Download outputs if requested
         if result.get("status") == "success" and result.get("outputs"):
             if options.get("save_dir"):
-                self._download_all_outputs(result["outputs"], options["save_dir"])
+                self._download_all_outputs(result["outputs"], options["save_dir"], options)
             elif options.get("save_first"):
-                self._download_first_output(result["outputs"], options["save_first"])
+                self._download_first_output(result["outputs"], options["save_first"], options)
 
         # Always output JSON (for both success and error)
         self.stdout.write(json.dumps(result, ensure_ascii=False, separators=(",", ":")))

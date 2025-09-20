@@ -33,7 +33,7 @@ MANIFEST
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
-
+vulture_report.txt
 # Unit test / coverage reports
 htmlcov/
 .tox/
@@ -49,7 +49,8 @@ coverage.xml
 .pytest_cache/
 cover/
 .claude/
-
+.output/
+code/artifacts/
 # Test output directories
 **/tests/.output/
 **/.output/
