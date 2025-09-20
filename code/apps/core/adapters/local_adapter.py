@@ -385,6 +385,9 @@ class LocalAdapter(RuntimeAdapter):
 
         host_artifacts_path = Path(host_artifacts)
 
+        # Expand {execution_id} in write_prefix before any path operations
+        expanded_write_prefix = write_prefix.format(execution_id=execution_id)
+
         # Get world paths for files to process
         paths: List[str] = []
 
@@ -393,8 +396,8 @@ class LocalAdapter(RuntimeAdapter):
             host_artifacts_path, f"/artifacts/execution/{execution_id}/outputs.json"
         )
 
-        # Secondary: Check for local index in write_prefix
-        host_index_local = _world_to_host_artifacts(host_artifacts_path, write_prefix) / "outputs.json"
+        # Secondary: Check for local index in expanded write_prefix
+        host_index_local = _world_to_host_artifacts(host_artifacts_path, expanded_write_prefix) / "outputs.json"
 
         if host_index_global.exists():
             # Use processor-authored list (source of truth)
@@ -416,8 +419,8 @@ class LocalAdapter(RuntimeAdapter):
                 paths = []
 
         if not paths:
-            # Fallback: enumerate under the host prefix deterministically
-            host_prefix = _world_to_host_artifacts(host_artifacts_path, write_prefix)
+            # Fallback: enumerate under the host prefix deterministically (use expanded prefix)
+            host_prefix = _world_to_host_artifacts(host_artifacts_path, expanded_write_prefix)
             outputs_dir = host_prefix / "outputs"
 
             if outputs_dir.exists():
@@ -564,9 +567,10 @@ class LocalAdapter(RuntimeAdapter):
         host_artifacts = os.environ.get("ARTIFACTS_HOST_DIR", os.path.abspath("./artifacts"))
         host_artifacts_path = Path(host_artifacts)
 
-        # Map write_prefix to host path
-        if write_prefix.startswith("/artifacts/"):
-            rel_path = write_prefix[len("/artifacts/") :]
+        # Expand {execution_id} in write_prefix and map to host path
+        expanded_write_prefix = write_prefix.format(execution_id=execution_id)
+        if expanded_write_prefix.startswith("/artifacts/"):
+            rel_path = expanded_write_prefix[len("/artifacts/") :]
             output_host_dir = host_artifacts_path / rel_path / "outputs"
         else:
             # Fallback - should not happen with valid write_prefix
@@ -596,8 +600,8 @@ class LocalAdapter(RuntimeAdapter):
             # Create mock CID (no artifact_store)
             mock_cid = "b3:" + hashlib.sha256(response_bytes).hexdigest()
 
-            # World path for envelope
-            response_path = f"{write_prefix}outputs/response.json"
+            # World path for envelope (use expanded prefix)
+            response_path = f"{expanded_write_prefix}outputs/response.json"
 
             mock_outputs.append(
                 {"path": response_path, "cid": mock_cid, "size_bytes": len(response_bytes), "mime": "application/json"}
@@ -619,8 +623,8 @@ class LocalAdapter(RuntimeAdapter):
             # Create mock CID (no artifact_store)
             mock_cid = "b3:" + hashlib.sha256(response_bytes).hexdigest()
 
-            # World path for envelope
-            response_path = f"{write_prefix}outputs/response.json"
+            # World path for envelope (use expanded prefix)
+            response_path = f"{expanded_write_prefix}outputs/response.json"
 
             mock_outputs.append(
                 {"path": response_path, "cid": mock_cid, "size_bytes": len(response_bytes), "mime": "application/json"}

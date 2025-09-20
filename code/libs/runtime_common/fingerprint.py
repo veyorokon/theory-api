@@ -12,9 +12,15 @@ def compose_env_fingerprint(**kv) -> str:
         **kv: Environment key-value pairs
 
     Returns:
-        Semicolon-separated sorted key=value string
+        Semicolon-separated sorted key=value string (special-case image as image:value)
     """
-    items = [f"{k}={v}" for k, v in kv.items() if v not in (None, "")]
+    items = []
+    for k, v in kv.items():
+        if v not in (None, ""):
+            if k == "image":
+                items.append(f"image:{v}")
+            else:
+                items.append(f"{k}={v}")
     return ";".join(sorted(items))
 
 

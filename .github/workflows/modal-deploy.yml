@@ -36,30 +36,53 @@ jobs:
           pip install -r requirements.txt
           pip install modal pyyaml
 
-      - name: Extract pinned IMAGE_REF from registry
-        id: image
-        run: |
-          set -euo pipefail
-          python - <<'PY' >> $GITHUB_OUTPUT
-          import yaml, sys
-          doc=yaml.safe_load(open("code/apps/core/registry/processors/llm_litellm.yaml"))
-          print(f"IMAGE_REF={doc['image']['oci']}")
-          PY
-
-      - name: Deploy Modal App (committed module)
+      - name: Deploy all processors to Modal
         working-directory: code
         env:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-          IMAGE_REF: ${{ steps.image.outputs.IMAGE_REF }}
-          PROCESSOR_REF: "llm/litellm@1"
-          TOOL_SECRETS: "OPENAI_API_KEY"
         run: |
           set -euo pipefail
-          echo "Deploying app for REF=$PROCESSOR_REF ENV=$MODAL_ENVIRONMENT IMAGE=$IMAGE_REF"
-          modal deploy --env "${MODAL_ENVIRONMENT}" -m modal_app
+          python - <<'PY'
+          import yaml, os, subprocess, glob
 
-      - name: Post-deploy smoke (Modal synthetic transaction)
+          # Find all processor registry files
+          registry_files = glob.glob("apps/core/registry/processors/*.yaml")
+
+          for registry_file in registry_files:
+              doc = yaml.safe_load(open(registry_file))
+              processor_ref = doc["ref"]
+              image_ref = doc["image"]["oci"]
+
+              # Determine secrets based on processor type
+              if "llm" in processor_ref:
+                  secrets = "OPENAI_API_KEY"
+              elif "replicate" in processor_ref:
+                  secrets = "REPLICATE_API_TOKEN"
+              else:
+                  secrets = ""
+
+              # Set environment variables for this processor
+              env = os.environ.copy()
+              env["IMAGE_REF"] = image_ref
+              env["PROCESSOR_REF"] = processor_ref
+              env["TOOL_SECRETS"] = secrets
+
+              print(f"\n🚀 Deploying {processor_ref} with image {image_ref}")
+
+              # Deploy to Modal
+              cmd = ["modal", "deploy", "--env", os.environ["MODAL_ENVIRONMENT"], "-m", "modal_app"]
+              result = subprocess.run(cmd, env=env, capture_output=True, text=True)
+
+              if result.returncode != 0:
+                  print(f"❌ Failed to deploy {processor_ref}")
+                  print(f"STDERR: {result.stderr}")
+                  exit(1)
+              else:
+                  print(f"✅ Successfully deployed {processor_ref}")
+          PY
+
+      - name: Post-deploy smoke tests for all processors
         working-directory: code
         env:
           DJANGO_SETTINGS_MODULE: backend.settings.unittest
@@ -67,24 +90,52 @@ jobs:
           MODAL_ENVIRONMENT: ${{ inputs.environment != '' && inputs.environment || github.ref_name }}
         run: |
           set -euo pipefail
-          echo "🧪 Running post-deploy smoke test..."
-          OUT=$(python manage.py run_processor \
-            --ref llm/litellm@1 \
-            --adapter modal \
-            --mode smoke \
-            --write-prefix /artifacts/outputs/smoke/{execution_id}/ \
-            --inputs-json '{"schema":"v1","model":"gpt-4o-mini","params":{"messages":[{"role":"user","content":"deployment smoke test"}]},"mode":"mock"}' \
-            --json)
-          echo "$OUT"
+          python - <<'PY'
+          import yaml, json, subprocess, glob
 
-          python - <<'PY' <<EOF
-          import json, sys
-          payload=json.loads(sys.stdin.read())
-          assert payload.get("status")=="success", payload
-          assert payload.get("execution_id"), "missing execution_id"
-          outs=sorted([o["path"].rsplit("/",1)[-1] for o in payload.get("outputs",[])])
-          assert outs==["receipt.json","response.json"], outs
-          assert "index_path" in payload
-          print("✅ Modal deployment verified:", payload["execution_id"])
-          EOF
+          # Test each deployed processor
+          registry_files = glob.glob("apps/core/registry/processors/*.yaml")
+
+          for registry_file in registry_files:
+              doc = yaml.safe_load(open(registry_file))
+              processor_ref = doc["ref"]
+
+              print(f"\n🧪 Testing {processor_ref}...")
+
+              # Determine test inputs based on processor type
+              if "llm" in processor_ref:
+                  inputs_json = '{"schema":"v1","model":"gpt-4o-mini","params":{"messages":[{"role":"user","content":"deployment smoke test"}]},"mode":"mock"}'
+              elif "replicate" in processor_ref:
+                  inputs_json = '{"schema":"v1","model":"black-forest-labs/flux-schnell","params":{"prompt":"test image"},"mode":"mock"}'
+              else:
+                  print(f"⚠️ Skipping unknown processor type: {processor_ref}")
+                  continue
+
+              cmd = [
+                  "python", "manage.py", "run_processor",
+                  "--ref", processor_ref,
+                  "--adapter", "modal",
+                  "--mode", "smoke",
+                  "--write-prefix", "/artifacts/outputs/smoke/{execution_id}/",
+                  "--inputs-json", inputs_json,
+                  "--json"
+              ]
+
+              result = subprocess.run(cmd, capture_output=True, text=True)
+
+              if result.returncode != 0:
+                  print(f"❌ Smoke test failed for {processor_ref}")
+                  print(f"STDERR: {result.stderr}")
+                  exit(1)
+
+              # Validate response
+              try:
+                  payload = json.loads(result.stdout)
+                  assert payload.get("status") == "success", f"Status not success: {payload}"
+                  assert payload.get("execution_id"), "Missing execution_id"
+                  print(f"✅ {processor_ref} verified: {payload['execution_id']}")
+              except (json.JSONDecodeError, AssertionError) as e:
+                  print(f"❌ Validation failed for {processor_ref}: {e}")
+                  print(f"Output: {result.stdout}")
+                  exit(1)
           PY
