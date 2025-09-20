@@ -110,7 +110,7 @@ jobs:
             # Build & push (single-platform by default; add platforms= if you need multi-arch)
             subprocess.check_call([
               "docker", "buildx", "build",
-              "--platform", os.environ.get("DOCKER_DEFAULT_PLATFORM","linux/amd64"),
+              "--platform", "linux/amd64,linux/arm64",
               "--provenance=false", "--sbom=false",
               "-f", dockerfile,
               "-t", tag_tmp,
