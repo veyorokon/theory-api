@@ -40,11 +40,11 @@ jobs:
         id: image
         run: |
           set -euo pipefail
-          python - <<'PY'
+          python - <<'PY' >> $GITHUB_OUTPUT
           import yaml, sys
           doc=yaml.safe_load(open("code/apps/core/registry/processors/llm_litellm.yaml"))
           print(f"IMAGE_REF={doc['image']['oci']}")
-          PY >> $GITHUB_OUTPUT
+          PY
 
       - name: Deploy Modal App (committed module)
         working-directory: code
@@ -71,6 +71,7 @@ jobs:
           OUT=$(python manage.py run_processor \
             --ref llm/litellm@1 \
             --adapter modal \
+            --mode smoke \
             --write-prefix /artifacts/outputs/smoke/{execution_id}/ \
             --inputs-json '{"schema":"v1","model":"gpt-4o-mini","params":{"messages":[{"role":"user","content":"deployment smoke test"}]},"mode":"mock"}' \
             --json)
