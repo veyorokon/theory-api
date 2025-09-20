@@ -17,10 +17,8 @@ def compose_env_fingerprint(**kv) -> str:
     items = []
     for k, v in kv.items():
         if v not in (None, ""):
-            if k == "image":
-                items.append(f"image:{v}")
-            else:
-                items.append(f"{k}={v}")
+            # Use colon format for all components for consistency
+            items.append(f"{k}:{v}")
     return ";".join(sorted(items))
 
 

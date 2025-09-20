@@ -25,9 +25,7 @@ jobs:
     env:
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       PYTHONUNBUFFERED: "1"
-      REGISTRY_OWNER: ${{ github.repository_owner }}
-      GHCR_IMAGE_PREFIX: ghcr.io/${{ github.repository }}
-      DOCKER_DEFAULT_PLATFORM: linux/amd64,linux/arm64
+      GHCR_IMAGE_PREFIX: ghcr.io/${{ github.repository }}     # repo-scoped (owner/repo)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -43,39 +41,42 @@ jobs:
         run: |
           pip install -U pip wheel pyyaml
 
-      - name: Docker login GHCR
+      - name: Docker login to GHCR
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Enable QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Enable Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Resolve processor matrix
+      - name: Resolve processor matrix from registry
         id: matrix
         run: |
           python - <<'PY'
-          import os, yaml, json, pathlib
-          force = os.environ.get("FORCE", "")
-          requested = os.getenv("INPUT_PROCESSORS", "") or "${{ inputs.processors }}"
-          req = [p.strip() for p in requested.split(",") if p.strip()]
+          import yaml, json, pathlib, os
+          requested = (os.getenv("INPUT_PROCESSORS") or "${{ inputs.processors }}").strip()
+          req = {p.strip() for p in requested.split(",") if p.strip()}
           base = pathlib.Path("code/apps/core/registry/processors")
           items = []
+          # Use registry files as source of truth
           for y in sorted(base.glob("*.yaml")):
-            data = yaml.safe_load(y.read_text())
-            ref = data["ref"]  # e.g. "llm/litellm@1"
+            doc = yaml.safe_load(y.read_text())
+            ref = doc["ref"]                        # e.g. "llm/litellm@1"
             ns, rest = ref.split("/", 1)
             name, ver = rest.split("@", 1)
-            pkg = f"{ns}_{name}"            # e.g. "llm_litellm"
-            proc_dir = f"code/apps/core/processors/{pkg}"
-            dockerfile = f"{proc_dir}/Dockerfile"
+            pkg = f"{ns}_{name}"                    # e.g. "llm_litellm"
             if req and pkg not in req:
               continue
+            proc_dir = f"code/apps/core/processors/{pkg}"
+            dockerfile = f"{proc_dir}/Dockerfile"
             items.append({
               "ref": ref,
               "pkg": pkg,
               "proc_dir": proc_dir,
               "dockerfile": dockerfile,
-              "registry_yaml": f"code/apps/core/registry/processors/{name if ns=='llm' else pkg.replace('_','-')}.yaml"
+              "registry_yaml": str(y)
             })
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
             f.write(f"list={json.dumps(items)}\n")
@@ -87,39 +88,36 @@ jobs:
           echo "::error::No processors resolved for build."
           exit 1
 
-      - name: Build each processor (push to GHCR)
+      - name: Build & push (multi-arch) each processor
         id: builds
+        env:
+          LIST: ${{ steps.matrix.outputs.list }}
+          GHCR_IMAGE_PREFIX: ${{ env.GHCR_IMAGE_PREFIX }}
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json, os, subprocess, hashlib, sys, time, pathlib, yaml
-          procs = json.loads(os.environ["LIST"] or '${{ steps.matrix.outputs.list }}')
-          owner = os.environ["REGISTRY_OWNER"]
+          import json, os, subprocess
+          procs = json.loads(os.environ["LIST"])
           prefix = os.environ["GHCR_IMAGE_PREFIX"]
           digests = []
-
           for p in procs:
             pkg = p["pkg"]
             dockerfile = p["dockerfile"]
-            context = "code"  # <<<<<< build context moved to ./code
-            # Normalize underscores to hyphens for image names
-            image_suffix = pkg.replace("_", "-")
+            context = "code"                        # build context is ./code
+            image_suffix = pkg.replace("_","-")     # ghcr naming (hyphen)
             tag_base = f"{prefix}/{image_suffix}"
-            tag_tmp  = f"{tag_base}:build-${{ github.sha }}"
-            print(f"--- Building {pkg} with context={context}, dockerfile={dockerfile}")
-            # Build & push (single-platform by default; add platforms= if you need multi-arch)
+            tag_tmp  = f"{tag_base}:build-${{ github.run_id }}"
+            print(f"--- Building {pkg} -> {tag_tmp}")
             subprocess.check_call([
-              "docker", "buildx", "build",
-              "--platform", "linux/amd64,linux/arm64",
-              "--provenance=false", "--sbom=false",
+              "docker","buildx","build",
+              "--platform","linux/amd64,linux/arm64",
+              "--provenance=false","--sbom=false",
               "-f", dockerfile,
               "-t", tag_tmp,
               "--push",
               context
             ])
-            # Get digest
-            out = subprocess.check_output(["docker", "buildx", "imagetools", "inspect", tag_tmp])
-            out = out.decode("utf-8", "replace")
+            out = subprocess.check_output(["docker","buildx","imagetools","inspect", tag_tmp], text=True)
             digest = None
             for line in out.splitlines():
               line=line.strip()
@@ -127,47 +125,34 @@ jobs:
                 digest = line.split("Digest:",1)[1].strip()
                 break
             if not digest:
-              print(out)
               raise SystemExit(f"Could not determine digest for {pkg}")
-
             full_ref = f"{tag_base}@{digest}"
-            digests.append({"pkg":pkg, "digest":digest, "full_ref":full_ref, "registry_yaml":p["registry_yaml"]})
-            print(f"✅ Built {pkg} => {full_ref}")
-
-          # write outputs
+            digests.append({"pkg":pkg, "full_ref":full_ref, "registry_yaml":p["registry_yaml"]})
+            print(f"✅ {pkg} => {full_ref}")
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+            import json
             f.write(f"digests={json.dumps(digests)}\n")
           PY
-        env:
-          LIST: ${{ steps.matrix.outputs.list }}
 
       - name: Update registry pins
         id: pin
         run: |
           set -euo pipefail
           python - <<'PY'
-          import os, json, yaml, pathlib, re
-          data = json.loads('${{ steps.builds.outputs.digests }}')
+          import os, json, yaml, pathlib
           changed_any = False
+          data = json.loads('${{ steps.builds.outputs.digests }}')
           for item in data:
             yml = pathlib.Path(item["registry_yaml"])
-            if not yml.exists():
-              # fallback to filename by pkg (common case)
-              yml = pathlib.Path("code/apps/core/registry/processors") / (item["pkg"] + ".yaml")
-              if not yml.exists():
-                print(f"::warning ::Registry yaml not found for {item['pkg']}, skipping")
-                continue
             doc = yaml.safe_load(yml.read_text())
             doc.setdefault("image", {})
-            current_oci = doc["image"].get("oci", "")
-            new_oci = item["full_ref"]
-            if current_oci == new_oci:
-              print(f"No change for {item['pkg']}: {new_oci}")
-              continue
-            doc["image"]["oci"] = new_oci
-            yml.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
-            print(f"Pinned {item['pkg']} => {new_oci} (was: {current_oci})")
-            changed_any = True
+            current = doc["image"].get("oci", "")
+            new = item["full_ref"]
+            if current != new:
+              doc["image"]["oci"] = new
+              yml.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+              print(f"Pinned {doc['ref']} => {new} (was {current or 'unset'})")
+              changed_any = True
           if not changed_any:
             print("No registry changes needed")
           PY
@@ -181,7 +166,7 @@ jobs:
             echo "changed=true" >> $GITHUB_OUTPUT
           fi
 
-      - name: Create Pin PR
+      - name: Create Pin PR (idempotent)
         if: steps.detect.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v6
         with:
@@ -193,4 +178,3 @@ jobs:
             This PR pins processor images to the latest built digests.
             • Workflow: ${{ github.workflow }}  • Run: ${{ github.run_id }}
           labels: ci,automated
-          signoff: false

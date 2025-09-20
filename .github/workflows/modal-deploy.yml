@@ -14,7 +14,7 @@ jobs:
   deploy:
     name: Deploy to Modal
     runs-on: ubuntu-latest
-    # Map git branch to GitHub Environment
+    # Map git branch to GH Environment; main -> prod, else branch name unless overridden
     environment: ${{ inputs.environment != '' && inputs.environment || (github.ref_name == 'main' && 'prod' || github.ref_name) }}
     permissions:
       contents: read
@@ -30,181 +30,148 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Install deps
         run: |
           pip install -U pip wheel
           pip install -r requirements.txt
           pip install modal pyyaml
 
-      - name: Compute required processor secrets
+      - name: Compute required processor secrets (from registry)
         run: |
           python code/ops/list_required_secrets.py > required_secrets.json
           echo "Required secrets: $(cat required_secrets.json)"
 
-      - name: Lint registry secrets vs allow-list
+      - name: Enforce allow-list for secret names
         run: |
           set -euo pipefail
-          REQ=$(python code/ops/list_required_secrets.py)
-          echo "$REQ" | python -c "import json,sys; [print(s) for s in json.load(sys.stdin)]" | while read -r name; do
-            case "$name" in
-              OPENAI_API_KEY|REPLICATE_API_TOKEN) : ;;
-              *) echo "❌ Secret '$name' not in allow-list; add it to the workflow env"; exit 1 ;;
-            esac
-          done
-          echo "✅ Registry secrets conform to allow-list."
+          REQ=$(cat required_secrets.json)
+          echo "$REQ" | python - <<'PY'
+          import sys,json
+          allow = {"OPENAI_API_KEY","REPLICATE_API_TOKEN"}
+          req = json.load(sys.stdin)
+          bad = [s for s in req if s not in allow]
+          if bad:
+            print("❌ Unexpected secret(s) in registry:", ", ".join(bad))
+            sys.exit(1)
+          print("✅ Registry secrets conform to allow-list.")
+          PY
 
-      - name: Sync secrets to Modal
+      - name: Sync secrets to Modal (upsert, same names)
         env:
-          # Modal auth
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-          MODAL_ENVIRONMENT: ${{ inputs.environment != '' && inputs.environment || github.ref_name }}
-
-          # Allow-listed secrets (same names in GH and Modal)
+          MODAL_ENVIRONMENT: ${{ env.MODAL_ENVIRONMENT }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
         run: |
           set -euo pipefail
-          # Log in once
           modal token set --token-id "$MODAL_TOKEN_ID" --token-secret "$MODAL_TOKEN_SECRET" >/dev/null
-          echo "🔐 Syncing secrets to Modal env=${MODAL_ENVIRONMENT}"
-
-          # Build a tiny allow-list map from current env
-          export ALLOW_LIST="OPENAI_API_KEY REPLICATE_API_TOKEN"
-
-          # For each required secret from registry, create/update in Modal if present in allow-list.
+          echo "🔐 Syncing secrets to Modal env=$MODAL_ENVIRONMENT"
           python - <<'PY'
-          import json, os, subprocess, sys
+          import os, json, subprocess, sys
           req = json.load(open("required_secrets.json"))
-
-          allow = {k: os.environ.get(k, "") for k in os.environ.keys()}
-          allowed_names = set(os.environ.get("ALLOW_LIST","OPENAI_API_KEY REPLICATE_API_TOKEN").split())
-
+          values = {k: os.environ.get(k,"") for k in ("OPENAI_API_KEY","REPLICATE_API_TOKEN")}
           missing = []
           for name in req:
-              if name not in allowed_names:
-                  missing.append(name)
-                  continue
-              val = allow.get(name, "")
+              val = values.get(name, "")
               if not val:
-                  print(f"  ⚠️  {name} is empty in GitHub secrets")
+                  print(f"  ⚠️  Missing GitHub secret value: {name}")
                   missing.append(name)
                   continue
-              # Upsert in Modal with the same name/value
-              print(f"  Creating/updating {name}... (length: {len(val)})")
+              print(f"  Creating/updating {name} (len={len(val)})")
               subprocess.run(
-                  ["modal","secret","create", name, f"{name}={val}", "--env", os.environ["MODAL_ENVIRONMENT"], "--force"],
-                  check=True, stdout=subprocess.DEVNULL
+                ["modal","secret","create", name, f"{name}={val}", "--env", os.environ["MODAL_ENVIRONMENT"], "--force"],
+                check=True, stdout=subprocess.DEVNULL
               )
-
           if missing:
-              print("❌ Missing GitHub secret(s) for:", ", ".join(missing))
+              print("❌ Missing GitHub secret value(s):", ", ".join(missing))
               sys.exit(1)
-          else:
-              print("✅ All required secrets present and synced.")
+          print("✅ All required secrets present and synced.")
           PY
 
       - name: Deploy all processors to Modal
         working-directory: code
         env:
-          # Modal auth already set by previous step
-          MODAL_ENVIRONMENT: ${{ inputs.environment != '' && inputs.environment || github.ref_name }}
+          MODAL_ENVIRONMENT: ${{ env.MODAL_ENVIRONMENT }}
         run: |
           set -euo pipefail
           python - <<'PY'
           import yaml, os, subprocess, glob
 
-          # Find all processor registry files
-          registry_files = glob.glob("apps/core/registry/processors/*.yaml")
+          files = sorted(glob.glob("apps/core/registry/processors/*.yaml"))
+          for path in files:
+              doc = yaml.safe_load(open(path))
+              ref = doc["ref"]
+              image = doc["image"]["oci"]
 
-          for registry_file in registry_files:
-              doc = yaml.safe_load(open(registry_file))
-              processor_ref = doc["ref"]
-              image_ref = doc["image"]["oci"]
-
-              # Determine secrets based on processor type
-              if "llm" in processor_ref:
+              # Map secrets to processor families (extend here if needed)
+              if ref.startswith("llm/"):
                   secrets = "OPENAI_API_KEY"
-              elif "replicate" in processor_ref:
+              elif ref.startswith("replicate/"):
                   secrets = "REPLICATE_API_TOKEN"
               else:
                   secrets = ""
 
-              # Set environment variables for this processor
               env = os.environ.copy()
-              env["IMAGE_REF"] = image_ref
-              env["PROCESSOR_REF"] = processor_ref
+              env["IMAGE_REF"] = image
+              env["PROCESSOR_REF"] = ref
               env["TOOL_SECRETS"] = secrets
 
-              print(f"\n🚀 Deploying {processor_ref} with image {image_ref}")
-
-              # Deploy to Modal
-              cmd = ["modal", "deploy", "--env", os.environ["MODAL_ENVIRONMENT"], "-m", "modal_app"]
-              result = subprocess.run(cmd, env=env, capture_output=True, text=True)
-
-              if result.returncode != 0:
-                  print(f"❌ Failed to deploy {processor_ref}")
-                  print(f"STDERR: {result.stderr}")
-                  exit(1)
-              else:
-                  print(f"✅ Successfully deployed {processor_ref}")
+              print(f"\n🚀 Deploying {ref} with image {image}")
+              res = subprocess.run(
+                ["modal","deploy","--env", os.environ["MODAL_ENVIRONMENT"], "-m", "modal_app"],
+                env=env, capture_output=True, text=True
+              )
+              if res.returncode != 0:
+                  print(f"❌ Failed to deploy {ref}\n{res.stderr}")
+                  raise SystemExit(1)
+              print(f"✅ Deployed {ref}")
           PY
 
-      - name: Post-deploy smoke tests for all processors
+      - name: Post-deploy smoke tests (Modal adapter)
         working-directory: code
         env:
           DJANGO_SETTINGS_MODULE: backend.settings.unittest
           MODAL_ENABLED: "true"
-          MODAL_ENVIRONMENT: ${{ inputs.environment != '' && inputs.environment || github.ref_name }}
-          MODAL_ENV: ${{ inputs.environment != '' && inputs.environment || github.ref_name }}
+          MODAL_ENVIRONMENT: ${{ env.MODAL_ENVIRONMENT }}
         run: |
           set -euo pipefail
           python - <<'PY'
           import yaml, json, subprocess, glob
 
-          # Test each deployed processor
-          registry_files = glob.glob("apps/core/registry/processors/*.yaml")
+          files = sorted(glob.glob("apps/core/registry/processors/*.yaml"))
+          for path in files:
+              doc = yaml.safe_load(open(path))
+              ref = doc["ref"]
 
-          for registry_file in registry_files:
-              doc = yaml.safe_load(open(registry_file))
-              processor_ref = doc["ref"]
-
-              print(f"\n🧪 Testing {processor_ref}...")
-
-              # Determine test inputs based on processor type
-              if "llm" in processor_ref:
-                  inputs_json = '{"schema":"v1","model":"gpt-4o-mini","params":{"messages":[{"role":"user","content":"deployment smoke test"}]},"mode":"mock"}'
-              elif "replicate" in processor_ref:
-                  inputs_json = '{"schema":"v1","model":"black-forest-labs/flux-schnell","params":{"prompt":"test image"},"mode":"mock"}'
+              if ref.startswith("llm/"):
+                  inputs = '{"schema":"v1","model":"gpt-4o-mini","params":{"messages":[{"role":"user","content":"deployment smoke test"}]},"mode":"mock"}'
+              elif ref.startswith("replicate/"):
+                  inputs = '{"schema":"v1","model":"black-forest-labs/flux-schnell","params":{"prompt":"test image"},"mode":"mock"}'
               else:
-                  print(f"⚠️ Skipping unknown processor type: {processor_ref}")
+                  print(f"⚠️ Skipping unknown processor type: {ref}")
                   continue
 
+              print(f"\n🧪 Smoke: {ref}")
               cmd = [
-                  "python", "manage.py", "run_processor",
-                  "--ref", processor_ref,
-                  "--adapter", "modal",
-                  "--mode", "smoke",
-                  "--write-prefix", "/artifacts/outputs/smoke/{execution_id}/",
-                  "--inputs-json", inputs_json,
-                  "--json"
+                "python","manage.py","run_processor",
+                "--ref", ref,
+                "--adapter", "modal",
+                "--mode", "smoke",
+                "--write-prefix", "/artifacts/outputs/smoke/{execution_id}/",
+                "--inputs-json", inputs,
+                "--json"
               ]
-
-              result = subprocess.run(cmd, capture_output=True, text=True)
-
-              if result.returncode != 0:
-                  print(f"❌ Smoke test failed for {processor_ref}")
-                  print(f"STDERR: {result.stderr}")
-                  exit(1)
-
-              # Validate response
+              res = subprocess.run(cmd, capture_output=True, text=True)
+              if res.returncode != 0:
+                  print(f"❌ Smoke failed for {ref}\n{res.stderr}")
+                  raise SystemExit(1)
               try:
-                  payload = json.loads(result.stdout)
-                  assert payload.get("status") == "success", f"Status not success: {payload}"
-                  assert payload.get("execution_id"), "Missing execution_id"
-                  print(f"✅ {processor_ref} verified: {payload['execution_id']}")
-              except (json.JSONDecodeError, AssertionError) as e:
-                  print(f"❌ Validation failed for {processor_ref}: {e}")
-                  print(f"Output: {result.stdout}")
-                  exit(1)
+                  payload = json.loads(res.stdout)
+                  assert payload.get("status") == "success", payload
+                  assert payload.get("execution_id")
+                  print(f"✅ {ref} ok: {payload['execution_id']}")
+              except Exception as e:
+                  print(f"❌ Validation failed for {ref}: {e}\nOutput: {res.stdout}")
+                  raise SystemExit(1)
           PY
