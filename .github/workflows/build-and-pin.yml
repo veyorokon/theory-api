@@ -26,7 +26,7 @@ jobs:
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       PYTHONUNBUFFERED: "1"
       REGISTRY_OWNER: ${{ github.repository_owner }}
-      GHCR_IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}
+      GHCR_IMAGE_PREFIX: ghcr.io/${{ github.repository }}
       DOCKER_DEFAULT_PLATFORM: linux/amd64
     steps:
       - uses: actions/checkout@v4

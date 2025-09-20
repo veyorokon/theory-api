@@ -237,7 +237,7 @@ runtime:
   gpu: {GPU}
 image:
   # Pin with Build & Pin workflow; placeholder prevents accidental pulls
-  oci: ghcr.io/{OWNER}/{PKG}@sha256:pending
+  oci: ghcr.io/{OWNER}/theory-api/{PKG}@sha256:pending
 secrets:
   required:{SECRETS_BLOCK}
 policy:

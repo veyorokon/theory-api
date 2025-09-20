@@ -5,7 +5,7 @@ runtime:
   gpu: none
 image:
   # Replace with actual digest once Build & Pin runs
-  oci: ghcr.io/veyorokon/replicate_generic@sha256:pending
+  oci: ghcr.io/veyorokon/theory-api/replicate-generic@sha256:pending
 build:
   context: .
   dockerfile: apps/core/processors/replicate_generic/Dockerfile
