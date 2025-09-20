@@ -17,10 +17,9 @@ python manage.py run_processor \
   --json
 ```
 
-### Parameters
-
 - `--ref` (required): Processor reference in format `{namespace}/{name}@{version}` (e.g., `llm/litellm@1`)
-- `--adapter` (required): Adapter to use (`local`, `mock`, or `modal`)  
+- `--adapter` (required): Adapter to use (`local` or `modal`)
+- `--mode` (optional): Execution mode (`default` or `smoke`); smoke mode stays hermetic and skips Docker networks/artifact store
 - `--write-prefix` (required): WorldPath prefix for outputs (must end with `/`)
 - `--inputs-json` (required): JSON string containing processor inputs
 - `--adapter-opts-json` (optional): JSON string with adapter-specific options
@@ -37,7 +36,7 @@ python manage.py run_processor \
 ```json
 {
   "status": "success",
-  "execution_id": "E123", 
+  "execution_id": "E123",
   "outputs": [
     {
       "path": "/artifacts/outputs/text/response.txt",
@@ -67,10 +66,9 @@ python manage.py run_processor \
 --adapter-opts-json '{"timeout_s": 120}'
 ```
 
-**Mock adapter:**
-```bash
---adapter-opts-json '{"outputs": [{"path": "mock.txt", "content": "Hello"}]}'
-```
+### Smoke Mode
+
+Smoke mode replaces the legacy mock adapter. Provide `--mode smoke` (or include `{"mode":"smoke"}` in the inputs) to force deterministic mock outputs without requiring Docker, MinIO, or provider credentials. This is the mode the smoke tests and acceptance suite rely on.
 
 ### Examples
 
@@ -94,14 +92,15 @@ python manage.py run_processor \
   --json
 ```
 
-**Mock execution for testing:**
+**Smoke execution for testing:**
 ```bash
 python manage.py run_processor \
   --ref llm/litellm@1 \
-  --adapter mock \
+  --adapter local \
+  --mode smoke \
   --write-prefix /artifacts/outputs/text/ \
   --inputs-json '{"messages":[{"role":"user","content":"Test"}]}' \
-  --adapter-opts-json '{"outputs": [{"path": "response.txt", "content": "Mock response"}]}'
+  --json
 ```
 
 ## sync_modal

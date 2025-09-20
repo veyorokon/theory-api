@@ -6,16 +6,19 @@ Testing strategy and conventions for Theory API with multiple test types and dat
 
 ### Pytest Configuration
 
-```ini
-[pytest]
-DJANGO_SETTINGS_MODULE = backend.settings.unittest
-pythonpath = .
-testpaths = code
-markers =
-    unit: Fast tests with minimal dependencies
-    integration: Slower tests with external services
-    requires_postgres: Tests requiring PostgreSQL database
-    ledger_acceptance: End-to-end ledger acceptance tests
+Markers and collection live in `pyproject.toml`:
+
+```toml
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks tests as integration tests",
+    "property: marks tests as property-based tests using Hypothesis",
+    "unit: marks tests as unit tests",
+    "requires_postgres: marks tests that require PostgreSQL",
+    "requires_docker: marks tests that require Docker runtime",
+    "slow: marks tests as slow"
+]
+testpaths = ["tests", "code/tests"]
 ```
 
 ### Test Categories
@@ -59,10 +62,9 @@ def pytest_runtest_setup(item):
     if "requires_postgres" in item.keywords:
         if os.getenv("DJANGO_SETTINGS_MODULE") != "backend.settings.test":
             pytest.skip("requires Postgres settings", allow_module_level=False)
-    
-    if "integration" in item.keywords:
-        if not os.getenv("ENABLE_INTEGRATION_TESTS"):
-            pytest.skip("integration tests disabled", allow_module_level=False)
+
+    if "requires_docker" in item.keywords and not os.getenv("ENABLE_DOCKER_TESTS"):
+        pytest.skip("docker tests disabled", allow_module_level=False)
 ```
 
 ### Django Settings Matrix
@@ -122,30 +124,29 @@ make test-property
 
 ### Envelope Parity
 
-Test that all adapters return consistent envelope formats:
+Test that adapters return consistent envelope formats across modes:
 
 ```python
 @pytest.mark.unit
 def test_adapter_envelope_parity():
-    """All adapters return same envelope structure."""
-    adapters = [LocalAdapter(), MockAdapter(), ModalAdapter()]
-    
-    for adapter in adapters:
+    adapters = [
+        (LocalAdapter(), {"schema": "v1", "params": {"messages": [{"role": "user", "content": "test"}]}, "mode": "smoke"}),
+        (LocalAdapter(), {"schema": "v1", "params": {"messages": [{"role": "user", "content": "test"}]}, "mode": "default"}),
+    ]
+
+    for adapter, payload in adapters:
         result = adapter.invoke(
             processor_ref="llm/litellm@1",
-            inputs_json={"messages": [{"role": "user", "content": "test"}]},
-            write_prefix="/artifacts/outputs/",
+            inputs_json=payload,
+            write_prefix="/artifacts/outputs/parity/{execution_id}/",
             execution_id="test-123",
             registry_snapshot=get_test_registry(),
             adapter_opts={},
-            secrets_present=["OPENAI_API_KEY"]
+            secrets_present=[],
         )
-        
-        # Validate envelope structure
-        assert "status" in result
-        assert "execution_id" in result
+
         assert result["execution_id"] == "test-123"
-        
+        assert "status" in result
         if result["status"] == "success":
             assert "outputs" in result
             assert "index_path" in result
@@ -177,7 +178,7 @@ def test_worldpath_duplicate_rejection():
         "/artifacts/outputs//text/file.txt",    # Double slash
         "/artifacts/outputs/text/file.txt",     # Clean path
     ]
-    
+
     with pytest.raises(ValueError, match="ERR_OUTPUT_DUPLICATE"):
         validate_output_paths(paths)
 ```
@@ -191,7 +192,7 @@ Test Modal secrets and deployment:
 def test_modal_secrets_preflight():
     """Modal adapter validates required secrets exist."""
     adapter = ModalAdapter()
-    
+
     # Should fail if REGISTRY_AUTH missing
     with pytest.raises(Exception, match="REGISTRY_AUTH"):
         adapter.invoke(
@@ -203,7 +204,7 @@ def test_modal_secrets_preflight():
             adapter_opts={},
             secrets_present=[]  # Missing secrets
         )
-    
+
     # Should pass with required secrets
     result = adapter.invoke(
         processor_ref="llm/litellm@1",
@@ -278,11 +279,20 @@ Monitor test suite performance:
 def test_adapter_performance():
     """Adapter calls complete within reasonable time."""
     start = time.time()
-    
-    result = mock_adapter.invoke(...)
-    
+
+    smoke_adapter = LocalAdapter()
+    result = smoke_adapter.invoke(
+        processor_ref="llm/litellm@1",
+        inputs_json={"schema": "v1", "params": {"messages": []}, "mode": "smoke"},
+        write_prefix="/artifacts/outputs/perf/{execution_id}/",
+        execution_id="perf-test",
+        registry_snapshot=get_test_registry(),
+        adapter_opts={},
+        secrets_present=[],
+    )
+
     duration = time.time() - start
-    assert duration < 1.0  # Unit tests should be fast
+    assert duration < 1.0  # Smoke-mode unit tests should be fast
 ```
 
 ### Memory Usage
@@ -302,22 +312,28 @@ Test that error codes are consistent across adapters:
 
 ```python
 @pytest.mark.unit
-@pytest.mark.parametrize("adapter_class", [LocalAdapter, MockAdapter, ModalAdapter])
-def test_error_codes(adapter_class):
+@pytest.mark.parametrize(
+    "adapter_factory,inputs",
+    [
+        (LocalAdapter, {"schema": "v1", "params": {}, "mode": "smoke"}),
+        (LocalAdapter, {"schema": "v1", "params": {}, "mode": "default"}),
+    ],
+)
+def test_error_codes(adapter_factory, inputs):
     """Error codes are consistent across adapters."""
-    adapter = adapter_class()
-    
+    adapter = adapter_factory()
+
     # Test missing secret error
     result = adapter.invoke(
         processor_ref="llm/litellm@1",
-        inputs_json={},
+        inputs_json=inputs,
         write_prefix="/artifacts/outputs/",
         execution_id="test",
         registry_snapshot=get_test_registry(),
         adapter_opts={},
         secrets_present=[]  # Missing required secrets
     )
-    
+
     assert result["status"] == "error"
     assert result["error"]["code"] == "ERR_MISSING_SECRET"
 ```
@@ -333,7 +349,7 @@ def test_worldpath_error_codes():
         ("/invalid/path", "ERR_BAD_FACET"),
         ("/artifacts/test%2Fpath", "ERR_DECODED_SLASH"),
     ]
-    
+
     for path, expected_error in test_cases:
         canonical, error = canonicalize_worldpath(path)
         assert error == expected_error

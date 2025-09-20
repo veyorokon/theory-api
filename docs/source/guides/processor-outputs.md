@@ -1,6 +1,6 @@
 # Processor Outputs
 
-Processor execution generates canonical outputs in a standardized JSON envelope format. This ensures consistent output handling across all adapters (local, mock, modal) and provides deterministic artifact management.
+Processor execution generates canonical outputs in a standardized JSON envelope format. This ensures consistent output handling across both adapters (local and modal) and provides deterministic artifact management. The local adapter offers smoke mode for hermetic tests; envelopes stay identical.
 
 ## Canonical Output Format
 
@@ -18,7 +18,7 @@ Successful processor execution returns:
       "mime": "text/plain"
     },
     {
-      "path": "/artifacts/outputs/meta.json", 
+      "path": "/artifacts/outputs/meta.json",
       "cid": "b3:789abc...",
       "size_bytes": 198,
       "mime": "application/json"
@@ -66,7 +66,7 @@ The `meta` object contains adapter-specific metadata:
 Outputs undergo path canonicalization to prevent duplicates and ensure deterministic ordering:
 
 1. **Prefix Resolution**: Apply write prefix to relative paths
-2. **Canonicalization**: Use `canon_path_facet_root()` for consistent formatting  
+2. **Canonicalization**: Use `canon_path_facet_root()` for consistent formatting
 3. **Duplicate Detection**: Reject executions with duplicate target paths
 4. **Lexicographic Ordering**: Sort outputs by canonical path
 
@@ -79,14 +79,14 @@ The index artifact at `/artifacts/execution/<id>/outputs.json` contains the comp
   "outputs": [
     {
       "cid": "b3:def456...",
-      "mime": "text/plain", 
+      "mime": "text/plain",
       "path": "/artifacts/outputs/text/response.txt",
       "size_bytes": 1247
     },
     {
       "cid": "b3:789abc...",
       "mime": "application/json",
-      "path": "/artifacts/outputs/meta.json", 
+      "path": "/artifacts/outputs/meta.json",
       "size_bytes": 198
     }
   ]
@@ -105,7 +105,7 @@ Failed executions return:
   "execution_id": "exec_def789",
   "error": {
     "code": "container_failed",
-    "message": "Container exited with code 1", 
+    "message": "Container exited with code 1",
     "details": {
       "exit_code": 1,
       "stderr": "Process failed: invalid input"
@@ -119,10 +119,11 @@ Failed executions return:
 ### CLI Access
 
 ```bash
-# Get canonical outputs with --json flag
+# Get canonical outputs with --json flag (smoke mode, no external deps)
 python manage.py run_processor \
   --ref llm/litellm@1 \
-  --adapter mock \
+  --adapter local \
+  --mode smoke \
   --inputs-json '{"messages":[{"role":"user","content":"Hello"}]}' \
   --json
 ```
@@ -147,7 +148,7 @@ python manage.py run_processor \
 
 ## Implementation Notes
 
-- All adapters (local, mock, modal) generate canonical outputs
+- All adapters (local default, local smoke, modal) generate canonical outputs
 - Modal adapter canonical parity scheduled for 0022
 - Path canonicalization prevents write conflicts
 - Index artifacts enable deterministic replay and verification

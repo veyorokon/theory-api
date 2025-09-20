@@ -56,7 +56,19 @@ jobs:
         run: |
           echo "${{ secrets.GHCR_RO || secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
+      - name: Skip if pending digests
+        id: pincheck
+        run: |
+          if grep -R "oci:.*pending" code/apps/core/registry/processors; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "⚠️ Found pending digests in registry - skipping acceptance until Build & Pin completes"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "✅ All digests pinned - proceeding with acceptance tests"
+          fi
+
       - name: Assert pinned image exists in GHCR
+        if: steps.pincheck.outputs.skip != 'true'
         run: |
           set -euo pipefail
           REF=$(python - <<'PY'
@@ -79,14 +91,17 @@ jobs:
           python -c "import os,sys; print('✅ CWD:', os.getcwd()); import backend, apps; print('✅ Django imports OK')"
 
       - name: Acceptance tests
+        if: steps.pincheck.outputs.skip != 'true'
         run: |
           make test-acceptance
 
       - name: Property tests
+        if: steps.pincheck.outputs.skip != 'true'
         run: |
           make test-property
 
       - name: Integration tests (deterministic seams)
+        if: steps.pincheck.outputs.skip != 'true'
         working-directory: code
         env:
           DJANGO_SETTINGS_MODULE: backend.settings.test

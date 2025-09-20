@@ -35,14 +35,14 @@ This separation allows:
 
 ### CLI Selection
 ```bash
-# Mock adapter for testing
-python manage.py run_processor --ref llm/litellm@1 --adapter mock
+# Smoke mode (hermetic testing, no external services)
+python manage.py run_processor --ref llm/litellm@1 --adapter local --mode smoke
 
 # Modal adapter for cloud execution
 python manage.py run_processor --ref llm/litellm@1 --adapter modal
 
-# With attachments
-python manage.py run_processor --ref llm/litellm@1 --adapter mock --attach image=photo.jpg
+# With attachments (smoke mode still works locally)
+python manage.py run_processor --ref llm/litellm@1 --adapter local --mode smoke --attach image=photo.jpg
 ```
 
 ### Programmatic Usage (Server-side)
@@ -95,7 +95,7 @@ The `usage` dict includes consistent keys:
 ```python
 {
     "tokens_in": 150,      # Input tokens
-    "tokens_out": 87,      # Output tokens  
+    "tokens_out": 87,      # Output tokens
     "latency_ms": 1240,    # Response time
     "usd_micros": 23       # Cost in micro-USD (0 for local)
 }
@@ -112,7 +112,7 @@ llm.chat("hi")  # No OPENAI_API_KEY
 ```
 
 ### Model Not Found
-```python  
+```python
 # Ollama model not pulled
 llm = get_llm_provider('litellm', model_default='ollama/qwen2.5:0.5b', api_base='http://127.0.0.1:11434')
 llm.chat("Hello")

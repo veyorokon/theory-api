@@ -2,7 +2,7 @@
 
 Provides fundamental system functionality including user management and system utilities.
 
-## Purpose  
+## Purpose
 
 Base functionality required by all other applications:
 - Custom user model with email-based authentication
@@ -33,7 +33,7 @@ from apps.core.models import User
 # Email is the username field
 user = User.objects.create_user(
     username='john',
-    email='john@example.com', 
+    email='john@example.com',
     password='secure_password'
 )
 
@@ -45,7 +45,7 @@ user = authenticate(email='john@example.com', password='secure_password')
 ### User Fields
 
 - `email` - Primary authentication field (unique)
-- `bio` - Optional user biography  
+- `bio` - Optional user biography
 - `date_of_birth` - Optional birth date
 - `phone_number` - Optional phone number
 - `is_profile_complete` - Profile completion flag
@@ -64,7 +64,7 @@ python manage.py docs_export --out docs/_generated --erd --api --schemas
 
 **Options:**
 - `--erd` - Generate Entity Relationship Diagram from models
-- `--api` - Generate API documentation from interfaces  
+- `--api` - Generate API documentation from interfaces
 - `--schemas` - Export JSON schemas for models
 
 **Generated Output:**
@@ -87,7 +87,7 @@ AUTHENTICATION_BACKENDS = [
 ## Leases (Façade)
 
 The Core app exposes a minimal, flag‑gated `LeaseManager` façade for future admission checks.
-It canonicalizes facet-root paths and provides overlap detection. Runtime enforcement is 
+It canonicalizes facet-root paths and provides overlap detection. Runtime enforcement is
 disabled by default (`LEASES_ENABLED=False`).
 
 **Features:**
@@ -127,7 +127,7 @@ Processors are stateless, containerized programs that execute within isolated Do
 - Input JSON contains all necessary parameters and data references
 - Attachment references use `{"$artifact": "/artifacts/path"}` format
 
-**Output Contract:**  
+**Output Contract:**
 - All outputs must be written under `/work/out/` directory
 - Files can be organized in subdirectories (e.g., `/work/out/text/response.txt`)
 - Exit code 0 indicates success; non-zero indicates failure
@@ -167,16 +167,12 @@ secrets:
 
 ### Adapter Implementation
 
-**Local Adapter (Docker):**
+**Local Adapter (Docker + Smoke Mode):**
 - Reads registry specification for processor configuration
 - Creates isolated workdir under `settings.BASE_DIR/tmp/plan_id/execution_id`
-- Executes processor in Docker container with resource constraints
-- Uploads outputs to ArtifactStore under specified write prefix
+- Default mode executes containers with resource constraints and uploads via `ArtifactStore`
+- `mode="smoke"` fabricates outputs locally (no Docker/MinIO) for unit-style tests
 
 **Modal Adapter:**
 - Uses registry `image.oci` reference for Modal execution
 - Identical I/O contract with different execution environment
-
-**Mock Adapter:**
-- Simulates processor execution for testing and CI/CD
-- Returns structured mock outputs without container execution

@@ -11,7 +11,7 @@ The registry provides versioned, immutable specifications for all system compone
 ### Processor Specifications
 
 ```yaml
-# registry/processors/llm/litellm.yaml  
+# registry/processors/llm/litellm.yaml
 ref: llm/litellm@1
 name: "LLM processor using LiteLLM"
 image:
@@ -38,21 +38,21 @@ predicates:
     - id: "budget.available@1"
       args: {required_usd_micro: 1000}
   success:
-    - id: "artifact.exists@1" 
+    - id: "artifact.exists@1"
       args: {path: "${outputs.text_path}"}
 ```
 
 ### Schema Definitions
 
 ```yaml
-# registry/schemas/media.metadata.yaml  
+# registry/schemas/media.metadata.yaml
 id: "media.metadata@1"
 schema:
   type: "object"
   properties:
     title: {type: "string"}
     duration_ms: {type: "integer", minimum: 0}
-    resolution: 
+    resolution:
       type: "object"
       properties:
         width: {type: "integer", minimum: 1}
@@ -64,7 +64,7 @@ schema:
 
 ```yaml
 # registry/policies/default.yaml
-id: "default@1"  
+id: "default@1"
 budget:
   max_usd_micro: 1000000  # $1 max per plan
 retry:
@@ -79,9 +79,8 @@ leases:
 
 Adapters provide runtime placement for processors, mapping `processor_ref` to concrete execution environments:
 
-- **local**: Docker container execution on local machine
-- **mock**: Simulated execution for testing/CI
-- **modal**: Cloud execution via Modal platform
+- **local**: Docker-backed execution on the same host (also powers hermetic **smoke mode** for tests)
+- **modal**: Cloud execution via the Modal platform
 
 ### Local Adapter (Docker)
 
@@ -90,10 +89,10 @@ class LocalAdapter:
     def invoke(self, processor_ref: str, context: ExpandedContext) -> ProcessorResult:
         """Execute processor in Docker container with sandboxed access."""
         processor_spec = context.registry_snapshot.get_processor(processor_ref)
-        
+
         # Build or pull container image (with digest pinning)
         image_uri = self.resolve_image(processor_spec.image)
-        
+
         # Execute with resource limits and mounted world state
         result = self.docker_client.containers.run(
             image=image_uri,
@@ -108,8 +107,8 @@ class LocalAdapter:
             cpu_quota=processor_spec.runtime.cpu * 100000,
             timeout=processor_spec.runtime.timeout_s
         )
-        
-        return self._canonicalize_outputs(context.scratch_dir, context.write_prefix, 
+
+        return self._canonicalize_outputs(context.scratch_dir, context.write_prefix,
                                           processor_spec.to_dict(), context.execution_id)
 ```
 
@@ -120,10 +119,10 @@ class ModalAdapter:
     def invoke(self, processor_ref: str, context: ExpandedContext) -> ProcessorResult:
         """Invoke Modal function with containerized processor."""
         processor_spec = context.registry_snapshot.get_processor(processor_ref)
-        
+
         # Map to Modal function with image digest pinning
         function = self.get_modal_function(processor_spec, digest_pinned=True)
-        
+
         # Execute with cloud resources
         result = function.remote(
             inputs=context.inputs,
@@ -131,18 +130,28 @@ class ModalAdapter:
             write_prefix=context.write_prefix,
             execution_id=context.execution_id
         )
-        
+
         return result  # Modal returns canonical format
 ```
 
-### Mock Adapter (Testing)
+### Smoke Mode (Local Adapter)
+
+The mock adapter has been replaced by a **smoke mode** on the local adapter. When `mode="smoke"` is supplied in `run_processor` inputs (or via the CLI flag), the local adapter bypasses Docker/artifact-store dependencies and writes deterministic mock outputs directly under the requested `write_prefix`.
 
 ```python
-class MockAdapter:
-    def invoke(self, processor_ref: str, context: ExpandedContext) -> ProcessorResult:
-        """Simulate processor execution for testing."""
-        # Generate mock outputs in canonical format
-        return self._generate_mock_canonical_outputs(context)
+from apps.core.adapters.local_adapter import LocalAdapter
+
+adapter = LocalAdapter()
+result = adapter.invoke(
+    processor_ref="llm/litellm@1",
+    inputs_json={"schema": "v1", "params": {"messages": [{"role": "user", "content": "hi"}]}, "mode": "smoke"},
+    write_prefix="/artifacts/outputs/demo/{execution_id}/",
+    execution_id="demo-123",
+    registry_snapshot=snapshot,
+    adapter_opts={},
+    secrets_present=[],
+)
+# result contains canonical outputs without external services
 ```
 
 ## ExpandedContext
@@ -154,23 +163,23 @@ Every :term:`Processor` receives the same structured context:
 class ExpandedContext:
     # Identity
     plan_id: str
-    transition_id: str  
+    transition_id: str
     execution_id: str
     attempt_idx: int
-    
+
     # Configuration
     registry_snapshot: RegistrySnapshot
     policy: PolicyDoc
-    
-    # Inputs & Constraints  
+
+    # Inputs & Constraints
     inputs: dict
     write_set_resolved: list[Selector]
     budget_reserved: Receipt
-    
+
     # World Access
     world_mount: str        # Read-only world root
     scratch_dir: str        # Writable temporary space
-    
+
     # Determinism
     seed: int
     memo_key: str
@@ -186,7 +195,7 @@ The `world_mount` provides read-only access to world state:
 ├── artifacts/
 │   ├── script.json
 │   └── scenes/001/
-└── streams/  
+└── streams/
     └── camera/frames/ (latest chunks)
 ```
 
@@ -227,7 +236,7 @@ For reproducibility, each :term:`Plan` pins a specific registry snapshot:
 ```json
 {
   "snapshot_id": "sha256:abc123...",
-  "created_at": "2025-01-01T12:00:00Z", 
+  "created_at": "2025-01-01T12:00:00Z",
   "tools": {
     "text.llm@1": { /* tool spec */ },
     "media.render@1": { /* tool spec */ }

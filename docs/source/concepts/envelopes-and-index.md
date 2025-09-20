@@ -108,7 +108,7 @@ The `index_path` points to a JSON artifact containing the outputs array for conv
       "mime": "text/plain"
     },
     {
-      "path": "/artifacts/outputs/metadata.json", 
+      "path": "/artifacts/outputs/metadata.json",
       "cid": "b3:def456...",
       "size_bytes": 89,
       "mime": "application/json"
@@ -136,7 +136,7 @@ adapter=modal,image_digest=...,cpu=1,memory_gb=2,timeout_s=60,snapshot=off,prese
 
 ### Components
 
-- **`adapter`**: Execution adapter used (`local`, `mock`, `modal`)
+- **`adapter`**: Execution adapter used (`local` or `modal`)
 - **`image_digest`**, **`cpu`**, **`memory_gb`**, **`timeout_s`**, **`snapshot`**: Normalized runtime settings
 - **`present_env_keys`**: Sorted list of environment variable names present (names only, never values)
 - **Additional fields**: Adapter-specific metadata
@@ -169,12 +169,12 @@ Standardized error codes for consistent error handling:
 
 ## Adapter Consistency
 
-All adapters (Local, Mock, Modal) implement the same envelope format:
+Both adapters (local and modal) implement the same envelope format. The local adapter supports two **modes**: default (Docker-backed) and smoke (hermetic mock). Both modes emit identical envelopes apart from metadata fields.
 
-### Local/Mock Adapters
+### Local Adapter
 
 - **Object wrapper**: Creates `{"outputs": [...]}` index structure
-- **Nested error envelopes**: Processor errors wrapped in adapter envelope
+- **Smoke vs default**: Smoke mode synthesizes outputs locally; default uses Docker + artifact store
 - **Parity with Modal**: Same envelope format and error handling
 
 ### Modal Adapter
@@ -219,7 +219,7 @@ if result["status"] == "success":
     # Access outputs
     for output in result["outputs"]:
         print(f"Output: {output['path']} (CID: {output['cid']})")
-    
+
     # Access index
     index_path = result["index_path"]
     print(f"Index available at: {index_path}")

@@ -6,7 +6,7 @@ Adapters provide uniform processor execution across different compute environmen
 
 ### Local Adapter
 
-Executes processors in local Docker containers using the host system.
+Executes processors on the host. In **default mode** it uses Docker containers and artifact storage; in **smoke mode** it fabricates deterministic outputs without touching external services.
 
 **Use cases:**
 - Development and testing
@@ -18,7 +18,7 @@ Executes processors in local Docker containers using the host system.
 - Docker-based isolation
 - Host resource constraints apply
 
-### Modal Adapter  
+### Modal Adapter
 
 Executes processors on Modal's serverless platform with pre-deployed functions.
 
@@ -33,19 +33,9 @@ Executes processors on Modal's serverless platform with pre-deployed functions.
 - Built-in secrets management
 - Automatic scaling
 
-### Mock Adapter
+### Smoke Mode (Local Adapter Fast Path)
 
-Provides deterministic test execution without external dependencies.
-
-**Use cases:**
-- Unit testing
-- Integration test fixtures
-- Development without real processor execution
-
-**Characteristics:**
-- Configurable outputs
-- No external dependencies
-- Deterministic execution
+Smoke mode replaces the legacy mock adapter. Supply `{"mode": "smoke"}` in inputs (or `--mode smoke` via CLI) to write mock artifacts directly under the requested prefix without Docker/MinIO/GHCR pulls.
 
 ## Uniform Adapter API
 
@@ -117,10 +107,10 @@ All adapters return consistent **envelope** format:
 
 ## Implementation Details
 
-### Local/Mock Adapters
+### Local Adapter Details
 
 - **Object wrapper**: Creates `{"outputs": [...]}` index structure
-- **Nested error envelopes**: Processor errors wrapped in adapter envelope
+- **Smoke vs default**: Smoke writes mock files; default launches Docker with the pinned image
 - **Parity with Modal**: Same envelope format and error handling
 
 ### Modal Adapter
@@ -154,17 +144,17 @@ image = modal.Image.from_registry(
 
 ## Adapter Selection
 
-Adapters are selected via CLI `--adapter` parameter or programmatically:
+Adapters are selected via CLI `--adapter` parameter or programmatically. Use `--mode smoke` to force the hermetic path.
 
 ```bash
 # Local execution
 python manage.py run_processor --adapter local --ref llm/litellm@1 ...
 
-# Modal execution  
-python manage.py run_processor --adapter modal --ref llm/litellm@1 ...
+# Smoke execution (no external deps)
+python manage.py run_processor --adapter local --mode smoke --ref llm/litellm@1 ...
 
-# Mock execution
-python manage.py run_processor --adapter mock --ref llm/litellm@1 ...
+# Modal execution
+python manage.py run_processor --adapter modal --ref llm/litellm@1 ...
 ```
 
 ## Error Handling
@@ -197,16 +187,6 @@ python manage.py run_processor --adapter mock --ref llm/litellm@1 ...
 {"timeout_s": 300}
 ```
 
-**Mock:**
-```json
-{
-  "outputs": [
-    {"path": "response.txt", "content": "Mock response"},
-    {"path": "metadata.json", "content": "{\"mock\": true}"}
-  ]
-}
-```
-
 ### Environment Variables
 
 - `MODAL_ENABLED`: Enable Modal adapter (Django settings)
@@ -217,9 +197,9 @@ python manage.py run_processor --adapter mock --ref llm/litellm@1 ...
 
 ### Development
 
-1. Start with **local** adapter for initial development
-2. Use **mock** adapter for unit tests
-3. Switch to **modal** for production-like testing
+1. Start with **local --mode smoke** for initial development
+2. Switch to **local default** for Docker parity
+3. Use **modal** for production-like testing
 
 ### Production
 
@@ -229,8 +209,8 @@ python manage.py run_processor --adapter mock --ref llm/litellm@1 ...
 
 ### Testing
 
-1. Use **mock** adapter for deterministic tests
-2. Use **local** adapter for integration tests
+1. Use **local --mode smoke** for deterministic tests
+2. Use **local default** for integration tests requiring Docker
 3. Validate envelope format consistency across adapters
 
 ### Security
