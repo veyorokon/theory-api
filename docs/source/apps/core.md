@@ -167,7 +167,7 @@ secrets:
 
 ### Adapter Implementation
 
-**Local Adapter (Docker + Smoke Mode):**
+**Local Adapter (Docker + Mock Mode):**
 - Reads registry specification for processor configuration
 - Creates isolated workdir under `settings.BASE_DIR/tmp/plan_id/execution_id`
 - Default mode executes containers with resource constraints and uploads via `ArtifactStore`

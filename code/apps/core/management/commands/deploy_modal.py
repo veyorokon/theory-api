@@ -26,7 +26,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         env = options["env"]
-        app_name = resolve_app_name(env, options.get("app_name"))
+        app_name = resolve_app_name(env, preferred=options.get("app_name"))
         from_path = options["from_path"]
         timeout = options["timeout"]
         force = options["force"]

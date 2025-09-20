@@ -24,7 +24,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         env = options["env"]
-        app_name = resolve_app_name(env, options.get("app_name"))
+        app_name = resolve_app_name(env, preferred=options.get("app_name"))
         fn_name = options["fn"]
         payload_json = options["payload_json"]
         timeout = options["timeout"]

@@ -25,7 +25,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         env = options["env"]
-        app_name = resolve_app_name(env, options.get("app_name"))
+        app_name = resolve_app_name(env, preferred=options.get("app_name"))
         ref = options["ref"]
         model = options.get("model")
         inputs_json = options.get("inputs_json")

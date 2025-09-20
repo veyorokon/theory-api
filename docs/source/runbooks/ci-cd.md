@@ -93,14 +93,14 @@ steps:
 2. GitHub → Packages → (package) → Settings → Repository access → add this repo with **Actions: Write**.
 3. Subsequent automated pushes from the workflow will succeed.
 
-## 3. Acceptance Tests (Docker, Smoke Mode)
+## 3. Acceptance Tests (Docker, `mode=mock`)
 
 Workflow: `.github/workflows/acceptance.yml`
 
 - Runs on pushes to `dev` after the pin PR merges.
 - Early guard: exits if any registry YAML still contains `oci: sha256:pending`.
 - Starts Docker services via `docker compose up -d postgres redis minio`.
-- Runs `make test-acceptance` inside `code/` (adapter=`local`, `--mode smoke`), exercising budgets, artifact writes, and receipts.
+- Runs `make test-acceptance` inside `code/` (adapter=`local`, `--mode mock`), exercising budgets, artifact writes, and receipts.
 - Ensure branch protection on `dev` requires this workflow before deploy.
 
 ## 4. Modal Deploy & Smoke

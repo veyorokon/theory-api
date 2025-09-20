@@ -20,6 +20,7 @@ from .envelope import success_envelope, error_envelope, write_outputs_index
 from libs.runtime_common.fingerprint import compose_env_fingerprint
 from .redaction import redact_msg
 from apps.core.utils.processor_ref import registry_path
+from apps.core.logging import bind, clear, info, error
 
 logger = logging.getLogger(__name__)
 
@@ -94,11 +95,26 @@ class LocalAdapter(RuntimeAdapter):
         from .envelope import error_envelope
         from apps.core.errors import ERR_ADAPTER_INVOCATION
 
+        # Bind adapter context and log invoke
+        bind(trace_id=execution_id, adapter="local", processor_ref=processor_ref, mode=mode)
+
         try:
             spec = registry_snapshot["processors"][processor_ref]
             image_digest = spec["image"]["oci"]
             timeout_s = spec.get("runtime", {}).get("timeout_s")
+
+            info(
+                "adapter.invoke",
+                image_digest=image_digest,
+                build=adapter_opts.get("build", False),
+                write_prefix=write_prefix,
+            )
         except Exception as e:
+            error(
+                "adapter.complete",
+                status="error",
+                error={"code": ERR_ADAPTER_INVOCATION, "message": f"LocalAdapter: bad registry snapshot: {e}"},
+            )
             return error_envelope(
                 execution_id=execution_id,
                 code=ERR_ADAPTER_INVOCATION,
@@ -106,23 +122,39 @@ class LocalAdapter(RuntimeAdapter):
                 env_fingerprint="adapter=local",
             )
 
-        # Call legacy implementation
-        legacy_inputs = json.dumps(inputs_json, ensure_ascii=False)
-        legacy_opts = json.dumps(adapter_opts, ensure_ascii=False)
-        plan_id = execution_id  # Use execution_id as plan_id for legacy
+        try:
+            # Call legacy implementation
+            legacy_inputs = json.dumps(inputs_json, ensure_ascii=False)
+            legacy_opts = json.dumps(adapter_opts, ensure_ascii=False)
+            plan_id = execution_id  # Use execution_id as plan_id for legacy
 
-        return self._invoke_legacy(
-            processor_ref,
-            image_digest,
-            legacy_inputs,
-            write_prefix,
-            plan_id,
-            execution_id=execution_id,
-            timeout_s=timeout_s,
-            secrets=secrets_present,
-            adapter_opts_json=legacy_opts,
-            build=adapter_opts.get("build", False),
-        )
+            result = self._invoke_legacy(
+                processor_ref,
+                image_digest,
+                legacy_inputs,
+                write_prefix,
+                plan_id,
+                execution_id=execution_id,
+                timeout_s=timeout_s,
+                secrets=secrets_present,
+                adapter_opts_json=legacy_opts,
+                build=adapter_opts.get("build", False),
+            )
+
+            # Log completion with boundary discipline
+            if result.get("status") == "success":
+                outputs = result.get("outputs", [])
+                info("adapter.complete", status="success", outputs_count=len(outputs))
+            else:
+                error("adapter.complete", status="error", error=result.get("error", {}))
+
+            return result
+
+        except Exception as e:
+            error("adapter.complete", status="error", error={"code": ERR_ADAPTER_INVOCATION, "message": str(e)})
+            raise
+        finally:
+            clear()
 
     def _invoke_legacy(
         self,

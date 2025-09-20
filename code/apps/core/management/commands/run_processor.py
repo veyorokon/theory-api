@@ -15,6 +15,8 @@ from django.core.management.base import BaseCommand
 from libs.runtime_common.mode import resolve_mode, ModeSafetyError
 
 from apps.core.orchestrator import run_processor_core
+from apps.core import logging as core_logging
+from apps.core.logging import bind, clear
 from apps.storage.artifact_store import artifact_store
 
 
@@ -159,85 +161,120 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         """Execute the command - calls core function and prints JSON to stdout."""
+        import uuid
 
-        # Require {execution_id} in write prefix for collision prevention
-        write_prefix = options["write_prefix"]
-        if "{execution_id}" not in write_prefix:
-            from django.core.management.base import CommandError
+        # Generate execution_id early for consistent logging context
+        execution_id = str(uuid.uuid4())
 
-            raise CommandError("--write-prefix must include '{execution_id}' to prevent output collisions")
-
-        # Parse inputs
-        try:
-            inputs_json = json.loads(options["inputs_json"])
-        except json.JSONDecodeError as e:
-            self.stderr.write(f"Error: Invalid --inputs-json: {e}")
-            sys.exit(1)
-
-        # Inject mode into inputs if specified
-        if options.get("mode"):
-            inputs_json["mode"] = options["mode"]
-        else:
-            import os
-
-            if os.environ.get("CI") == "true" and "mode" not in inputs_json:
-                # CI ergonomic default: set mode to mock if not specified
-                inputs_json["mode"] = "mock"
-
-        # CI guardrail: validate mode before proceeding
-        try:
-            resolve_mode(inputs_json)  # This will raise if CI=true and mode=real
-        except ModeSafetyError as e:
-            # Explicit non-zero exit for guardrail violation; no adapter invoked
-            self.stderr.write(f"Error: {e.message}")
-            sys.exit(1)
-        except Exception as e:
-            # Keep existing behavior for other validation errors
-            self.stderr.write(f"Error: {e}")
-            sys.exit(1)
-
-        # Materialize attachments
-        attachment_map = {}
-        if options.get("attach"):
-            attachment_map = self.materialize_attachments(options["attach"])
-            if not options.get("json"):
-                for name, info in attachment_map.items():
-                    self.stdout.write(f"Materialized {name} -> {info.get('$artifact')} ({info.get('cid')})")
-
-        # Rewrite $attach references in inputs
-        if attachment_map:
-            inputs_json = self.rewrite_attach_references(inputs_json, attachment_map)
-
-        # Parse adapter options
-        adapter_opts = json.loads(options.get("adapter_opts_json") or "{}")
-
-        # Set global receipt base in environment for processors
-        import os
-
-        os.environ["GLOBAL_RECEIPT_BASE"] = options["global_receipt_base"]
-
-        # Call core function
-        result = run_processor_core(
-            ref=options["ref"],
+        # Bind logging context with real execution_id before core function call
+        bind(
+            trace_id=execution_id,
+            processor_ref=options["ref"],
             adapter=options["adapter"],
-            mode=options["mode"],
-            inputs_json=inputs_json,
-            write_prefix=options["write_prefix"],
-            plan=options.get("plan"),
-            adapter_opts=adapter_opts,
-            build=options.get("build", False),
-            timeout=options.get("timeout"),
+            mode=options.get("mode", "mock"),
         )
 
-        # Download outputs if requested
-        if result.get("status") == "success" and result.get("outputs"):
-            if options.get("save_dir"):
-                self._download_all_outputs(result["outputs"], options["save_dir"], options)
-            elif options.get("save_first"):
-                self._download_first_output(result["outputs"], options["save_first"], options)
+        try:
+            core_logging.info("execution.start", write_prefix=options["write_prefix"])
+            # Require {execution_id} in write prefix for collision prevention
+            write_prefix = options["write_prefix"]
+            if "{execution_id}" not in write_prefix:
+                from django.core.management.base import CommandError
 
-        # Always output JSON (for both success and error)
-        self.stdout.write(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
+                raise CommandError("--write-prefix must include '{execution_id}' to prevent output collisions")
 
-        # Return None to satisfy Django management command contract
-        return None
+            # Parse inputs
+            try:
+                inputs_json = json.loads(options["inputs_json"])
+            except json.JSONDecodeError as e:
+                self.stderr.write(f"Error: Invalid --inputs-json: {e}")
+                sys.exit(1)
+
+            # Inject mode into inputs if specified
+            if options.get("mode"):
+                inputs_json["mode"] = options["mode"]
+            else:
+                import os
+
+                if os.environ.get("CI") == "true" and "mode" not in inputs_json:
+                    # CI ergonomic default: set mode to mock if not specified
+                    inputs_json["mode"] = "mock"
+
+            # CI guardrail: validate mode before proceeding
+            try:
+                resolve_mode(inputs_json)  # This will raise if CI=true and mode=real
+            except ModeSafetyError as e:
+                # Explicit non-zero exit for guardrail violation; no adapter invoked
+                # Note: No execution_id available yet for early failures
+                core_logging.error(
+                    "execution.fail",
+                    error={"code": "ERR_CI_SAFETY", "message": e.message},
+                    reason="ci_guardrail_block",
+                    ci=True,
+                    mode="real",
+                )
+                self.stderr.write(f"Error: {e.message}")
+                sys.exit(1)
+            except Exception as e:
+                # Keep existing behavior for other validation errors
+                # Note: No execution_id available yet for early failures
+                core_logging.error("execution.fail", error={"code": "ERR_MODE_INVALID", "message": str(e)})
+                self.stderr.write(f"Error: {e}")
+                sys.exit(1)
+
+            # Materialize attachments
+            attachment_map = {}
+            if options.get("attach"):
+                attachment_map = self.materialize_attachments(options["attach"])
+                if not options.get("json"):
+                    for name, info in attachment_map.items():
+                        self.stdout.write(f"Materialized {name} -> {info.get('$artifact')} ({info.get('cid')})")
+
+            # Rewrite $attach references in inputs
+            if attachment_map:
+                inputs_json = self.rewrite_attach_references(inputs_json, attachment_map)
+
+            # Parse adapter options
+            adapter_opts = json.loads(options.get("adapter_opts_json") or "{}")
+
+            # Set global receipt base in environment for processors
+            import os
+
+            os.environ["GLOBAL_RECEIPT_BASE"] = options["global_receipt_base"]
+
+            # Call core function with pre-generated execution_id
+            result = run_processor_core(
+                ref=options["ref"],
+                adapter=options["adapter"],
+                mode=options["mode"],
+                inputs_json=inputs_json,
+                write_prefix=options["write_prefix"],
+                plan=options.get("plan"),
+                adapter_opts=adapter_opts,
+                build=options.get("build", False),
+                timeout=options.get("timeout"),
+                execution_id=execution_id,
+            )
+
+            # Log execution outcome (boundary discipline)
+            if result.get("status") == "success":
+                core_logging.info("execution.settle", status="success", outputs_count=len(result.get("outputs", [])))
+            else:
+                core_logging.error("execution.fail", error=result.get("error", {}))
+
+            # Download outputs if requested
+            if result.get("status") == "success" and result.get("outputs"):
+                if options.get("save_dir"):
+                    self._download_all_outputs(result["outputs"], options["save_dir"], options)
+                elif options.get("save_first"):
+                    self._download_first_output(result["outputs"], options["save_first"], options)
+
+            # Always output JSON (for both success and error)
+            self.stdout.write(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
+
+            # Return None to satisfy Django management command contract
+            return None
+
+        finally:
+            # Clear logging context to prevent leakage
+            clear()

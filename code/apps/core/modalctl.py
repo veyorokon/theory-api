@@ -16,34 +16,48 @@ from typing import Dict, Any, List, Set
 import yaml
 
 
-def resolve_app_name(env: str, preferred: str | None = None) -> str:
-    """
-    Resolve Modal app name following naming conventions.
-
-    Args:
-        env: Environment (dev|staging|main)
-        preferred: Optional preferred name override
-
-    Returns:
-        Canonical app name following conventions
-    """
-    if preferred:
-        return preferred
-
-    if env in ("staging", "main"):
-        return f"theory-{env}"
-
-    # dev environment: theory-dev-{user}-{branch}
-    user = os.getenv("USER", "unknown").lower()
+def _git_branch() -> str:
+    """Get current git branch, sanitized for app names."""
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True, check=True
         )
-        branch = result.stdout.strip().replace("/", "-")
+        return result.stdout.strip().replace("/", "-")
     except subprocess.CalledProcessError:
-        branch = "unknown"
+        return "unknown"
 
-    return f"theory-dev-{user}-{branch}"
+
+def resolve_app_name(env: str, processor_ref: str | None = None, preferred: str | None = None) -> str:
+    """
+    Human/manual Modal app naming.
+
+    - If preferred: use exact name
+    - If processor_ref: user-branch-processor (e.g., veyorokon-dev-llm-litellm-v1)
+    - Else: user-branch (e.g., veyorokon-dev)
+
+    Args:
+        env: Environment (for validation only - scoping via --env flag)
+        processor_ref: Optional processor reference (e.g., "llm/litellm@1")
+        preferred: Optional exact name override
+
+    Returns:
+        App name for human/manual use
+    """
+    if preferred:
+        return preferred
+
+    user = (os.getenv("USER") or os.getenv("GITHUB_ACTOR") or "unknown").lower()
+    branch = _git_branch()
+
+    if processor_ref:
+        # Human testing: user-branch-processor
+        from apps.core.adapters.modal.naming import modal_app_name_from_ref
+
+        processor_name = modal_app_name_from_ref(processor_ref)
+        return f"{user}-{branch}-{processor_name}"
+    else:
+        # Generic sandbox: user-branch
+        return f"{user}-{branch}"
 
 
 def validate_env(env: str) -> None:
@@ -302,32 +316,32 @@ def tail_logs(env: str, app_name: str, fn_name: str, since_min: int = 30, limit:
 
 def delete_app(env: str, app_name: str) -> Dict[str, Any]:
     """
-    Delete a Modal app.
+    Stop a Modal app (Modal's equivalent of deletion).
 
     Args:
         env: Target environment
-        app_name: Modal app name to delete
+        app_name: Modal app name to stop
 
     Returns:
-        Deletion result
+        Stop result
     """
     validate_env(env)
     ensure_modal_auth()
 
     try:
-        cmd = ["modal", "app", "delete", app_name, "--env", env, "--yes"]
+        cmd = ["modal", "app", "stop", app_name, "--env", env]
 
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
 
         return {"status": "success", "app_name": app_name, "env": env, "deleted": True}
 
     except subprocess.CalledProcessError as e:
-        if "not found" in e.stderr.lower():
+        if "not found" in e.stderr.lower() or "no such app" in e.stderr.lower():
             return {
                 "status": "success",
                 "app_name": app_name,
                 "env": env,
                 "deleted": False,
-                "message": "App already deleted",
+                "message": "App already stopped or not found",
             }
-        return {"status": "error", "error": {"code": "DELETE_FAILED", "message": f"Failed to delete app: {e.stderr}"}}
+        return {"status": "error", "error": {"code": "STOP_FAILED", "message": f"Failed to stop app: {e.stderr}"}}

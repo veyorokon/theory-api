@@ -5,29 +5,6 @@ Ensures consistency between modal_app.py deployment and ModalAdapter invocation.
 """
 
 
-def modal_app_name(slug: str, ver: str, env: str) -> str:
-    """
-    Generate Modal app name from processor reference components.
-
-    Args:
-        slug: Processor slug (e.g., "llm-litellm" from "llm/litellm")
-        ver: Version (e.g., "1" or "v1")
-        env: Environment ("dev", "staging", "main")
-
-    Returns:
-        Modal app name: "{slug}-v{ver}-{env}"
-
-    Examples:
-        >>> modal_app_name("llm-litellm", "1", "dev")
-        'llm-litellm-v1-dev'
-        >>> modal_app_name("voice-clone", "v2", "staging")
-        'voice-clone-v2-staging'
-    """
-    # Ensure version has v prefix
-    ver_s = f"v{ver}" if not ver.startswith("v") else ver
-    return f"{slug}-{ver_s}-{env}"
-
-
 def modal_fn_name() -> str:
     """
     Generate Modal function name.
@@ -38,44 +15,31 @@ def modal_fn_name() -> str:
     return "run"
 
 
-def parse_processor_ref(processor_ref: str) -> tuple[str, str]:
+def modal_app_name_from_ref(processor_ref: str) -> str:
     """
-    Parse processor reference into slug and version components.
+    Deterministic processor app name, independent of environment.
 
     Args:
-        processor_ref: Reference like "llm/litellm@1" or "voice/clone@v2"
+        processor_ref: Reference like "llm/litellm@1"
 
     Returns:
-        Tuple of (slug, version) where slug has "/" replaced with "-"
+        Clean processor name: "llm-litellm-v1"
 
     Examples:
-        >>> parse_processor_ref("llm/litellm@1")
-        ('llm-litellm', '1')
-        >>> parse_processor_ref("voice/clone@v2")
-        ('voice-clone', 'v2')
+        >>> modal_app_name_from_ref("llm/litellm@1")
+        'llm-litellm-v1'
+        >>> modal_app_name_from_ref("replicate/generic@1")
+        'replicate-generic-v1'
     """
     if "@" not in processor_ref:
         raise ValueError(f"Invalid processor reference: {processor_ref} (expected format: 'ns/name@ver')")
 
-    name_part, version = processor_ref.split("@", 1)
-    slug = name_part.replace("/", "-").lower()
-    return slug, version
+    ns_name, ver = processor_ref.split("@", 1)
+    ns, name = ns_name.split("/", 1)
 
+    # Clean naming: ns-name-vN
+    ns_clean = ns.replace("_", "-").lower()
+    name_clean = name.replace("_", "-").lower()
+    ver_clean = f"v{ver}" if not ver.startswith("v") else ver
 
-def modal_app_name_from_ref(processor_ref: str, env: str) -> str:
-    """
-    Generate Modal app name directly from processor reference.
-
-    Args:
-        processor_ref: Reference like "llm/litellm@1"
-        env: Environment ("dev", "staging", "main")
-
-    Returns:
-        Modal app name
-
-    Examples:
-        >>> modal_app_name_from_ref("llm/litellm@1", "dev")
-        'llm-litellm-v1-dev'
-    """
-    slug, ver = parse_processor_ref(processor_ref)
-    return modal_app_name(slug, ver, env)
+    return f"{ns_clean}-{name_clean}-{ver_clean}"

@@ -1,269 +1,328 @@
-# modal_app.py
+# code/modal_app.py
+"""
+Modal app entry for processor containers.
+
+- Two public functions:
+    * run(payload: dict)   -> bytes  # normal execution
+    * smoke(payload: dict) -> bytes  # always forces mode="mock", clears provider envs
+
+- Image: repo-scoped GHCR digest via $IMAGE_REF (required)
+- Secrets: optional, via $TOOL_SECRETS="OPENAI_API_KEY,REPLICATE_API_TOKEN"
+- Processor: via $PROCESSOR_REF, e.g. "llm/litellm@1"
+- App name: CI-friendly, derived from PROCESSOR_REF; can be overridden by $MODAL_APP_NAME
+
+All responses are bytes containing a canonical envelope JSON.
+"""
+
 from __future__ import annotations
 
-import io
 import json
 import os
-import tarfile
-import tempfile
-import uuid
 import subprocess
-from pathlib import Path
-from typing import Iterable, List
+import sys
+from typing import Any, Dict, Iterable, List, Tuple
 
 import modal
 
-# Import registry naming utilities
-from apps.core.adapters.modal.naming import modal_app_name_from_ref
+# ---------- Constants & helpers ----------
+
+# Provider env vars we intentionally clear in `smoke()`
+_PROVIDER_ENV_VARS = (
+    "OPENAI_API_KEY",
+    "REPLICATE_API_TOKEN",
+    "ANTHROPIC_API_KEY",
+    "OPENROUTER_API_KEY",
+)
 
 
-# -------------------------------
-# Small utilities (pure helpers)
-# -------------------------------
-
-
-def _log(event: str, **fields):
-    # Minimal structured logging to stdout
+# Minimal, dependency-free logging (single-line JSON to stdout)
+def _log(event: str, **fields: Any) -> None:
     payload = {"event": event, **fields}
     try:
-        print(json.dumps(payload, separators=(",", ":"), sort_keys=True))
+        print(json.dumps(payload, separators=(",", ":"), sort_keys=False), flush=True)
     except Exception:
-        print(f"[{event}] {fields!r}")
+        # Last resort if something in fields isn't serializable
+        print(json.dumps({"event": event, "msg": str(fields)}), flush=True)
 
 
-def _parse_tool_secrets(env_value: str | None) -> List[str]:
-    if not env_value:
-        return []
-    return [s.strip() for s in env_value.split(",") if s.strip()]
+def _ok(execution_id: str, outputs: List[Dict[str, Any]], index_path: str, meta: Dict[str, Any] | None = None) -> bytes:
+    env = {
+        "status": "success",
+        "execution_id": execution_id,
+        "outputs": outputs,
+        "index_path": index_path,
+        "meta": meta or {},
+    }
+    return json.dumps(env, separators=(",", ":")).encode("utf-8")
 
 
-def _pkg_from_ref(ref: str) -> str:
+def _err(execution_id: str | None, code: str, message: str, meta: Dict[str, Any] | None = None) -> bytes:
+    env = {
+        "status": "error",
+        "execution_id": execution_id or "",
+        "error": {"code": code, "message": message},
+        "meta": meta or {},
+    }
+    return json.dumps(env, separators=(",", ":")).encode("utf-8")
+
+
+def _require_env(name: str) -> str:
+    v = os.getenv(name)
+    if not v:
+        raise RuntimeError(f"Missing required environment variable: {name}")
+    return v
+
+
+def _module_path_from_ref(ref: str) -> Tuple[str, str]:
     """
-    Convert 'ns/name@ver' -> 'ns_name' (processor package).
-    Example: 'llm/litellm@1' -> 'llm_litellm'
+    Convert 'ns/name@ver' -> ('apps.core.processors.ns_name.main', 'ns_name')
     """
-    ns, rest = ref.split("/", 1)
-    name, _ver = rest.split("@", 1)
-    return f"{ns}_{name}"
+    try:
+        ns, rest = ref.split("/", 1)
+        name, _ver = rest.split("@", 1)
+    except ValueError:
+        raise RuntimeError(f"Invalid PROCESSOR_REF '{ref}'. Expected 'ns/name@ver'.")
+
+    pkg = f"{ns}_{name}".replace("-", "_")
+    module = f"apps.core.processors.{pkg}.main"
+    return module, pkg
 
 
-def _ensure_json_file(path: Path, data: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-
-
-def _tar_directory(root: Path) -> bytes:
-    buf = io.BytesIO()
-    with tarfile.open(mode="w:gz", fileobj=buf) as tf:
-        for p in sorted(root.rglob("*")):
-            arcname = p.relative_to(root.parent)  # include the top dir in archive
-            tf.add(p, arcname=str(arcname))
-    return buf.getvalue()
-
-
-# -------------------------------
-# Modal image & secrets wiring
-# -------------------------------
-
-IMAGE_REF = os.environ.get("IMAGE_REF")  # e.g. ghcr.io/owner/repo/llm-litellm@sha256:...
-if not IMAGE_REF:
-    raise RuntimeError("IMAGE_REF is required (OCI digest for the processor container)")
-
-PROCESSOR_REF = os.environ.get("PROCESSOR_REF")  # e.g. llm/litellm@1
-if not PROCESSOR_REF:
-    raise RuntimeError("PROCESSOR_REF is required (e.g. 'llm/litellm@1')")
-
-TOOL_SECRETS = _parse_tool_secrets(os.environ.get("TOOL_SECRETS"))
-
-# Build Modal image from the pinned container
-image = modal.Image.from_registry(IMAGE_REF)
-
-# Import registry naming utilities
-
-
-def _app_name_from_env() -> str:
-    """Build app name from PROCESSOR_REF and MODAL_ENVIRONMENT using registry naming."""
-    ref = os.environ.get("PROCESSOR_REF", "")
-    env = os.environ.get("MODAL_ENVIRONMENT") or os.environ.get("MODAL_ENV") or "dev"
-    if ref:
-        return modal_app_name_from_ref(ref, env)
-    return os.getenv("MODAL_APP_NAME", "theory-runtime")
-
-
-APP_NAME = _app_name_from_env()
-app = modal.App(APP_NAME)
-
-
-def _modal_secret_objects(names: Iterable[str]) -> List[modal.Secret]:
+def _modal_secrets_from_env(names_csv: str | None) -> List[modal.Secret]:
     secrets: List[modal.Secret] = []
-    for n in names:
-        if not n:
+    if not names_csv:
+        return secrets
+    for raw in names_csv.split(","):
+        s = raw.strip()
+        if not s:
             continue
-        # Will raise at deploy if a name is unknown in the target environment.
-        secrets.append(modal.Secret.from_name(n))
+        try:
+            secrets.append(modal.Secret.from_name(s))
+        except Exception as e:
+            # Non-fatal: allow deploy without the secret (run() in real mode will still fail gracefully)
+            _log("modal.secret.resolve.fail", secret=s, error=str(e))
     return secrets
 
 
-# -------------------------------
-# Core worker implementation
-# -------------------------------
-
-
-def _invoke_processor(payload: dict) -> bytes:
+def _app_name_from_env() -> str:
     """
-    Execute the processor inside the pinned container:
-      python -m apps.core.processors.<pkg>.main --inputs <file> --write-prefix <dir> --execution-id <id>
-    Return: gzipped tarball of <write-prefix> contents (adapter will unpack & read outputs.json).
+    CI path:
+      - If PROCESSOR_REF present -> canonical processor-based name (e.g., 'llm-litellm-v1').
+    Human/dev path:
+      - Allow override via $MODAL_APP_NAME, else fall back to processor-based name or 'manual-deploy'.
     """
-    pkg = _pkg_from_ref(PROCESSOR_REF)
+    ref = os.environ.get("PROCESSOR_REF", "").strip()
+    preferred = os.environ.get("MODAL_APP_NAME", "").strip()
+    if preferred:
+        return preferred
 
-    # Make a temp working dir for inputs/outputs, but the processor will write to write_prefix we pass in.
-    with tempfile.TemporaryDirectory() as tmpdir:
-        work = Path(tmpdir)
-        inputs_path = work / "inputs.json"
+    if ref:
+        # Try the shared naming helper if available; otherwise derive a simple canonical name.
+        try:
+            from apps.core.adapters.modal.naming import modal_app_name_from_ref  # type: ignore
 
-        # Ensure we have a mode: default to "mock" if not provided (safer for deploy smoke and CI).
-        payload = dict(payload or {})
-        payload.setdefault("schema", "v1")
-        payload.setdefault("mode", "mock")
+            return modal_app_name_from_ref(ref)  # e.g., 'llm-litellm-v1'
+        except Exception:
+            # Fallback: ns/name@ver -> ns-name-v<ver>
+            try:
+                ns, rest = ref.split("/", 1)
+                name, ver = rest.split("@", 1)
+                slug = f"{ns}-{name}".replace("_", "-")
+                return f"{slug}-v{ver}"
+            except Exception:
+                pass
+    return "manual-deploy"
 
-        # Ensure a stable execution id if provided, else create one
-        execution_id = payload.get("execution_id") or str(uuid.uuid4())
-        payload["execution_id"] = execution_id
 
-        # Default write prefix (container-local). Adapters/Modal will pack and return this directory.
-        write_prefix = payload.get("write_prefix") or f"/tmp/exec/{execution_id}/"
-        payload["write_prefix"] = write_prefix
+def _validate_payload(payload: Dict[str, Any]) -> Tuple[str, str, str, Dict[str, Any]]:
+    """
+    Validate incoming payload and return (execution_id, write_prefix, mode, inputs_json_dict).
+    Accepts either 'inputs_json' as a dict or a JSON string.
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("Payload must be a JSON object")
 
-        _ensure_json_file(inputs_path, payload)
+    execution_id = str(payload.get("execution_id", "")).strip()
+    write_prefix = str(payload.get("write_prefix", "")).strip()
+    mode = str(payload.get("mode", "") or "mock").strip().lower()
+    inputs_json = payload.get("inputs_json")
 
-        cmd = [
-            "python",
-            "-m",
-            f"apps.core.processors.{pkg}.main",
-            "--inputs",
-            str(inputs_path),
-            "--write-prefix",
-            write_prefix,
-            "--execution-id",
-            execution_id,
-        ]
+    if not execution_id:
+        raise ValueError("Missing 'execution_id'")
+    if not write_prefix:
+        raise ValueError("Missing 'write_prefix'")
+    if mode not in ("mock", "real"):
+        raise ValueError("Invalid 'mode' (allowed: 'mock','real')")
 
+    if inputs_json is None:
+        raise ValueError("Missing 'inputs_json'")
+
+    if isinstance(inputs_json, str):
+        try:
+            inputs_obj = json.loads(inputs_json)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"inputs_json is not valid JSON: {e}") from e
+    elif isinstance(inputs_json, dict):
+        inputs_obj = inputs_json
+    else:
+        raise ValueError("inputs_json must be an object or JSON string")
+
+    # Normalize the schema/mode on the inputs itself (processors expect 'schema' and read 'mode')
+    if "schema" not in inputs_obj:
+        inputs_obj["schema"] = "v1"
+    inputs_obj["mode"] = mode
+
+    return execution_id, write_prefix, mode, inputs_obj
+
+
+def _build_subprocess_cmd(module: str, *, inputs_path: str, write_prefix: str, execution_id: str) -> List[str]:
+    """
+    Invoke the processor's main module as a script:
+      python -m apps.core.processors.<pkg>.main --inputs <file> --write-prefix <prefix> --execution-id <uuid>
+    """
+    return [
+        sys.executable,
+        "-m",
+        module,
+        "--inputs",
+        inputs_path,
+        "--write-prefix",
+        write_prefix,
+        "--execution-id",
+        execution_id,
+    ]
+
+
+def _write_tmp_json(obj: Dict[str, Any]) -> str:
+    import tempfile
+
+    fd, path = tempfile.mkstemp(prefix="inputs-", suffix=".json")
+    os.close(fd)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(obj, f, separators=(",", ":"))
+    return path
+
+
+def _clear_provider_envs() -> None:
+    for k in _PROVIDER_ENV_VARS:
+        if os.environ.pop(k, None) is not None:
+            _log("env.clear", var=k)
+
+
+# ---------- Modal app wiring ----------
+
+IMAGE_REF = _require_env("IMAGE_REF")
+TOOL_SECRETS = os.getenv("TOOL_SECRETS", "")
+
+image = modal.Image.from_registry(IMAGE_REF)
+app = modal.App(_app_name_from_env())
+
+
+@app.function(
+    name="run",  # custom name => must set serialized=True
+    image=image,
+    serialized=True,
+    secrets=_modal_secrets_from_env(TOOL_SECRETS),
+    timeout=60 * 10,
+)
+def run(payload: Dict[str, Any] | None = None) -> bytes:
+    """
+    Execute processor with provided payload.
+    Payload contract:
+      {
+        "execution_id": "<uuid>",
+        "write_prefix": "/artifacts/outputs/<something>/{execution_id}/",
+        "mode": "mock" | "real",
+        "inputs_json": { ... } | "<json string>"
+      }
+    Returns a canonical envelope (success or error) as bytes.
+    """
+    try:
+        # Defensive: treat empty/malformed payloads as no-ops (don’t crash-loop)
+        if not payload:
+            _log("invoke.payload.missing")
+            return _err(None, "ERR_PAYLOAD", "Missing payload")
+
+        _log("invoke.payload.received", keys=list(payload.keys()))
+
+        ref = os.environ.get("PROCESSOR_REF", "").strip()
+        if not ref:
+            return _err(None, "ERR_CONFIG", "PROCESSOR_REF is not set")
+
+        module, _pkg = _module_path_from_ref(ref)
+        eid, write_prefix, mode, inputs_obj = _validate_payload(payload)
+
+        # In mock mode we should not require provider secrets.
+        # In real mode: provider secrets must be present (processor will enforce).
         _log(
-            "modal.exec.start",
-            processor_ref=PROCESSOR_REF,
-            image_ref=IMAGE_REF,
-            mode=payload.get("mode"),
-            execution_id=execution_id,
+            "processor.exec.start",
+            processor_ref=ref,
+            mode=mode,
+            execution_id=eid,
             write_prefix=write_prefix,
         )
 
-        # Run inside the same container env as this Modal function
-        # NOTE: Secrets are attached at the function level (see decorators below), not here.
-        proc = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=False,
-        )
+        inputs_path = _write_tmp_json(inputs_obj)
+        cmd = _build_subprocess_cmd(module, inputs_path=inputs_path, write_prefix=write_prefix, execution_id=eid)
 
+        # Run the processor main. Stdout is expected to be the envelope JSON.
+        proc = subprocess.run(cmd, capture_output=True, text=True)
         if proc.returncode != 0:
             _log(
-                "modal.exec.fail",
-                code="ERR_ADAPTER_INVOCATION",
-                execution_id=execution_id,
+                "processor.exec.fail",
                 rc=proc.returncode,
-                stderr=proc.stderr[-4000:],  # cap
+                stderr=(proc.stderr or "").strip()[:2000],
             )
-            # Return a small error envelope tar with the stderr for diagnostics
-            # (Adapters can handle error envelopes too, but returning tar keeps a single wire shape.)
-            err_dir = work / "error" / execution_id
-            err_dir.mkdir(parents=True, exist_ok=True)
-            (err_dir / "stderr.txt").write_text(proc.stderr, encoding="utf-8")
-            (err_dir / "status.json").write_text(
-                json.dumps(
-                    {
-                        "status": "error",
-                        "execution_id": execution_id,
-                        "error": {
-                            "code": "ERR_ADAPTER_INVOCATION",
-                            "message": f"Subprocess failed rc={proc.returncode}",
-                        },
-                        "meta": {"env_fingerprint": "adapter=modal"},
-                    },
-                    ensure_ascii=False,
-                ),
-                encoding="utf-8",
-            )
-            return _tar_directory(err_dir)
-
-        # Success: tar the entire write_prefix (which contains outputs.json and files)
-        out_root = Path(write_prefix)
-        if not out_root.exists():
-            # Some processors might write relative to cwd; try fallback to /work/out
-            candidate = Path("/work/out")
-            if candidate.exists():
-                out_root = candidate
-
-        if not out_root.exists():
-            _log(
-                "modal.exec.warn",
-                warning="write_prefix_not_found",
-                attempted=str(write_prefix),
+            # Return a canonical error envelope
+            return _err(
+                eid,
+                "ERR_ADAPTER_INVOCATION",
+                f"Processor failed (rc={proc.returncode})",
+                meta={"stderr": (proc.stderr or "").strip()[:2000]},
             )
 
-        archive = _tar_directory(out_root if out_root.exists() else Path(tmpdir))
-        _log(
-            "modal.exec.complete",
-            execution_id=execution_id,
-            bytes=len(archive),
-        )
-        return archive
+        # If processor wrote a canonical envelope to stdout, relay as-is.
+        stdout = (proc.stdout or "").strip()
+        if not stdout:
+            _log("processor.exec.empty_stdout")
+            return _err(eid, "ERR_ADAPTER_INVOCATION", "Processor returned empty stdout")
 
+        _log("processor.exec.complete", bytes=len(stdout))
+        return stdout.encode("utf-8")
 
-# -------------------------------
-# Modal functions
-# -------------------------------
+    except ValueError as ve:
+        _log("invoke.payload.invalid", error=str(ve))
+        return _err(None, "ERR_PAYLOAD", str(ve))
+    except Exception as e:
+        _log("invoke.unhandled", error=str(e))
+        return _err(None, "ERR_APP", f"{type(e).__name__}: {e}")
 
 
 @app.function(
-    name="run",
+    name="smoke",  # custom name => must set serialized=True
     image=image,
-    # Attach secrets dynamically based on TOOL_SECRETS env; nothing is hard-coded.
-    secrets=_modal_secret_objects(TOOL_SECRETS),
-    timeout=60 * 10,  # 10 minutes, adjust as needed
     serialized=True,
+    secrets=[],  # never pass provider secrets to smoke
+    timeout=60 * 5,
 )
-def run(payload: dict) -> bytes:
+def smoke(payload: Dict[str, Any] | None = None) -> bytes:
     """
-    Normal execution:
-      - Uses secrets defined in TOOL_SECRETS (if any).
-      - Respects payload["mode"] ("real" or "mock"); default is "mock" if omitted.
-      - Returns a gzipped tarball of the write_prefix directory.
+    Post-deploy health probe:
+      - Clears provider envs
+      - Forces mode="mock"
+      - Returns canonical envelope
     """
-    if not isinstance(payload, dict):
-        payload = {}
-    return _invoke_processor(payload)
+    try:
+        _clear_provider_envs()
 
+        payload = payload or {}
+        if not isinstance(payload, dict):
+            payload = {"mode": "mock"}
+        else:
+            payload = {**payload, "mode": "mock"}
 
-@app.function(
-    name="smoke",
-    image=image,
-    # No secrets attached for smoke; ensures zero-egress mock-only validation.
-    secrets=[],
-    timeout=60 * 5,  # quicker timeout for smoke
-    serialized=True,
-)
-def smoke(payload: dict) -> bytes:
-    """
-    Smoke validation:
-      - Forces payload["mode"] = "mock"
-      - Attaches no secrets (safe-by-default)
-      - Returns tarball of outputs (like 'run')
-    """
-    if not isinstance(payload, dict):
-        payload = {}
-    payload = dict(payload)
-    payload["mode"] = "mock"
-    return _invoke_processor(payload)
+        _log("mock.exec", forced_mode="mock")
+        return run(payload)
+    except Exception as e:
+        _log("smoke.unhandled", error=str(e))
+        return _err(None, "ERR_APP", f"{type(e).__name__}: {e}")
