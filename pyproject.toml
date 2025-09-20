@@ -178,3 +178,17 @@ exclude_lines = [
     "raise NotImplementedError",
     "if __name__ == .__main__.:",
 ]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+    "property: marks tests as property-based tests using Hypothesis",
+    "unit: marks tests as unit tests",
+    "requires_postgres: marks tests that require PostgreSQL database",
+    "requires_docker: marks tests that require Docker runtime",
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')"
+]
+testpaths = ["tests", "code/tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

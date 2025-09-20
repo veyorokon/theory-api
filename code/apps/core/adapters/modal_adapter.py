@@ -85,6 +85,7 @@ class ModalAdapter(RuntimeAdapter):
         self,
         *,
         processor_ref: str,
+        mode: str = "default",
         inputs_json: Dict[str, Any],
         write_prefix: str,
         execution_id: str,
@@ -187,6 +188,7 @@ class ModalAdapter(RuntimeAdapter):
             self._current_spec = spec
             tar_bytes = self._modal_run_and_tar(
                 processor_ref=processor_ref,
+                mode=mode,
                 inputs_json=inputs_json,
                 write_prefix=wp,
                 image_digest=image_digest,
@@ -277,11 +279,15 @@ class ModalAdapter(RuntimeAdapter):
             raise ValueError("write_prefix must be under /artifacts/")
         return p
 
-    def _function_name_from_spec(self, ref: str, spec: Dict[str, Any]) -> str:
+    def _function_name_from_spec(self, ref: str, spec: Dict[str, Any], mode: str = "default") -> str:
         """0021: functions are named 'run' in each app; keep API stable."""
         import os
 
-        return os.getenv("MODAL_FUNCTION_NAME", modal_fn_name())
+        # Override function name based on mode
+        if mode == "smoke":
+            return os.getenv("MODAL_FUNCTION_NAME", "smoke")
+        else:
+            return os.getenv("MODAL_FUNCTION_NAME", modal_fn_name())
 
     def _app_name_from_ref(self, ref: str, env: str) -> str:
         """Generate Modal app name using shared naming logic."""
@@ -334,6 +340,7 @@ class ModalAdapter(RuntimeAdapter):
         self,
         *,
         processor_ref: str,
+        mode: str = "default",
         inputs_json: Dict[str, Any],
         write_prefix: str,
         image_digest: str,
@@ -355,7 +362,7 @@ class ModalAdapter(RuntimeAdapter):
         # Get environment and function name
         env = settings.MODAL_ENVIRONMENT or "dev"
         spec = self._current_spec  # Set by caller
-        func_name = self._function_name_from_spec(processor_ref, spec)
+        func_name = self._function_name_from_spec(processor_ref, spec, mode)
         app_name = self._app_name_from_ref(processor_ref, env)
 
         # Prepare payload for pre-deployed function

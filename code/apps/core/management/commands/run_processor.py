@@ -24,8 +24,12 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         """Add command-line arguments."""
         parser.add_argument("--ref", required=True, help="Processor reference (e.g., llm/litellm@1)")
+        parser.add_argument("--adapter", choices=["local", "modal"], default="local", help="Execution adapter to use")
         parser.add_argument(
-            "--adapter", choices=["local", "mock", "modal"], default="local", help="Execution adapter to use"
+            "--mode",
+            choices=["default", "smoke"],
+            default="default",
+            help="Execution mode: 'default' (normal), 'smoke' (hermetic, no external services)",
         )
         parser.add_argument("--plan", help="Plan key for budget tracking (creates if not exists)")
         parser.add_argument(
@@ -154,14 +158,6 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         """Execute the command - calls core function and prints JSON to stdout."""
-        # Shim for deprecated mock adapter
-        if options["adapter"] == "mock":
-            if not options.get("json"):
-                self.stderr.write("Warning: --adapter mock is deprecated. Using --adapter local with SMOKE=true")
-            options["adapter"] = "local"
-            import os
-
-            os.environ["SMOKE"] = "true"
 
         # Require {execution_id} in write prefix for collision prevention
         write_prefix = options["write_prefix"]
@@ -201,6 +197,7 @@ class Command(BaseCommand):
         result = run_processor_core(
             ref=options["ref"],
             adapter=options["adapter"],
+            mode=options["mode"],
             inputs_json=inputs_json,
             write_prefix=options["write_prefix"],
             plan=options.get("plan"),

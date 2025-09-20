@@ -33,7 +33,10 @@ class TestLocalAdapterExecutionIdContract:
 
         # This should NOT throw NameError: name 'plan_id' is not defined
         result = adapter._canonicalize_outputs(
-            outdir=outdir, write_prefix=write_prefix, registry_spec=registry_spec, execution_id=exec_id
+            write_prefix=write_prefix,
+            registry_spec=registry_spec,
+            execution_id=exec_id,
+            image_ref="test:latest",
         )
 
         # Should succeed for normal case with mocked storage
@@ -55,7 +58,7 @@ class TestLocalAdapterExecutionIdContract:
         )
 
         # This should NOT throw NameError
-        result = adapter._process_failure_outputs(failed_result, registry_spec, exec_id)
+        result = adapter._process_failure_outputs(failed_result, registry_spec, exec_id, "test:latest")
 
         # Should return error envelope with execution_id
         assert result.get("status") == "error"

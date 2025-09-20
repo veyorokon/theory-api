@@ -148,102 +148,113 @@ class TestResourceLimits:
         mock_validate.assert_called_once()
         mock_requests.get.assert_called_once()
 
-    @patch("libs.runtime_common.asset_downloader.requests")
-    @patch("libs.runtime_common.asset_downloader._validate_url_safety")
-    def test_size_limit_exceeded(self, mock_validate, mock_requests):
+    def test_size_limit_exceeded(self):
         """Test that size limits are enforced."""
         config = AssetDownloadConfig(enabled=True, max_bytes=10)
 
-        # Mock response with large content
-        mock_response = Mock()
-        mock_response.headers = {"Content-Type": "image/png"}
-        mock_response.iter_content.return_value = [b"x" * 15]  # Exceeds 10 byte limit
-        mock_requests.get.return_value.__enter__.return_value = mock_response
+        with (
+            patch("libs.runtime_common.asset_downloader._validate_url_safety"),
+            patch("libs.runtime_common.asset_downloader.requests") as mock_requests,
+        ):
+            # Mock response with large content
+            mock_response = Mock()
+            mock_response.headers = {"Content-Type": "image/png"}
+            mock_response.iter_content.return_value = [b"x" * 15]  # Exceeds 10 byte limit
+            mock_requests.get.return_value.__enter__.return_value = mock_response
 
-        with pytest.raises(ResourceLimitError, match="Asset too large"):
-            download_asset("https://example.com/large.png", config)
+            with pytest.raises(ResourceLimitError, match="Asset too large"):
+                download_asset("https://example.com/large.png", config)
 
-    @patch("libs.runtime_common.asset_downloader.requests")
-    @patch("libs.runtime_common.asset_downloader._validate_url_safety")
-    def test_timeout_handling(self, mock_validate, mock_requests):
+    def test_timeout_handling(self):
         """Test timeout handling."""
         config = AssetDownloadConfig(enabled=True, timeout_s=5)
 
-        # Mock timeout exception
-        import requests
+        with (
+            patch("libs.runtime_common.asset_downloader._validate_url_safety"),
+            patch("libs.runtime_common.asset_downloader.requests") as mock_requests,
+        ):
+            # Mock timeout exception
+            import requests
 
-        mock_requests.get.side_effect = requests.exceptions.Timeout("Timeout")
+            mock_requests.get.side_effect = requests.exceptions.Timeout("Timeout")
+            mock_requests.exceptions = requests.exceptions
 
-        with pytest.raises(ResourceLimitError, match="Download timeout"):
-            download_asset("https://example.com/slow.png", config)
+            with pytest.raises(ResourceLimitError, match="Download timeout"):
+                download_asset("https://example.com/slow.png", config)
 
-    @patch("libs.runtime_common.asset_downloader.requests")
-    @patch("libs.runtime_common.asset_downloader._validate_url_safety")
-    def test_http_error_handling(self, mock_validate, mock_requests):
+    def test_http_error_handling(self):
         """Test HTTP error handling."""
         config = AssetDownloadConfig(enabled=True)
 
-        # Mock HTTP error
-        import requests
+        with (
+            patch("libs.runtime_common.asset_downloader._validate_url_safety"),
+            patch("libs.runtime_common.asset_downloader.requests") as mock_requests,
+        ):
+            # Mock HTTP error
+            import requests
 
-        mock_requests.get.side_effect = requests.exceptions.HTTPError("404 Not Found")
+            mock_requests.get.side_effect = requests.exceptions.HTTPError("404 Not Found")
+            mock_requests.exceptions = requests.exceptions
 
-        with pytest.raises(AssetDownloadError, match="HTTP request failed"):
-            download_asset("https://example.com/missing.png", config)
+            with pytest.raises(AssetDownloadError, match="HTTP request failed"):
+                download_asset("https://example.com/missing.png", config)
 
-    @patch("libs.runtime_common.asset_downloader.requests")
-    @patch("libs.runtime_common.asset_downloader._validate_url_safety")
-    def test_requests_not_available(self, mock_validate, mock_requests):
+    def test_requests_not_available(self):
         """Test handling when requests library is not available."""
         config = AssetDownloadConfig(enabled=True)
 
-        # Mock import error
-        mock_requests.side_effect = ImportError("No module named 'requests'")
-
-        with pytest.raises(AssetDownloadError, match="requests library not available"):
-            download_asset("https://example.com/image.png", config)
+        with (
+            patch("libs.runtime_common.asset_downloader._validate_url_safety"),
+            patch("libs.runtime_common.asset_downloader.requests", None),
+        ):
+            with pytest.raises(AssetDownloadError, match="requests library not available"):
+                download_asset("https://example.com/image.png", config)
 
 
 class TestDownloadHeaders:
     """Test HTTP headers and user agent."""
 
-    @patch("libs.runtime_common.asset_downloader.requests")
-    @patch("libs.runtime_common.asset_downloader._validate_url_safety")
-    def test_user_agent_header(self, mock_validate, mock_requests):
+    def test_user_agent_header(self):
         """Test that User-Agent header is set correctly."""
         config = AssetDownloadConfig(enabled=True, user_agent="Custom-Agent/1.0")
 
-        mock_response = Mock()
-        mock_response.headers = {}
-        mock_response.iter_content.return_value = [b"data"]
-        mock_requests.get.return_value.__enter__.return_value = mock_response
+        with (
+            patch("libs.runtime_common.asset_downloader._validate_url_safety"),
+            patch("libs.runtime_common.asset_downloader.requests") as mock_requests,
+        ):
+            mock_response = Mock()
+            mock_response.headers = {}
+            mock_response.iter_content.return_value = [b"data"]
+            mock_requests.get.return_value.__enter__.return_value = mock_response
 
-        download_asset("https://example.com/image.png", config)
+            download_asset("https://example.com/image.png", config)
 
-        # Verify headers were passed correctly
-        call_args = mock_requests.get.call_args
-        headers = call_args[1]["headers"]
-        assert headers["User-Agent"] == "Custom-Agent/1.0"
-        assert headers["Accept"] == "*/*"
+            # Verify headers were passed correctly
+            call_args = mock_requests.get.call_args
+            headers = call_args[1]["headers"]
+            assert headers["User-Agent"] == "Custom-Agent/1.0"
+            assert headers["Accept"] == "*/*"
 
-    @patch("libs.runtime_common.asset_downloader.requests")
-    @patch("libs.runtime_common.asset_downloader._validate_url_safety")
-    def test_request_parameters(self, mock_validate, mock_requests):
+    def test_request_parameters(self):
         """Test that request parameters are set correctly."""
         config = AssetDownloadConfig(enabled=True, timeout_s=45)
 
-        mock_response = Mock()
-        mock_response.headers = {}
-        mock_response.iter_content.return_value = [b"data"]
-        mock_requests.get.return_value.__enter__.return_value = mock_response
+        with (
+            patch("libs.runtime_common.asset_downloader._validate_url_safety"),
+            patch("libs.runtime_common.asset_downloader.requests") as mock_requests,
+        ):
+            mock_response = Mock()
+            mock_response.headers = {}
+            mock_response.iter_content.return_value = [b"data"]
+            mock_requests.get.return_value.__enter__.return_value = mock_response
 
-        download_asset("https://example.com/image.png", config)
+            download_asset("https://example.com/image.png", config)
 
-        # Verify request parameters
-        call_args = mock_requests.get.call_args
-        assert call_args[1]["stream"] is True
-        assert call_args[1]["timeout"] == 45
-        assert call_args[1]["allow_redirects"] is True
+            # Verify request parameters
+            call_args = mock_requests.get.call_args
+            assert call_args[1]["stream"] is True
+            assert call_args[1]["timeout"] == 45
+            assert call_args[1]["allow_redirects"] is True
 
 
 @pytest.mark.integration

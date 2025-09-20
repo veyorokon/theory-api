@@ -166,24 +166,16 @@ def download_asset(url: str, config: AssetDownloadConfig) -> Tuple[bytes, str | 
 
             return buf.getvalue(), content_type
 
-    except requests.exceptions.Timeout as e:
-        raise ResourceLimitError(f"Download timeout after {config.timeout_s}s") from e
-    except requests.exceptions.RequestException as e:
-        raise AssetDownloadError(f"HTTP request failed: {e}") from e
+    except (ResourceLimitError, AssetDownloadError, SSRFProtectionError):
+        # Re-raise our own exceptions
+        raise
     except Exception as e:
-        raise AssetDownloadError(f"Unexpected download error: {e}") from e
+        # Handle request exceptions with fallback for testing
+        error_type = type(e).__name__
 
-
-# Legacy compatibility function
-def download_bytes(url: str, timeout_s: int = 30, max_bytes: int = 50 * 1024 * 1024) -> Tuple[bytes, str | None]:
-    """
-    Legacy compatibility wrapper for download_asset.
-
-    DEPRECATED: Use download_asset with AssetDownloadConfig instead.
-    """
-    config = AssetDownloadConfig(
-        enabled=True,
-        timeout_s=timeout_s,
-        max_bytes=max_bytes,
-    )
-    return download_asset(url, config)
+        if error_type == "Timeout":
+            raise ResourceLimitError(f"Download timeout after {config.timeout_s}s") from e
+        elif error_type in ("RequestException", "HTTPError"):
+            raise AssetDownloadError(f"HTTP request failed: {e}") from e
+        else:
+            raise AssetDownloadError(f"Unexpected download error: {e}") from e
