@@ -9,7 +9,10 @@ compose-down:
 	docker compose down
 
 wait-db:
-	until docker exec theory_api-postgres-1 pg_isready -U postgres -d postgres >/dev/null 2>&1; do sleep 1; done
+	@container=$$(docker ps --filter "ancestor=postgres:15" --format "{{.Names}}" | head -1); \
+	if [ -z "$$container" ]; then echo "PostgreSQL container not found"; exit 1; fi; \
+	echo "Waiting for PostgreSQL in container: $$container"; \
+	until docker exec $$container pg_isready -U postgres -d postgres >/dev/null 2>&1; do sleep 1; done
 
 # --- Django tasks (always from ./code) ---
 migrate:
