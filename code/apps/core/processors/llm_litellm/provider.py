@@ -10,7 +10,7 @@ from libs.runtime_common.mode import resolve_mode, is_mock
 def make_runner(config: Dict[str, Any]) -> Callable[[Dict[str, Any]], ProcessorResult]:
     """
     Returns a callable(inputs) -> ProcessorResult.
-    - inputs expects: {"schema":"v1","model":"...","params":{...},"mode":"real|mock|smoke"}
+    - inputs expects: {"schema":"v1","model":"...","params":{...},"mode":"real|mock"}
     """
     # Late import to keep container deps local
     try:
@@ -28,7 +28,7 @@ def make_runner(config: Dict[str, Any]) -> Callable[[Dict[str, Any]], ProcessorR
             payload = {
                 "model": model or "mock-model",
                 "choices": [{"message": {"role": "assistant", "content": "this is a mock reply"}}],
-                "mode": mode,
+                "mode": mode.value,
             }
             out = [
                 OutputItem(
@@ -37,7 +37,7 @@ def make_runner(config: Dict[str, Any]) -> Callable[[Dict[str, Any]], ProcessorR
                     mime="application/json",
                 )
             ]
-            return ProcessorResult(outputs=out, processor_info=f"litellm:{model}:{mode}", usage={}, extra={})
+            return ProcessorResult(outputs=out, processor_info=f"litellm:{model}:{mode.value}", usage={}, extra={})
 
         if litellm is None:
             raise RuntimeError("litellm not installed in this container")
@@ -63,7 +63,7 @@ def make_runner(config: Dict[str, Any]) -> Callable[[Dict[str, Any]], ProcessorR
         ]
         return ProcessorResult(
             outputs=out,
-            processor_info=f"litellm:{model}:{mode}",
+            processor_info=f"litellm:{model}:{mode.value}",
             usage={"duration_ms": duration_ms, **usage},
             extra={},
         )

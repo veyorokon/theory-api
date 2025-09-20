@@ -98,7 +98,7 @@ class TestE2ELocal:
         s3 = _minio_client()
 
         # Check response.json exists
-        response_key = f"artifacts/outputs/text/{exec_id}/response.json"
+        response_key = f"artifacts/outputs/text/{exec_id}/outputs/response.json"
         response_obj = s3.get_object(Bucket=bucket, Key=response_key)
         response_data = json.loads(response_obj["Body"].read().decode())
 

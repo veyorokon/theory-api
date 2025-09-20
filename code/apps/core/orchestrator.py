@@ -202,19 +202,13 @@ def run_processor_core(
             extra=plan_extras,
         )
 
-        # Write receipt and determinism data (skip for smoke mode - hermetic execution)
-        if mode == "smoke":
-            # In smoke mode, skip all service-dependent operations
-            # Just return the result envelope directly (hermetic execution)
-            pass
-        else:
-            # Normal mode: write receipt to write_prefix location alongside outputs
-            receipt_path = f"{write_prefix}receipt.json"
-            receipt_bytes = json.dumps(receipt_data, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-            artifact_store.put_bytes(receipt_path, receipt_bytes, "application/json")
+        # Write receipt to write_prefix location alongside outputs
+        receipt_path = f"{write_prefix}receipt.json"
+        receipt_bytes = json.dumps(receipt_data, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        artifact_store.put_bytes(receipt_path, receipt_bytes, "application/json")
 
-        # Write determinism receipt and settle execution if plan/execution exists (skip for smoke mode)
-        if execution and result.get("status") == "success" and mode != "smoke":
+        # Write determinism receipt and settle execution if plan/execution exists
+        if execution and result.get("status") == "success":
             # Derive output_cids from canonical outputs
             outputs = result.get("outputs") or []
             output_cids = [o["cid"] for o in outputs if isinstance(o, dict) and "cid" in o]

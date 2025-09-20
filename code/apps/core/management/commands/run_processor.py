@@ -29,7 +29,7 @@ class Command(BaseCommand):
         parser.add_argument("--adapter", choices=["local", "modal"], default="local", help="Execution adapter to use")
         parser.add_argument(
             "--mode",
-            choices=["real", "mock", "smoke"],
+            choices=["real", "mock"],
             help="Processor mode",
         )
         parser.add_argument("--plan", help="Plan key for budget tracking (creates if not exists)")

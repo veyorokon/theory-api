@@ -1,4 +1,4 @@
-"""Integration tests for llm_litellm smoke testing with mock."""
+"""Integration tests for llm_litellm mock mode testing."""
 
 import json
 import subprocess
@@ -13,10 +13,10 @@ import pytest
 pytestmark = pytest.mark.integration
 
 
-class TestLiteLLMSmokeMock:
-    """Test LiteLLM processor smoke execution with mock runner."""
+class TestLiteLLMMock:
+    """Test LiteLLM processor mock execution."""
 
-    def test_litellm_smoke_mock_no_egress(self):
+    def test_litellm_mock_no_egress(self):
         """Test that LiteLLM runs successfully with mock provider (no network)."""
         # Prepare inputs
         inputs = {
@@ -39,9 +39,9 @@ class TestLiteLLMSmokeMock:
             "--adapter",
             "local",
             "--mode",
-            "smoke",
+            "mock",
             "--write-prefix",
-            "/artifacts/outputs/litellm-smoke/{execution_id}/",
+            "/artifacts/outputs/litellm-mock/{execution_id}/",
             "--inputs-json",
             json.dumps(inputs),
             "--json",
@@ -80,7 +80,7 @@ class TestLiteLLMSmokeMock:
             "--adapter",
             "local",
             "--mode",
-            "smoke",
+            "mock",
             "--write-prefix",
             "/artifacts/outputs/litellm-ci/{execution_id}/",
             "--inputs-json",
@@ -95,5 +95,5 @@ class TestLiteLLMSmokeMock:
 
         result = subprocess.run(cmd, env=env, capture_output=True, text=True, cwd=".")
 
-        # Should succeed without network access
-        assert result.returncode == 0, f"CI mode should force mock: {result.stderr}"
+        # Should succeed without network access in mock mode
+        assert result.returncode == 0, f"Mock mode should succeed without network: {result.stderr}"

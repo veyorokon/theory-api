@@ -47,7 +47,7 @@ class TestFingerprint:
     def test_compose_env_fingerprint(self):
         """Test environment fingerprint composition."""
         result = compose_env_fingerprint(py="3.11", arch="x86_64", empty="", none=None)
-        assert result == "arch=x86_64;py=3.11"
+        assert result == "arch:x86_64;py:3.11"
 
     def test_memo_key_deterministic(self):
         """Test memo key generation is deterministic."""

@@ -37,7 +37,7 @@ class TestReplicateE2EMockLocal:
             "--adapter",
             "local",
             "--mode",
-            "smoke",
+            "mock",
             "--write-prefix",
             "/artifacts/outputs/replicate-e2e-test/{execution_id}/",
             "--inputs-json",

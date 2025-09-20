@@ -65,4 +65,4 @@ class TestLiteLLMRefactorSharedHelpers:
         fingerprint = compose_env_fingerprint(py="3.11.0", arch="x86_64", empty_value="", none_value=None)
 
         # Should exclude empty and None values, sort keys
-        assert fingerprint == "arch=x86_64;py=3.11.0"
+        assert fingerprint == "arch:x86_64;py:3.11.0"

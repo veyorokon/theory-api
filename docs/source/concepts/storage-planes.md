@@ -6,7 +6,7 @@ Theory standardizes on four distinct storage planes and a single path grammar. T
 
 ### Truth (PostgreSQL)
 - **Purpose**: Source of truth for all structured, transactional data
-- **Contains**: Plans, Transitions, Events, Executions, Leases, Budgets, Policies  
+- **Contains**: Plans, Transitions, Events, Executions, Leases, Budgets, Policies
 - **Guarantees**: ACID transactions, referential integrity, unique constraints
 - **Access**: Django ORM for models, direct SQL for performance-critical paths
 
@@ -18,7 +18,7 @@ Theory standardizes on four distinct storage planes and a single path grammar. T
 
 ### Streams (Redis)
 - **Purpose**: Low-latency, ephemeral chunk series for real-time data
-- **Contains**: Streaming data under `/world/{tenant}/{plan}/streams/*` paths  
+- **Contains**: Streaming data under `/world/{tenant}/{plan}/streams/*` paths
 - **Guarantees**: Ordering preservation, backpressure control, configurable retention
 - **Access**: StreamBus interface with append/read/seal operations
 
@@ -38,7 +38,7 @@ All planes share a canonical path format for uniform addressing:
 
 **Rules**:
 - Lowercase only, no dots or double-slashes
-- Single leading slash, no trailing slash (unless directory convention)  
+- Single leading slash, no trailing slash (unless directory convention)
 - Tenant and plan are required identifiers
 - Facet labels are free-form: "artifacts", "streams", "plan", "senses", "effectors"
 
@@ -55,7 +55,7 @@ The storage adapter abstraction provides:
 
 - **Environment transparency**: Same code works across dev/staging/production
 - **Vendor flexibility**: Switch storage providers via configuration without code changes
-- **Testing isolation**: Mock adapters or use in-memory implementations for tests
+- **Testing isolation**: Use local adapter smoke mode or in-memory implementations for tests
 - **Consistent API**: Uniform interfaces hide backend implementation complexity
 
 ## Storage Selection Guidelines
@@ -70,7 +70,7 @@ Choose the appropriate plane based on data characteristics:
 | Size Limits | MB | GB+ | KB chunks | GB |
 | Query Support | Full SQL | Prefix list | Sequential | None |
 
-## Related Documentation  
+## Related Documentation
 
 - [ADR-0002: Storage Adapter Pattern](../adr/ADR-0002-storage-adapter-pattern.md) - Design decisions
 - [Storage App](../apps/storage.md) - Implementation APIs and usage

@@ -31,7 +31,7 @@ def _flatten_urls(obj: Any) -> Iterable[str]:
 def make_runner(config: Dict[str, Any]) -> Callable[[Dict[str, Any]], ProcessorResult]:
     """
     Returns a callable(inputs) -> ProcessorResult.
-    - inputs expects: {"schema":"v1","model":"owner/model:ver","params":{...},"mode":"real|mock|smoke"}
+    - inputs expects: {"schema":"v1","model":"owner/model:ver","params":{...},"mode":"real|mock"}
     """
     # Late import so Django app never depends on this SDK
     try:
@@ -45,7 +45,7 @@ def make_runner(config: Dict[str, Any]) -> Callable[[Dict[str, Any]], ProcessorR
         params = inputs.get("params", {}) or {}
 
         if is_mock(mode):
-            payload = {"model": model or "mock-flux", "result": ["https://example.com/mock.webp"], "mode": mode}
+            payload = {"model": model or "mock-flux", "result": ["https://example.com/mock.webp"], "mode": mode.value}
             outputs = [
                 OutputItem(
                     relpath="outputs/response.json",
@@ -54,7 +54,7 @@ def make_runner(config: Dict[str, Any]) -> Callable[[Dict[str, Any]], ProcessorR
                 )
             ]
             return ProcessorResult(
-                outputs=outputs, processor_info=f"replicate:{model or 'unknown'}:{mode}", usage={}, extra={}
+                outputs=outputs, processor_info=f"replicate:{model or 'unknown'}:{mode.value}", usage={}, extra={}
             )
 
         if _rep is None:
@@ -84,7 +84,7 @@ def make_runner(config: Dict[str, Any]) -> Callable[[Dict[str, Any]], ProcessorR
         duration_ms = int((time.time() - t0) * 1000)
         return ProcessorResult(
             outputs=outputs,
-            processor_info=f"replicate:{model}:{mode}",
+            processor_info=f"replicate:{model}:{mode.value}",
             usage={"duration_ms": duration_ms},
             extra={},
         )

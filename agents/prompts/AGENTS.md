@@ -71,6 +71,50 @@ PLAN — ≤5 bullets tied to invariants & docs updates
 CHANGESETS — minimal diffs (schema in CLAUDE.md)
 DOCS — pages to update + _generated/** to refresh
 SMOKE — Makefile commands (make test-unit/test-acceptance/test-property/docs)
+
+## Clean Mode System Test Commands
+
+Test the complete clean mode system after implementation:
+
+```bash
+# Test LLM processor mock mode (should succeed)
+cd code && PYTHONPATH=. python manage.py run_processor \
+  --ref llm/litellm@1 \
+  --adapter local \
+  --mode mock \
+  --write-prefix "/artifacts/outputs/test-llm-mock/{execution_id}/" \
+  --inputs-json '{"schema":"v1","model":"gpt-4o-mini","params":{"messages":[{"role":"user","content":"test"}]}}' \
+  --json
+
+# Test Replicate processor mock mode (should succeed)
+cd code && PYTHONPATH=. python manage.py run_processor \
+  --ref replicate/generic@1 \
+  --adapter local \
+  --mode mock \
+  --write-prefix "/artifacts/outputs/test-replicate-mock/{execution_id}/" \
+  --inputs-json '{"schema":"v1","model":"black-forest-labs/flux-schnell","params":{"prompt":"test"}}' \
+  --json
+
+# Test invalid smoke mode rejection (should fail)
+cd code && PYTHONPATH=. python manage.py run_processor \
+  --ref llm/litellm@1 \
+  --mode smoke \
+  --json 2>&1 | grep "invalid choice: 'smoke'"
+
+# Test core mode validation
+cd code && PYTHONPATH=. DJANGO_SETTINGS_MODULE=backend.settings.unittest python -c "
+from libs.runtime_common.mode import resolve_mode, is_mock
+print('Testing clean mode system...')
+mock_mode = resolve_mode({'mode': 'mock'})
+print(f'Mock mode: {mock_mode.value}, is_mock: {is_mock(mock_mode)}')
+try:
+    resolve_mode({'mode': 'smoke'})
+    print('ERROR: Should have rejected smoke mode')
+except ValueError as e:
+    print(f'Correctly rejected smoke mode: {e}')
+print('✅ Clean mode system working!')
+"
+```
 RISKS — with mitigations
 ASKS — only for blockers
 ```
@@ -88,17 +132,17 @@ ASKS — only for blockers
 
 ```mermaid
 sequenceDiagram
-    participant A as Architect  
+    participant A as Architect
     participant E as Engineer
     participant D as Director
     participant G as Git
-    
+
     A->>E: 001-to-engineer.md (spec)
     E->>E: Implement changes
     E->>G: git add (stage only)
     E->>A: 00X-to-architect.md (implementation)
     A->>E: Review & approve/request changes
-    
+
     alt Approved
         E->>G: git commit & push
         E->>D: Create PR (no merge)
@@ -149,9 +193,9 @@ Plain English guidance — scope/priority, who should reply next, and any constr
 
 ## Chat & Branch Conventions (mechanical, for all agents)
 
-**IDs:** zero-padded integers (`0004`). **Areas:** `rt` (runtime), `ld` (ledger), `st` (storage), `ui` (ui/cli), `dx` (devx/ci), `ad` (adapters), `dc` (docs).  
-**Folder:** `theory_api/agents/chats/<id>-<area>-<slug>/` → e.g., `theory_api/agents/chats/0004-rt-tests-litellm/`  
-**Branch:** `feat/<area>-<slug>-<id>` (or `fix/...`) → `feat/rt-tests-litellm-0004`  
+**IDs:** zero-padded integers (`0004`). **Areas:** `rt` (runtime), `ld` (ledger), `st` (storage), `ui` (ui/cli), `dx` (devx/ci), `ad` (adapters), `dc` (docs).
+**Folder:** `theory_api/agents/chats/<id>-<area>-<slug>/` → e.g., `theory_api/agents/chats/0004-rt-tests-litellm/`
+**Branch:** `feat/<area>-<slug>-<id>` (or `fix/...`) → `feat/rt-tests-litellm-0004`
 **PR/Issue title:** `<id> [<area>] <slug>` → `0004 [rt] tests-litellm`
 
 **meta.yaml required keys:**

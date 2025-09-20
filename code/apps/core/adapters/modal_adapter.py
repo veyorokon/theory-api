@@ -283,8 +283,8 @@ class ModalAdapter(RuntimeAdapter):
         """0021: functions are named 'run' in each app; keep API stable."""
         import os
 
-        # Override function name based on mode
-        if mode == "smoke":
+        # Override function name based on mode - use smoke function for mock mode testing
+        if mode == "mock":
             return os.getenv("MODAL_FUNCTION_NAME", "smoke")
         else:
             return os.getenv("MODAL_FUNCTION_NAME", modal_fn_name())

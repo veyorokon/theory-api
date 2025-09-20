@@ -109,11 +109,11 @@ class TestWritePrefixTemplating:
         bucket = os.environ.get("S3_BUCKET", "default")
 
         # Check first run objects
-        response_key1 = f"artifacts/outputs/concurrent-test/{exec_id1}/response.json"
+        response_key1 = f"artifacts/outputs/concurrent-test/{exec_id1}/outputs/response.json"
         s3.get_object(Bucket=bucket, Key=response_key1)  # Should not raise
 
         # Check second run objects
-        response_key2 = f"artifacts/outputs/concurrent-test/{exec_id2}/response.json"
+        response_key2 = f"artifacts/outputs/concurrent-test/{exec_id2}/outputs/response.json"
         s3.get_object(Bucket=bucket, Key=response_key2)  # Should not raise
 
         # Keys should be different

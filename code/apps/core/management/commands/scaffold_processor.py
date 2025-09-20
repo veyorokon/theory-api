@@ -1,329 +1,372 @@
-# apps/core/management/commands/scaffold_processor.py
-from __future__ import annotations
-
-import re
-from dataclasses import dataclass
-from pathlib import Path
-from typing import List, Tuple
-
-from django.core.management.base import BaseCommand, CommandError
-
-
-HELP = """Scaffold a new processor using the thin, provider-agnostic pattern.
-
-Creates:
-  apps/core/processors/<ns>_<name>/
-    - main.py            # thin entrypoint (parse->normalize->runner->outputs->receipts)
-    - provider.py        # make_runner(ProviderConfig)->callable(inputs)->ProcessorResult
-    - requirements.txt   # processor-only deps (no Django)
-    - Dockerfile         # containerized processor (ENTRYPOINT to main)
-
-Optionally (with --with-registry):
-  apps/core/registry/processors/<ns>_<name>.yaml  # pinned image placeholder + runtime + secrets
-
-Usage:
-  python manage.py scaffold_processor --ref replicate/generic@1 --with-registry --secrets REPLICATE_API_TOKEN
-"""
-
-
-# -------------------------- templates (edit as needed) --------------------------
-
-TEMPLATE_MAIN = '''"""Processor entrypoint (thin pattern, provider-agnostic).
-
-Contract:
-- No Django imports here.
-- Uses runtime_common helpers for args, inputs, hashing, outputs, receipts.
-- Provider surface: make_runner(ProviderConfig) -> callable(inputs: dict) -> ProcessorResult
-"""
+# code/apps/core/management/commands/scaffold_processor.py
 from __future__ import annotations
 
 import os
-import sys
-import time
-from typing import Any, Dict
+import re
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Iterable, List, Tuple
 
-from libs.runtime_common.processor import parse_args, load_inputs, ensure_write_prefix
-from libs.runtime_common.hashing import inputs_hash
-from libs.runtime_common.fingerprint import compose_env_fingerprint
-from libs.runtime_common.outputs import write_outputs, write_outputs_index
-from libs.runtime_common.receipts import write_dual_receipts
-from libs.runtime_common.mode import resolve_mode
-
-from .provider import make_runner
+from django.core.management.base import BaseCommand, CommandError
+from django.conf import settings
 
 
-def _env_fingerprint() -> str:
-    # Keep stable, cheap, and sorted
-    return compose_env_fingerprint(
-        image=os.getenv("IMAGE_REF", "unknown"),
-        cpu=os.getenv("CPU", "1"),
-        memory=os.getenv("MEMORY", "2Gi"),
-        py=os.getenv("PYTHON_VERSION", ""),
-        gpu=os.getenv("GPU", "none"),
-    )
+# -------------------------
+# Utilities & Conventions
+# -------------------------
 
-
-def main() -> int:
-    args = parse_args()
-    write_prefix = ensure_write_prefix(args.write_prefix)
-    inputs = load_inputs(args.inputs)
-
-    ih = inputs_hash(inputs)
-    mode = resolve_mode(inputs)
-    config = {}  # Provider-specific config as needed
-
-    runner = make_runner(config)
-
-    t0 = time.time()
-    result = runner(inputs)  # callable(inputs) -> ProcessorResult
-    duration_ms = int((time.time() - t0) * 1000)
-
-    abs_paths = write_outputs(write_prefix, result.outputs, enforce_outputs_prefix=True)
-    index_path = write_outputs_index(
-        execution_id=args.execution_id,
-        write_prefix=write_prefix,
-        paths=abs_paths,
-    )
-
-    receipt = {
-        "execution_id": args.execution_id,
-        "processor_ref": os.getenv("PROCESSOR_REF", "{REF}"),
-        "image_digest": os.getenv("IMAGE_REF", "unknown"),
-        "env_fingerprint": _env_fingerprint(),
-        "inputs_hash": ih["value"],
-        "hash_schema": ih["hash_schema"],
-        "outputs_index": str(index_path),
-        "processor_info": result.processor_info,
-        "usage": result.usage,
-        "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "duration_ms": duration_ms,
-        "extra": result.extra,
-    }
-    write_dual_receipts(args.execution_id, write_prefix, receipt)
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
-'''
-
-TEMPLATE_PROVIDER = '''"""Provider stub for {REF}.
-
-This file **stays inside the processor container**.
-- It must not import Django.
-- If you need an SDK (e.g., replicate, litellm), add it to requirements.txt and import here.
-- The only public contract is: make_runner(ProviderConfig) -> callable(inputs: dict) -> ProcessorResult
-"""
-from __future__ import annotations
-
-from typing import Any, Callable, Dict, List, Mapping, Optional
-
-# Import shared types
-from libs.runtime_common.outputs import OutputItem
-from libs.runtime_common.types import ProcessorResult
-from libs.runtime_common.mode import resolve_mode, is_mock
-
-
-def _make_mock_runner(config: Dict[str, Any]) -> Callable[[Dict[str, Any]], ProcessorResult]:
-    def _runner(inputs: Dict[str, Any]) -> ProcessorResult:
-        # Minimal, deterministic mock
-        model = inputs.get("model", "mock-model")
-        payload = f"mock response from {model}".encode("utf-8")
-        return ProcessorResult(
-            outputs=[OutputItem(relpath="outputs/result.txt", bytes_=payload, mime="text/plain")],
-            processor_info={"provider": "mock", "model": model},
-            usage={},
-            extra={"mode": "mock"},
-        )
-    return _runner
-
-
-def _make_real_runner(config: Dict[str, Any]) -> Callable[[Dict[str, Any]], ProcessorResult]:
-    # TODO: Import and use your real SDK(s) here.
-    # Example (pseudocode):
-    #   import some_sdk
-    #   client = some_sdk.Client(api_key=cfg.extra.get("API_KEY"))
-    #   def _runner(inputs: Dict[str, Any]) -> ProcessorResult:
-    #       model = inputs.get("model") or cfg.model
-    #       params = inputs.get("params", {})
-    #       data = client.run(model=model, **params)
-    #       # Normalize to OutputItem(s)
-    #       content = (str(data) + "\\n").encode("utf-8")
-    #       return ProcessorResult(
-    #           outputs=[OutputItem(relpath="outputs/result.txt", bytes_=content, mime="text/plain")],
-    #           processor_info={"provider": "real", "model": model or "no-model"},
-    #           usage={},
-    #           extra={"mode": "real"},
-    #       )
-    #   return _runner
-    def _runner(_inputs: Dict[str, Any]) -> ProcessorResult:
-        raise RuntimeError("Real runner not implemented yet. Fill in provider logic.")
-    return _runner
-
-
-def make_runner(config: Dict[str, Any]) -> Callable[[Dict[str, Any]], ProcessorResult]:
-    \"\"\"Returns a callable(inputs) -> ProcessorResult.
-    - inputs expects: {\"schema\":\"v1\",\"model\":\"...\",\"params\":{...},\"mode\":\"real|mock|smoke\"}
-    \"\"\"
-    def _runner(inputs: Dict[str, Any]) -> ProcessorResult:
-        mode = resolve_mode(inputs)
-        if is_mock(mode):
-            return _make_mock_runner(config)(inputs)
-        return _make_real_runner(config)(inputs)
-    return _runner
-'''
-
-TEMPLATE_REQUIREMENTS = """blake3
-# Add any provider SDKs your processor needs below, e.g.:
-# replicate
-# litellm
-"""
-
-TEMPLATE_DOCKERFILE = """FROM python:3.11-slim
-WORKDIR /work
-# Prevents python from writing .pyc files & buffers stdout/stderr
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
-
-COPY requirements.txt /work/
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY . /work
-ENTRYPOINT ["python", "-m", "apps.core.processors.{PKG}.main"]
-"""
-
-TEMPLATE_REGISTRY = """ref: {REF}
-runtime:
-  cpu: {CPU}
-  memory: {MEMORY}
-  gpu: {GPU}
-image:
-  # Pin with Build & Pin workflow; placeholder prevents accidental pulls
-  oci: ghcr.io/{OWNER}/theory-api/{PKG}@sha256:pending
-secrets:
-  required:{SECRETS_BLOCK}
-policy:
-  network: egress
-  max_file_mb: 100
-  request_timeout_s: 120
-"""
-
-
-# -------------------------- utils --------------------------
+REF_RE = re.compile(r"^(?P<ns>[a-z0-9][a-z0-9_-]*)/(?P<name>[a-z0-9][a-z0-9_-]*)@(?P<ver>[0-9]+)$")
 
 
 @dataclass(frozen=True)
-class Ref:
+class ProcessorRef:
     ns: str
     name: str
     ver: str
 
     @property
     def pkg(self) -> str:
+        """Processor package folder name (Python-safe)."""
         return f"{self.ns}_{self.name}"
 
     @property
-    def pretty(self) -> str:
+    def image_repo(self) -> str:
+        """Container image repo naming (dash-separated for GHCR)."""
+        return f"{self.ns.replace('_', '-')}-{self.name.replace('_', '-')}"
+
+    @property
+    def display(self) -> str:
         return f"{self.ns}/{self.name}@{self.ver}"
 
 
-def parse_ref(ref: str) -> Ref:
-    try:
-        ns, rest = ref.split("/", 1)
-        name, ver = rest.split("@", 1)
-    except ValueError:
-        raise CommandError(f"Invalid ref '{ref}'. Expected format: ns/name@ver")
-    if not re.fullmatch(r"[a-z0-9\-]+", ns) or not re.fullmatch(r"[a-z0-9_\-]+", name):
-        raise CommandError("Invalid characters in ns/name. Use lowercase, digits, '-', '_' for name.")
-    if not re.fullmatch(r"[0-9]+", ver):
-        raise CommandError("Version must be an integer (e.g., @1).")
-    return Ref(ns=ns, name=name, ver=ver)
+def parse_ref(ref: str) -> ProcessorRef:
+    m = REF_RE.match(ref.strip())
+    if not m:
+        raise CommandError(f"Invalid --ref '{ref}'. Expected format 'ns/name@ver' (e.g., 'llm/litellm@1').")
+    return ProcessorRef(ns=m.group("ns"), name=m.group("name"), ver=m.group("ver"))
 
 
-def parse_runtime(runtime: str) -> Tuple[str, str, str]:
-    # "cpu=1,memory=2Gi,gpu=none"
-    parts = dict(x.split("=", 1) for x in runtime.split(",") if "=" in x)
-    return (
-        parts.get("cpu", "1"),
-        parts.get("memory", "2Gi"),
-        parts.get("gpu", "none"),
+def ensure_dir(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+
+
+def write_file(path: Path, content: str, *, force: bool) -> None:
+    if path.exists() and not force:
+        raise CommandError(f"Refusing to overwrite existing file without --force: {path}")
+    path.write_text(content, encoding="utf-8")
+
+
+def repo_and_owner() -> Tuple[str, str]:
+    """
+    Derive 'owner/repo' for GHCR repo-scoped images.
+    Priority:
+      1) GITHUB_REPOSITORY env (CI)
+      2) settings.GITHUB_REPOSITORY (if you set it)
+      3) Fallback: directory name as 'owner/repo' => '<user>/<basename>'
+    """
+    env_val = os.getenv("GITHUB_REPOSITORY") or getattr(settings, "GITHUB_REPOSITORY", None)
+    if env_val:
+        return tuple(env_val.split("/", 1))  # type: ignore[return-value]
+    # Fallback: repo name from BASE_DIR
+    base = Path(settings.BASE_DIR).resolve()
+    owner = os.getenv("GITHUB_ACTOR", "owner")
+    return owner, base.name
+
+
+def normalize_secret_names(secrets_csv: str | None) -> List[str]:
+    if not secrets_csv:
+        return []
+    raw = [s.strip() for s in secrets_csv.split(",")]
+    return [s for s in raw if s]
+
+
+# -------------------------
+# Templates
+# -------------------------
+
+T_MAIN = """\
+\"\"\"Thin processor entrypoint for {ref.display}.
+
+Responsibilities:
+- Parse args (delegated to libs.runtime_common.processor)
+- Load inputs (delegated)
+- Resolve mode (libs.runtime_common.mode)
+- Call provider runner (make_runner(config)(inputs))
+- Write outputs + dual receipts (libs.runtime_common.*)
+- No Django imports beyond this file; safe for container execution.
+\"\"\"
+from __future__ import annotations
+import os, sys, time, json
+from pathlib import Path
+from typing import Any, Dict
+
+from libs.runtime_common.processor import parse_args, load_inputs, ensure_write_prefix
+from libs.runtime_common.mode import resolve_mode
+from libs.runtime_common.hashing import inputs_hash
+from libs.runtime_common.outputs import write_outputs, write_outputs_index
+from libs.runtime_common.receipts import write_dual_receipts
+
+from apps.core.processors.{ref.pkg}.provider import make_runner
+
+PROCESSOR_REF = "{ref.display}"
+
+def main() -> int:
+    args = parse_args()  # --inputs, --write-prefix, --execution-id, --mode (optional)
+    write_prefix = ensure_write_prefix(args.write_prefix)
+    inputs: Dict[str, Any] = load_inputs(args.inputs)
+
+    # Harmonize mode into inputs (CLI --mode wins if present)
+    if args.mode:
+        inputs = dict(inputs)
+        inputs["mode"] = args.mode
+
+    # Resolve mode early (for receipts/meta if desired)
+    mode = resolve_mode(inputs).value
+
+    # Prepare runner and execute
+    runner = make_runner(config={})
+    t0 = time.time()
+    result: Dict[str, Any] = runner(inputs)
+    duration_ms = int((time.time() - t0) * 1000)
+
+    # Normalize outputs: expect list of {"relpath": "...", "bytes": b"...", "mime": "..."} in result.get("outputs", [])
+    outputs = result.get("outputs", [])
+    abs_paths = write_outputs(write_prefix, outputs)
+    idx_path = write_outputs_index(
+        execution_id=args.execution_id,
+        write_prefix=write_prefix,
+        paths=abs_paths,
     )
 
+    # Build receipt
+    ih = inputs_hash(inputs)
+    receipt = {{
+        "execution_id": args.execution_id,
+        "processor_ref": PROCESSOR_REF,
+        "image_digest": os.getenv("IMAGE_REF", "unknown"),
+        "env_fingerprint": os.getenv("ENV_FINGERPRINT", ""),
+        "inputs_hash": ih["value"],
+        "hash_schema": ih["hash_schema"],
+        "outputs_index": str(idx_path),
+        "processor_info": result.get("processor_info", PROCESSOR_REF),
+        "usage": result.get("usage", {{}}),
+        "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "duration_ms": duration_ms,
+        "mode": mode,
+    }}
+    write_dual_receipts(args.execution_id, write_prefix, receipt)
 
-def format_secrets_block(secret_names: List[str]) -> str:
-    if not secret_names:
-        return " []"
-    lines = "".join(f"\n    - {s}" for s in secret_names)
-    return lines
+    # Print success envelope to stdout for adapters
+    payload = {{
+        "status": "success",
+        "execution_id": args.execution_id,
+        "outputs": [p.as_posix() for p in abs_paths],
+        "index_path": str(idx_path),
+        "meta": {{"env_fingerprint": os.getenv("ENV_FINGERPRINT", "")}},
+    }}
+    sys.stdout.write(json.dumps(payload))
+    sys.stdout.flush()
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
+"""
+
+T_PROVIDER = """\
+\"\"\"Provider facade for {ref.display}.
+
+Expose a single uniform callable runner:
+
+    runner = make_runner(config={{{}}})
+    result = runner(inputs: dict) -> dict
+
+Contract for `result`:
+- processor_info: str (e.g., "{ref.display}")
+- usage: dict (timings, tokens, costs, optional)
+- outputs: list of artifacts to write (optional)
+- result: provider-specific payload (optional)
+
+In MOCK mode, no secrets should be required and results are deterministic.
+\"\"\"
+from __future__ import annotations
+import os
+from typing import Any, Dict
+from libs.runtime_common.mode import resolve_mode, is_mock
+
+def make_runner(config: Dict[str, Any]):
+    def run(inputs: Dict[str, Any]) -> Dict[str, Any]:
+        m = resolve_mode(inputs)
+        if is_mock(m):
+            text = "MOCK: hello world"
+            out_bytes = text.encode("utf-8")
+            return {{
+                "processor_info": "{ref.display}",
+                "usage": {{}},
+                "outputs": [
+                    {{"relpath": "outputs/response.json", "bytes": out_bytes, "mime": "application/json"}}
+                ],
+                "result": {{"text": text}},
+            }}
+
+        # REAL path: example shows a trivial echo; replace with actual provider logic.
+        # Require secrets explicitly if needed:
+        # api_key = os.getenv("OPENAI_API_KEY")
+        # if not api_key:
+        #     raise RuntimeError("ERR_MISSING_SECRET: OPENAI_API_KEY")
+
+        text = "REAL: hello world"
+        out_bytes = text.encode("utf-8")
+        return {{
+            "processor_info": "{ref.display}",
+            "usage": {{}},
+            "outputs": [
+                {{"relpath": "outputs/response.json", "bytes": out_bytes, "mime": "application/json"}}
+            ],
+            "result": {{"text": text}},
+        }}
+    return run
+"""
+
+T_DOCKERFILE = """\
+# syntax=docker/dockerfile:1
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \\
+    PYTHONUNBUFFERED=1
+
+WORKDIR /work
+
+# System deps (add as needed)
+RUN apt-get update -y && apt-get install -y --no-install-recommends \\
+    ca-certificates curl && \\
+    rm -rf /var/lib/apt/lists/*
+
+# App deps
+# IMPORTANT: Build context assumed at repo root.
+COPY code/apps/core/processors/{pkg}/requirements.txt /work/requirements.txt
+RUN pip install --no-cache-dir -r /work/requirements.txt
+
+# App code
+COPY code /work
+
+# Entrypoint executes the processor main in the container
+ENTRYPOINT ["python", "-m", "apps.core.processors.{pkg}.main"]
+"""
+
+T_REQUIREMENTS = """\
+# Add processor-specific Python deps here.
+# Keep minimal; prefer using libs/runtime_common from repo code mount.
+"""
 
 
-# -------------------------- command --------------------------
+def _yaml_block_list(key: str, items: Iterable[str], indent: int = 2) -> str:
+    pad = " " * indent
+    if not items:
+        return ""
+    lines = [f"{pad}{key}:"]
+    for s in items:
+        lines.append(f"{pad}- {s}")
+    return "\n".join(lines) + "\n"
+
+
+T_REGISTRY = """\
+# Registry spec for {ref.display}
+image:
+  oci: ghcr.io/{owner_repo}/{image_repo}@sha256:pending
+runtime:
+  cpu: 1
+  memory: 2gb
+  gpu: none
+{secrets_block}"""
+
+
+# -------------------------
+# Management Command
+# -------------------------
 
 
 class Command(BaseCommand):
-    help = HELP
+    help = "Scaffold a new processor (code files + registry spec) using the thin, shared-runtime pattern."
 
     def add_arguments(self, parser):
-        parser.add_argument("--ref", required=True, help="Processor ref (ns/name@ver)")
-        parser.add_argument("--with-registry", action="store_true", help="Also create registry YAML")
         parser.add_argument(
-            "--runtime", default="cpu=1,memory=2Gi,gpu=none", help="Runtime CSV (cpu=1,memory=2Gi,gpu=none)"
+            "--ref",
+            required=True,
+            help="Processor reference in form 'ns/name@ver' (e.g., 'llm/litellm@1').",
         )
-        parser.add_argument("--secrets", default="", help="Comma-separated secret names")
         parser.add_argument(
-            "--owner", default="owner", help="Container registry namespace (for registry YAML placeholder)"
+            "--secrets",
+            default="",
+            help="Comma-separated secret names required by this processor (e.g., 'OPENAI_API_KEY,FOO').",
         )
-        parser.add_argument("--force", action="store_true", help="Overwrite existing files if present")
+        parser.add_argument(
+            "--force",
+            action="store_true",
+            help="Allow overwriting existing files (use with care).",
+        )
 
     def handle(self, *args, **opts):
         ref = parse_ref(opts["ref"])
-        cpu, mem, gpu = parse_runtime(opts["runtime"])
-        secrets = [s.strip() for s in opts["secrets"].split(",") if s.strip()]
-        owner = opts["owner"]
-        force = opts["force"]
+        secrets = normalize_secret_names(opts.get("secrets"))
+        force: bool = bool(opts.get("force"))
 
-        proc_dir = Path(f"apps/core/processors/{ref.pkg}")
-        proc_dir.mkdir(parents=True, exist_ok=True)
+        # Resolve repo structure
+        repo_root = Path(settings.BASE_DIR).resolve()  # repo root
+        code_dir = repo_root / "code"
+        if not code_dir.exists():
+            raise CommandError(f"Expected 'code/' at repo root but not found: {code_dir}")
 
-        # Files to write
-        files = {
-            proc_dir / "main.py": TEMPLATE_MAIN.replace("{REF}", ref.pretty),
-            proc_dir / "provider.py": TEMPLATE_PROVIDER.replace("{REF}", ref.pretty),
-            proc_dir / "requirements.txt": TEMPLATE_REQUIREMENTS,
-            proc_dir / "Dockerfile": TEMPLATE_DOCKERFILE.replace("{PKG}", ref.pkg),
-        }
+        processors_dir = code_dir / "apps" / "core" / "processors" / ref.pkg
+        registry_dir = code_dir / "apps" / "core" / "registry" / "processors"
 
-        # Write processor files
-        for path, content in files.items():
-            if path.exists() and not force:
-                raise CommandError(f"Refusing to overwrite existing file: {path} (use --force)")
-            path.write_text(content, encoding="utf-8")
+        ensure_dir(processors_dir)
+        ensure_dir(registry_dir)
 
-        # Optional registry YAML
-        if opts["with_registry"]:
-            reg_dir = Path("apps/core/registry/processors")
-            reg_dir.mkdir(parents=True, exist_ok=True)
-            reg_path = reg_dir / f"{ref.pkg}.yaml"
-            if reg_path.exists() and not force:
-                raise CommandError(f"Refusing to overwrite existing file: {reg_path} (use --force)")
-            reg_yaml = TEMPLATE_REGISTRY.format(
-                REF=ref.pretty,
-                CPU=cpu,
-                MEMORY=mem,
-                GPU=gpu,
-                OWNER=owner,
-                PKG=ref.pkg,
-                SECRETS_BLOCK=format_secrets_block(secrets),
-            )
-            reg_path.write_text(reg_yaml, encoding="utf-8")
+        # Compute files
+        main_py = processors_dir / "main.py"
+        provider_py = processors_dir / "provider.py"
+        reqs_txt = processors_dir / "requirements.txt"
+        dockerfile = processors_dir / "Dockerfile"
+        registry_yaml = registry_dir / f"{ref.pkg}.yaml"
 
-        self.stdout.write(self.style.SUCCESS(f"✓ Scaffolded processor {ref.pretty} in {proc_dir}"))
-        if opts["with_registry"]:
-            self.stdout.write(
-                self.style.SUCCESS(f"✓ Created registry spec at apps/core/registry/processors/{ref.pkg}.yaml")
-            )
-        self.stdout.write(
-            "Next steps:\n"
-            "  • Add real provider logic in provider.py (SDK import + real runner)\n"
-            "  • Add any SDKs to requirements.txt\n"
-            "  • Build & Pin to replace the placeholder digest in registry YAML\n"
+        # Owner/repo for GHCR
+        owner, repo = repo_and_owner()
+        owner_repo = f"{owner}/{repo}"
+
+        # Render content
+        main_src = T_MAIN.format(ref=ref)
+        provider_src = T_PROVIDER.format(ref=ref)
+        docker_src = T_DOCKERFILE.format(pkg=ref.pkg)
+        reqs_src = T_REQUIREMENTS
+        secrets_blk = _yaml_block_list("secrets", secrets, indent=0)
+        registry_src = T_REGISTRY.format(
+            ref=ref,
+            owner_repo=owner_repo,
+            image_repo=ref.image_repo,
+            secrets_block=secrets_blk,
         )
+
+        # Write files
+        write_file(main_py, main_src, force=force)
+        write_file(provider_py, provider_src, force=force)
+        write_file(reqs_txt, reqs_src, force=force)
+        write_file(dockerfile, docker_src, force=force)
+        write_file(registry_yaml, registry_src, force=force)
+
+        # Summary
+        created = [main_py, provider_py, reqs_txt, dockerfile, registry_yaml]
+        rels = [p.relative_to(repo_root).as_posix() for p in created]
+        self.stdout.write(self.style.SUCCESS("✓ Processor scaffold created"))
+        for r in rels:
+            self.stdout.write(f"  - {r}")
+
+        # Next steps (explicit, concise)
+        self.stdout.write("\nNext steps:")
+        self.stdout.write("  1) Commit & push these files.")
+        self.stdout.write(
+            "  2) Run Build & Pin workflow to build & publish GHCR image (pinned digest will update registry)."
+        )
+        if secrets:
+            pretty = ", ".join(secrets)
+            self.stdout.write(f"  3) Ensure Modal has secrets: {pretty} in your target environment(s).")
+        self.stdout.write("  4) Run acceptance tests and modal deploy smoke (mock).")

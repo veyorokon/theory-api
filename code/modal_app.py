@@ -1,160 +1,251 @@
-"""
-Self-contained Modal deploy module (no Django/repo imports, no codegen).
-
-Deploy:
-  modal deploy --env $MODAL_ENVIRONMENT -m modal_app
-
-Runtime (adapter):
-  Function.from_name(app=APP_NAME, name="run", environment_name=$MODAL_ENVIRONMENT)
-
-CI smoke:
-  Function.from_name(..., name="smoke")  # deterministic, zero-cost
-"""
-
+# modal_app.py
 from __future__ import annotations
 
 import io
-import os
 import json
+import os
 import tarfile
+import tempfile
+import uuid
 import subprocess
-from typing import List
+from pathlib import Path
+from typing import Iterable, List
 
 import modal
-from apps.core.adapters.modal.naming import modal_app_name_from_ref, modal_fn_name
 
 
-# ---------- Naming ----------
+# -------------------------------
+# Small utilities (pure helpers)
+# -------------------------------
 
 
-def _app_name_from_env() -> str:
-    """Build app name from PROCESSOR_REF and MODAL_ENVIRONMENT using shared helper."""
-    ref = os.environ.get("PROCESSOR_REF", "")
-    env = os.environ.get("MODAL_ENVIRONMENT") or os.environ.get("MODAL_ENV") or "dev"
-    if ref:
-        return modal_app_name_from_ref(ref, env)
-    return os.getenv("MODAL_APP_NAME", "theory-rt")
-
-
-APP_NAME = _app_name_from_env()
-app = modal.App(APP_NAME)
-
-
-# ---------- Parameters (env-only) ----------
-
-# Required
-PROCESSOR_REF = os.environ["PROCESSOR_REF"]  # e.g. "llm/litellm@1"
-IMAGE_REF = os.environ["IMAGE_REF"]  # e.g. "ghcr.io/...@sha256:deadbeef..."
-
-# Optional
-TIMEOUT_S = int(os.getenv("TIMEOUT_S", "60"))
-CPU = int(os.getenv("CPU", "1"))
-MEMORY_MIB = int(os.getenv("MEMORY_MIB", "2048"))  # MiB
-GPU: str | None = os.getenv("GPU") or None  # e.g., "A10G" or unset
-
-# Registry secret (must contain REGISTRY_USERNAME + REGISTRY_PASSWORD)
-REGISTRY_SECRET_NAME = os.getenv("REGISTRY_SECRET_NAME", "REGISTRY_AUTH")
-
-# Comma-separated workload secrets; names must equal env var names
-TOOL_SECRETS: List[str] = [s for s in (os.getenv("TOOL_SECRETS", "")).split(",") if s.strip()]
-
-# Image + secrets
-image = modal.Image.from_registry(
-    IMAGE_REF,
-    secret=modal.Secret.from_name(REGISTRY_SECRET_NAME),
-)
-
-secrets = [modal.Secret.from_name(REGISTRY_SECRET_NAME)]
-for s in TOOL_SECRETS:
-    secrets.append(modal.Secret.from_name(s))
-
-
-# ---------- Shared execution ----------
-
-
-def _exec(payload: dict, *, extra_env: dict | None = None) -> bytes:
-    """
-    Write inputs -> call /app/main.py -> tar /work/out into gzipped bytes.
-    """
-    # 1) Inputs
-    os.makedirs("/work", exist_ok=True)
-    inputs_path = "/work/inputs.json"
-    with open(inputs_path, "w", encoding="utf-8") as f:
-        json.dump(payload["inputs_json"], f, ensure_ascii=False, separators=(",", ":"))
-
-    write_prefix = payload["write_prefix"]
-    argv = ["python", "/app/main.py", "--inputs", inputs_path, "--write-prefix", write_prefix]
-
-    # 2) Run
-    env = os.environ.copy()
-    if extra_env:
-        env.update(extra_env)
-
+def _log(event: str, **fields):
+    # Minimal structured logging to stdout
+    payload = {"event": event, **fields}
     try:
+        print(json.dumps(payload, separators=(",", ":"), sort_keys=True))
+    except Exception:
+        print(f"[{event}] {fields!r}")
+
+
+def _parse_tool_secrets(env_value: str | None) -> List[str]:
+    if not env_value:
+        return []
+    return [s.strip() for s in env_value.split(",") if s.strip()]
+
+
+def _pkg_from_ref(ref: str) -> str:
+    """
+    Convert 'ns/name@ver' -> 'ns_name' (processor package).
+    Example: 'llm/litellm@1' -> 'llm_litellm'
+    """
+    ns, rest = ref.split("/", 1)
+    name, _ver = rest.split("@", 1)
+    return f"{ns}_{name}"
+
+
+def _ensure_json_file(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+
+def _tar_directory(root: Path) -> bytes:
+    buf = io.BytesIO()
+    with tarfile.open(mode="w:gz", fileobj=buf) as tf:
+        for p in sorted(root.rglob("*")):
+            arcname = p.relative_to(root.parent)  # include the top dir in archive
+            tf.add(p, arcname=str(arcname))
+    return buf.getvalue()
+
+
+# -------------------------------
+# Modal image & secrets wiring
+# -------------------------------
+
+IMAGE_REF = os.environ.get("IMAGE_REF")  # e.g. ghcr.io/owner/repo/llm-litellm@sha256:...
+if not IMAGE_REF:
+    raise RuntimeError("IMAGE_REF is required (OCI digest for the processor container)")
+
+PROCESSOR_REF = os.environ.get("PROCESSOR_REF")  # e.g. llm/litellm@1
+if not PROCESSOR_REF:
+    raise RuntimeError("PROCESSOR_REF is required (e.g. 'llm/litellm@1')")
+
+TOOL_SECRETS = _parse_tool_secrets(os.environ.get("TOOL_SECRETS"))
+
+# Build Modal image from the pinned container
+image = modal.Image.from_registry(IMAGE_REF)
+
+app = modal.App("theory-runtime")
+
+
+def _modal_secret_objects(names: Iterable[str]) -> List[modal.Secret]:
+    secrets: List[modal.Secret] = []
+    for n in names:
+        if not n:
+            continue
+        # Will raise at deploy if a name is unknown in the target environment.
+        secrets.append(modal.Secret.from_name(n))
+    return secrets
+
+
+# -------------------------------
+# Core worker implementation
+# -------------------------------
+
+
+def _invoke_processor(payload: dict) -> bytes:
+    """
+    Execute the processor inside the pinned container:
+      python -m apps.core.processors.<pkg>.main --inputs <file> --write-prefix <dir> --execution-id <id>
+    Return: gzipped tarball of <write-prefix> contents (adapter will unpack & read outputs.json).
+    """
+    pkg = _pkg_from_ref(PROCESSOR_REF)
+
+    # Make a temp working dir for inputs/outputs, but the processor will write to write_prefix we pass in.
+    with tempfile.TemporaryDirectory() as tmpdir:
+        work = Path(tmpdir)
+        inputs_path = work / "inputs.json"
+
+        # Ensure we have a mode: default to "mock" if not provided (safer for deploy smoke and CI).
+        payload = dict(payload or {})
+        payload.setdefault("schema", "v1")
+        payload.setdefault("mode", "mock")
+
+        # Ensure a stable execution id if provided, else create one
+        execution_id = payload.get("execution_id") or str(uuid.uuid4())
+        payload["execution_id"] = execution_id
+
+        # Default write prefix (container-local). Adapters/Modal will pack and return this directory.
+        write_prefix = payload.get("write_prefix") or f"/tmp/exec/{execution_id}/"
+        payload["write_prefix"] = write_prefix
+
+        _ensure_json_file(inputs_path, payload)
+
+        cmd = [
+            "python",
+            "-m",
+            f"apps.core.processors.{pkg}.main",
+            "--inputs",
+            str(inputs_path),
+            "--write-prefix",
+            write_prefix,
+            "--execution-id",
+            execution_id,
+        ]
+
+        _log(
+            "modal.exec.start",
+            processor_ref=PROCESSOR_REF,
+            image_ref=IMAGE_REF,
+            mode=payload.get("mode"),
+            execution_id=execution_id,
+            write_prefix=write_prefix,
+        )
+
+        # Run inside the same container env as this Modal function
+        # NOTE: Secrets are attached at the function level (see decorators below), not here.
         proc = subprocess.run(
-            argv,
-            check=True,
+            cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            env=env,
+            check=False,
         )
-    except subprocess.CalledProcessError as e:
-        tail = (e.stderr or "").splitlines()[-40:]
-        raise RuntimeError(f"processor failed (exit={e.returncode}):\n" + "\n".join(tail))
 
-    # 3) Tar outputs
-    buf = io.BytesIO()
-    out_dir = "/work/out"
-    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
-        if os.path.isdir(out_dir):
-            for root, _, files in os.walk(out_dir):
-                for fn in files:
-                    full = os.path.join(root, fn)
-                    arc = os.path.relpath(full, out_dir)
-                    tf.add(full, arcname=arc)
-    buf.seek(0)
-    return buf.read()
+        if proc.returncode != 0:
+            _log(
+                "modal.exec.fail",
+                code="ERR_ADAPTER_INVOCATION",
+                execution_id=execution_id,
+                rc=proc.returncode,
+                stderr=proc.stderr[-4000:],  # cap
+            )
+            # Return a small error envelope tar with the stderr for diagnostics
+            # (Adapters can handle error envelopes too, but returning tar keeps a single wire shape.)
+            err_dir = work / "error" / execution_id
+            err_dir.mkdir(parents=True, exist_ok=True)
+            (err_dir / "stderr.txt").write_text(proc.stderr, encoding="utf-8")
+            (err_dir / "status.json").write_text(
+                json.dumps(
+                    {
+                        "status": "error",
+                        "execution_id": execution_id,
+                        "error": {
+                            "code": "ERR_ADAPTER_INVOCATION",
+                            "message": f"Subprocess failed rc={proc.returncode}",
+                        },
+                        "meta": {"env_fingerprint": "adapter=modal"},
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            return _tar_directory(err_dir)
+
+        # Success: tar the entire write_prefix (which contains outputs.json and files)
+        out_root = Path(write_prefix)
+        if not out_root.exists():
+            # Some processors might write relative to cwd; try fallback to /work/out
+            candidate = Path("/work/out")
+            if candidate.exists():
+                out_root = candidate
+
+        if not out_root.exists():
+            _log(
+                "modal.exec.warn",
+                warning="write_prefix_not_found",
+                attempted=str(write_prefix),
+            )
+
+        archive = _tar_directory(out_root if out_root.exists() else Path(tmpdir))
+        _log(
+            "modal.exec.complete",
+            execution_id=execution_id,
+            bytes=len(archive),
+        )
+        return archive
 
 
-# ---------- Functions ----------
+# -------------------------------
+# Modal functions
+# -------------------------------
 
 
-# Real function: used in production/runtime
 @app.function(
     name="run",
     image=image,
-    timeout=TIMEOUT_S,
-    cpu=CPU,
-    memory=MEMORY_MIB,
-    gpu=GPU,
-    secrets=secrets,
-    retries=0,  # fail-fast; policy is upstream
-    serialized=True,  # stable name requires serialization
+    # Attach secrets dynamically based on TOOL_SECRETS env; nothing is hard-coded.
+    secrets=_modal_secret_objects(TOOL_SECRETS),
+    timeout=60 * 10,  # 10 minutes, adjust as needed
 )
 def run(payload: dict) -> bytes:
-    return _exec(payload)
+    """
+    Normal execution:
+      - Uses secrets defined in TOOL_SECRETS (if any).
+      - Respects payload["mode"] ("real" or "mock"); default is "mock" if omitted.
+      - Returns a gzipped tarball of the write_prefix directory.
+    """
+    if not isinstance(payload, dict):
+        payload = {}
+    return _invoke_processor(payload)
 
 
-# Deterministic, zero-cost smoke function: used only by CI post-deploy
 @app.function(
     name="smoke",
     image=image,
-    timeout=TIMEOUT_S,
-    cpu=CPU,
-    memory=MEMORY_MIB,
-    gpu=GPU,
-    secrets=secrets,
-    retries=0,
-    serialized=True,
+    # No secrets attached for smoke; ensures zero-egress mock-only validation.
+    secrets=[],
+    timeout=60 * 5,  # quicker timeout for smoke
 )
 def smoke(payload: dict) -> bytes:
-    import os
-
-    # Clear API keys to force mock mode
-    for k in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"):
-        os.environ.pop(k, None)
-    # Ensure mode is set to smoke
-    if isinstance(payload, dict):
-        payload["mode"] = "smoke"
-    return run(payload)
+    """
+    Smoke validation:
+      - Forces payload["mode"] = "mock"
+      - Attaches no secrets (safe-by-default)
+      - Returns tarball of outputs (like 'run')
+    """
+    if not isinstance(payload, dict):
+        payload = {}
+    payload = dict(payload)
+    payload["mode"] = "mock"
+    return _invoke_processor(payload)

@@ -11,7 +11,7 @@ The registry provides versioned, immutable specifications for all system compone
 ### Processor Specifications
 
 ```yaml
-# registry/processors/llm/litellm.yaml  
+# registry/processors/llm/litellm.yaml
 ref: llm/litellm@1
 name: "LLM processor using LiteLLM"
 image:
@@ -38,21 +38,21 @@ predicates:
     - id: "budget.available@1"
       args: {required_usd_micro: 1000}
   success:
-    - id: "artifact.exists@1" 
+    - id: "artifact.exists@1"
       args: {path: "${outputs.text_path}"}
 ```
 
 ### Schema Definitions
 
 ```yaml
-# registry/schemas/media.metadata.yaml  
+# registry/schemas/media.metadata.yaml
 id: "media.metadata@1"
 schema:
   type: "object"
   properties:
     title: {type: "string"}
     duration_ms: {type: "integer", minimum: 0}
-    resolution: 
+    resolution:
       type: "object"
       properties:
         width: {type: "integer", minimum: 1}
@@ -64,7 +64,7 @@ schema:
 
 ```yaml
 # registry/policies/default.yaml
-id: "default@1"  
+id: "default@1"
 budget:
   max_usd_micro: 1000000  # $1 max per plan
 retry:
@@ -79,167 +79,106 @@ leases:
 
 Adapters provide runtime placement for processors, mapping `processor_ref` to concrete execution environments:
 
-- **local**: Docker container execution on local machine
-- **mock**: Simulated execution for testing/CI
-- **modal**: Cloud execution via Modal platform
+- **local**: Docker-backed execution on the same host (inputs carry `mode: "mock"` for hermetic runs).
+- **modal**: Cloud execution via the Modal platform.
 
-### Local Adapter (Docker)
+> “mock adapter” no longer exists; instead processors honour `mode` in the inputs JSON. CI smoke tests, local quick checks, and the `modal_app.smoke` function simply force `mode="mock"`.
 
-```python
-class LocalAdapter:
-    def invoke(self, processor_ref: str, context: ExpandedContext) -> ProcessorResult:
-        """Execute processor in Docker container with sandboxed access."""
-        processor_spec = context.registry_snapshot.get_processor(processor_ref)
-        
-        # Build or pull container image (with digest pinning)
-        image_uri = self.resolve_image(processor_spec.image)
-        
-        # Execute with resource limits and mounted world state
-        result = self.docker_client.containers.run(
-            image=image_uri,
-            command=["/work/entrypoint.sh"],
-            environment=self.prepare_env(context),
-            volumes={
-                context.world_mount: {"bind": "/work/world", "mode": "ro"},
-                context.scratch_dir: {"bind": "/work/out", "mode": "rw"}
-            },
-            mem_limit=f"{processor_spec.runtime.memory_gb}g",
-            cpu_period=100000,
-            cpu_quota=processor_spec.runtime.cpu * 100000,
-            timeout=processor_spec.runtime.timeout_s
-        )
-        
-        return self._canonicalize_outputs(context.scratch_dir, context.write_prefix, 
-                                          processor_spec.to_dict(), context.execution_id)
-```
+### Local Adapter (Docker + Mock mode)
 
-### Modal Adapter (Cloud)
+Executes processors on the host. In **real mode** it uses Docker containers and ArtifactStore; in **mock mode** it fabricates deterministic outputs under the write-prefix without touching external services.
 
-```python
-class ModalAdapter:
-    def invoke(self, processor_ref: str, context: ExpandedContext) -> ProcessorResult:
-        """Invoke Modal function with containerized processor."""
-        processor_spec = context.registry_snapshot.get_processor(processor_ref)
-        
-        # Map to Modal function with image digest pinning
-        function = self.get_modal_function(processor_spec, digest_pinned=True)
-        
-        # Execute with cloud resources
-        result = function.remote(
-            inputs=context.inputs,
-            world_mount=context.world_mount,
-            write_prefix=context.write_prefix,
-            execution_id=context.execution_id
-        )
-        
-        return result  # Modal returns canonical format
-```
+**Use cases:**
+- Fast mock runs (unit-style)
+- Full Docker execution for integration
+- CI smoke tests (mock mode)
 
-### Mock Adapter (Testing)
+**Characteristics:**
+- Synchronous execution
+- Docker isolation in `mode="real"`
+- Hermetic, no-external-deps path in `mode="mock"`
+
+### Modal Adapter
+
+Executes processors on Modal's serverless platform using the pinned image digest.
+
+**Use cases:**
+- Production workloads
+- GPU or high-memory processors
+- Warm pools for low latency
+
+**Characteristics:**
+- Pre-deployed functions (`modal deploy -m modal_app`)
+- Secrets mounted by name
+- Identical envelope format to local adapter
+
+## Uniform Adapter API
+
+All adapters implement the same interface with keyword-only parameters:
 
 ```python
-class MockAdapter:
-    def invoke(self, processor_ref: str, context: ExpandedContext) -> ProcessorResult:
-        """Simulate processor execution for testing."""
-        # Generate mock outputs in canonical format
-        return self._generate_mock_canonical_outputs(context)
+def invoke(
+    *,
+    processor_ref: str,
+    inputs_json: dict,
+    write_prefix: str,
+    execution_id: str,
+    registry_snapshot: dict,
+    adapter_opts: dict,
+    secrets_present: list[str]
+) -> envelope
 ```
 
-## ExpandedContext
+### Parameters
 
-Every :term:`Processor` receives the same structured context:
+- **processor_ref**: Registry reference (e.g., `llm/litellm@1`)
+- **inputs_json**: Processor input data (including `mode`)
+- **write_prefix**: WorldPath prefix for outputs (must end with `/`)
+- **execution_id**: Unique execution identifier
+- **registry_snapshot**: Complete registry state at execution time
+- **adapter_opts**: Adapter-specific configuration options
+- **secrets_present**: List of available secret names (names only, never values)
 
-```python
-@dataclass
-class ExpandedContext:
-    # Identity
-    plan_id: str
-    transition_id: str  
-    execution_id: str
-    attempt_idx: int
-    
-    # Configuration
-    registry_snapshot: RegistrySnapshot
-    policy: PolicyDoc
-    
-    # Inputs & Constraints  
-    inputs: dict
-    write_set_resolved: list[Selector]
-    budget_reserved: Receipt
-    
-    # World Access
-    world_mount: str        # Read-only world root
-    scratch_dir: str        # Writable temporary space
-    
-    # Determinism
-    seed: int
-    memo_key: str
-    env_fingerprint: str
+### Return Value
+
+All adapters return consistent **envelope** format.
+
+## Implementation Details
+
+### Local Adapter Details
+
+- **Object wrapper**: writes `{"outputs": [...]}` index
+- **Mock vs real**: `mode="mock"` synthesizes outputs; `mode="real"` launches Docker and uploads via ArtifactStore
+- **Parity with Modal**: Same success/error envelopes
+
+### Modal Adapter
+
+- Uses `image.oci` digests from the registry
+- Secrets pulled from Modal secret store
+- Deployed via `modal deploy -m modal_app.py`
+
+### Secrets Handling
+
+Secrets are resolved outside the adapter; adapters receive `secrets_present` (names only). Environment fingerprints list names, never values.
+
+## Adapter Selection
+
+Use the CLI `--adapter` flag and provide `--mode mock|real` as needed:
+
+```bash
+# Local mock run (no external dependencies)
+python manage.py run_processor --adapter local --mode mock --ref llm/litellm@1 ...
+
+# Local real run (Docker container)
+python manage.py run_processor --adapter local --mode real --ref llm/litellm@1 ...
+
+# Modal run (always real mode)
+python manage.py run_processor --adapter modal --mode real --ref llm/litellm@1 ...
 ```
 
-### World Mount
+## Best Practices
 
-The `world_mount` provides read-only access to world state:
-
-```
-/tmp/world-mount-abc123/
-├── artifacts/
-│   ├── script.json
-│   └── scenes/001/
-└── streams/  
-    └── camera/frames/ (latest chunks)
-```
-
-Processors read inputs but never write directly - all outputs go through the adapter API.
-
-## Image Resolution & Digest Pinning
-
-Adapters support multiple image resolution strategies:
-
-### OCI Registry (Recommended)
-```yaml
-image:
-  oci: "ghcr.io/theory/processor:v1.2.3@sha256:abc123..."
-```
-Uses digest pinning from GHCR or any OCI-compliant registry for reproducible builds.
-
-### Local Build
-```yaml
-image:
-  build:
-    context: "apps/core/processors/llm_litellm"
-    dockerfile: "Dockerfile"
-```
-Builds image from local Dockerfile with context path.
-
-## SDK Integration
-
-SDKs and libraries live inside containerized processors, not in the Django runtime:
-
-- **Isolation**: Each processor carries its own dependencies
-- **Reproducibility**: Container images ensure consistent environments
-- **Security**: No direct Django integration with external SDKs
-
-## Registry Snapshots
-
-For reproducibility, each :term:`Plan` pins a specific registry snapshot:
-
-```json
-{
-  "snapshot_id": "sha256:abc123...",
-  "created_at": "2025-01-01T12:00:00Z", 
-  "tools": {
-    "text.llm@1": { /* tool spec */ },
-    "media.render@1": { /* tool spec */ }
-  },
-  "schemas": { /* ... */ },
-  "policies": { /* ... */ }
-}
-```
-
-This ensures that a plan can be re-executed months later with identical behavior, even if the registry has evolved.
-
-Hybrid inserts:
-
-```{include} ../../_generated/registry/index.md
-```
+- Mock runs (`mode=mock`) for fast tests and smoke checks
+- Real runs (`mode=real`) for Docker-based integration
+- Promote the same pinned digest to Modal for prod
+- Never log secret values; rely on `secrets_present`

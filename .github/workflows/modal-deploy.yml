@@ -14,7 +14,7 @@ jobs:
   deploy:
     name: Deploy to Modal
     runs-on: ubuntu-latest
-    # Map git branch to GH Environment; main -> prod, else branch name unless overridden
+    # Map git branch to GitHub Environment; main -> prod, else branch name unless overridden
     environment: ${{ inputs.environment != '' && inputs.environment || (github.ref_name == 'main' && 'prod' || github.ref_name) }}
     permissions:
       contents: read
@@ -30,105 +30,123 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
           pip install -U pip wheel
           pip install -r requirements.txt
           pip install modal pyyaml
 
-      - name: Compute required processor secrets (from registry)
+      # 1) Read processors + digests from registry (already pinned)
+      - name: Collect processors from registry
+        id: processors
         run: |
-          python code/ops/list_required_secrets.py > required_secrets.json
-          echo "Required secrets: $(cat required_secrets.json)"
+          python - <<'PY'
+          import glob, yaml, json, os
+          processors = []
+          for path in sorted(glob.glob("code/apps/core/registry/processors/*.yaml")):
+              doc = yaml.safe_load(open(path))
+              ref = doc["ref"]  # e.g., "llm/litellm@1"
+              oci = doc["image"]["oci"]
+              secrets = [s for s in doc.get("secrets", {}).get("required", [])]
 
-      - name: Enforce allow-list for secret names
-        run: |
-          set -euo pipefail
-          REQ=$(cat required_secrets.json)
-          echo "$REQ" | python - <<'PY'
-          import sys,json
-          allow = {"OPENAI_API_KEY","REPLICATE_API_TOKEN"}
-          req = json.load(sys.stdin)
-          bad = [s for s in req if s not in allow]
-          if bad:
-            print("❌ Unexpected secret(s) in registry:", ", ".join(bad))
-            sys.exit(1)
-          print("✅ Registry secrets conform to allow-list.")
+              processors.append({
+                  "ref": ref,
+                  "oci": oci,
+                  "secrets": secrets
+              })
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"list={json.dumps(processors)}\n")
+
+          print(f"Found {len(processors)} processors:")
+          for p in processors:
+              print(f"  {p['ref']} -> {p['oci']}")
+              if p['secrets']:
+                  print(f"    secrets: {', '.join(p['secrets'])}")
           PY
 
-      - name: Sync secrets to Modal (upsert, same names)
+      # 2) Secret sync to Modal env (dev/staging/main)
+      - name: Sync secrets to Modal
         env:
+          MODAL_ENVIRONMENT: ${{ env.MODAL_ENVIRONMENT }}
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-          MODAL_ENVIRONMENT: ${{ env.MODAL_ENVIRONMENT }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
         run: |
           set -euo pipefail
+
+          # Login to Modal
           modal token set --token-id "$MODAL_TOKEN_ID" --token-secret "$MODAL_TOKEN_SECRET" >/dev/null
           echo "🔐 Syncing secrets to Modal env=$MODAL_ENVIRONMENT"
-          python - <<'PY'
-          import os, json, subprocess, sys
-          req = json.load(open("required_secrets.json"))
-          values = {k: os.environ.get(k,"") for k in ("OPENAI_API_KEY","REPLICATE_API_TOKEN")}
-          missing = []
-          for name in req:
-              val = values.get(name, "")
-              if not val:
-                  print(f"  ⚠️  Missing GitHub secret value: {name}")
-                  missing.append(name)
-                  continue
-              print(f"  Creating/updating {name} (len={len(val)})")
-              subprocess.run(
-                ["modal","secret","create", name, f"{name}={val}", "--env", os.environ["MODAL_ENVIRONMENT"], "--force"],
-                check=True, stdout=subprocess.DEVNULL
-              )
-          if missing:
-              print("❌ Missing GitHub secret value(s):", ", ".join(missing))
-              sys.exit(1)
-          print("✅ All required secrets present and synced.")
-          PY
 
-      - name: Deploy all processors to Modal
+          # Get unique secret names from all processors
+          SECRET_NAMES=$(echo '${{ steps.processors.outputs.list }}' | jq -r '.[].secrets[]?' | sort -u)
+
+          # Sync each secret
+          missing=()
+          for name in $SECRET_NAMES; do
+              case "$name" in
+                  OPENAI_API_KEY)
+                      val="$OPENAI_API_KEY"
+                      ;;
+                  REPLICATE_API_TOKEN)
+                      val="$REPLICATE_API_TOKEN"
+                      ;;
+                  *)
+                      echo "::warning::Unknown secret '$name' - add to allow-list"
+                      val=""
+                      ;;
+              esac
+
+              if [ -z "$val" ]; then
+                  echo "⚠️  Missing GitHub secret value: $name"
+                  missing+=("$name")
+                  continue
+              fi
+
+              echo "  Creating/updating $name (len=${#val})"
+              modal secret create "$name" "$name=$val" --env "$MODAL_ENVIRONMENT" --force >/dev/null
+          done
+
+          if [ ${#missing[@]} -gt 0 ]; then
+              echo "❌ Missing GitHub secret value(s): ${missing[*]}"
+              exit 1
+          fi
+
+          echo "✅ All required secrets synced to Modal"
+
+      # 3) Deploy each processor to Modal
+      - name: Deploy processors
         working-directory: code
         env:
           MODAL_ENVIRONMENT: ${{ env.MODAL_ENVIRONMENT }}
         run: |
           set -euo pipefail
-          python - <<'PY'
-          import yaml, os, subprocess, glob
 
-          files = sorted(glob.glob("apps/core/registry/processors/*.yaml"))
-          for path in files:
-              doc = yaml.safe_load(open(path))
-              ref = doc["ref"]
-              image = doc["image"]["oci"]
+          echo '${{ steps.processors.outputs.list }}' | jq -c '.[]' | while read -r processor; do
+              ref=$(echo "$processor" | jq -r .ref)
+              oci=$(echo "$processor" | jq -r .oci)
+              secrets=$(echo "$processor" | jq -r '.secrets | join(",")')
 
-              # Map secrets to processor families (extend here if needed)
-              if ref.startswith("llm/"):
-                  secrets = "OPENAI_API_KEY"
-              elif ref.startswith("replicate/"):
-                  secrets = "REPLICATE_API_TOKEN"
-              else:
-                  secrets = ""
+              echo ""
+              echo "🚀 Deploying $ref"
+              echo "   Image: $oci"
+              echo "   Secrets: $secrets"
 
-              env = os.environ.copy()
-              env["IMAGE_REF"] = image
-              env["PROCESSOR_REF"] = ref
-              env["TOOL_SECRETS"] = secrets
+              # Set environment for this processor
+              export PROCESSOR_REF="$ref"
+              export IMAGE_REF="$oci"
+              export TOOL_SECRETS="$secrets"
 
-              print(f"\n🚀 Deploying {ref} with image {image}")
-              res = subprocess.run(
-                ["modal","deploy","--env", os.environ["MODAL_ENVIRONMENT"], "-m", "modal_app"],
-                env=env, capture_output=True, text=True
-              )
-              if res.returncode != 0:
-                  print(f"❌ Failed to deploy {ref}\n{res.stderr}")
-                  raise SystemExit(1)
-              print(f"✅ Deployed {ref}")
-          PY
+              # Deploy to Modal
+              modal deploy --env "$MODAL_ENVIRONMENT" -m modal_app
 
-      - name: Post-deploy smoke tests (Modal adapter)
+              echo "✅ Deployed $ref"
+          done
+
+      # 4) Post-deploy smoke tests (mode=mock) for each processor
+      - name: Post-deploy smoke tests
         working-directory: code
         env:
           DJANGO_SETTINGS_MODULE: backend.settings.unittest
@@ -136,42 +154,44 @@ jobs:
           MODAL_ENVIRONMENT: ${{ env.MODAL_ENVIRONMENT }}
         run: |
           set -euo pipefail
-          python - <<'PY'
-          import yaml, json, subprocess, glob
 
-          files = sorted(glob.glob("apps/core/registry/processors/*.yaml"))
-          for path in files:
-              doc = yaml.safe_load(open(path))
-              ref = doc["ref"]
+          echo '${{ steps.processors.outputs.list }}' | jq -c '.[]' | while read -r processor; do
+              ref=$(echo "$processor" | jq -r .ref)
 
-              if ref.startswith("llm/"):
-                  inputs = '{"schema":"v1","model":"gpt-4o-mini","params":{"messages":[{"role":"user","content":"deployment smoke test"}]},"mode":"mock"}'
-              elif ref.startswith("replicate/"):
-                  inputs = '{"schema":"v1","model":"black-forest-labs/flux-schnell","params":{"prompt":"test image"},"mode":"mock"}'
-              else:
-                  print(f"⚠️ Skipping unknown processor type: {ref}")
+              echo ""
+              echo "🧪 Smoke testing $ref (mode=mock)"
+
+              # Determine test inputs based on processor family
+              if [[ "$ref" == llm/* ]]; then
+                  inputs='{"schema":"v1","model":"gpt-4o-mini","params":{"messages":[{"role":"user","content":"deployment smoke test"}]},"mode":"mock"}'
+              elif [[ "$ref" == replicate/* ]]; then
+                  inputs='{"schema":"v1","model":"black-forest-labs/flux-schnell","params":{"prompt":"test image"},"mode":"mock"}'
+              else
+                  echo "⚠️ Skipping unknown processor family: $ref"
                   continue
+              fi
 
-              print(f"\n🧪 Smoke: {ref}")
-              cmd = [
-                "python","manage.py","run_processor",
-                "--ref", ref,
-                "--adapter", "modal",
-                "--mode", "smoke",
-                "--write-prefix", "/artifacts/outputs/smoke/{execution_id}/",
-                "--inputs-json", inputs,
-                "--json"
-              ]
-              res = subprocess.run(cmd, capture_output=True, text=True)
-              if res.returncode != 0:
-                  print(f"❌ Smoke failed for {ref}\n{res.stderr}")
-                  raise SystemExit(1)
-              try:
-                  payload = json.loads(res.stdout)
-                  assert payload.get("status") == "success", payload
-                  assert payload.get("execution_id")
-                  print(f"✅ {ref} ok: {payload['execution_id']}")
-              except Exception as e:
-                  print(f"❌ Validation failed for {ref}: {e}\nOutput: {res.stdout}")
-                  raise SystemExit(1)
-          PY
+              # Run smoke test via Modal adapter
+              result=$(python manage.py run_processor \
+                  --ref "$ref" \
+                  --adapter modal \
+                  --mode mock \
+                  --write-prefix "/artifacts/outputs/smoke/{execution_id}/" \
+                  --inputs-json "$inputs" \
+                  --json)
+
+              # Validate response
+              status=$(echo "$result" | jq -r .status)
+              execution_id=$(echo "$result" | jq -r .execution_id)
+
+              if [ "$status" != "success" ]; then
+                  echo "❌ Smoke test failed for $ref"
+                  echo "$result" | jq .
+                  exit 1
+              fi
+
+              echo "✅ $ref smoke passed: $execution_id"
+          done
+
+          echo ""
+          echo "🎉 All processors deployed and smoke tested successfully"

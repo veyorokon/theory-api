@@ -1,353 +1,160 @@
 # CI/CD Pipeline
 
-Automated build, test, and deployment pipeline for Theory API with processor image management and Modal function deployment.
+This runbook documents the automated pipeline that builds processor images once, pins their digests, validates them locally, and then promotes the exact same artifacts through Modal **dev → staging → main**. Every section below maps directly to the workflows living in `.github/workflows/` (`pr-checks.yml`, `build-and-pin.yml`, `acceptance.yml`, `modal-deploy.yml`).
 
-## Pipeline Overview
+## High-Level Flow
 
 ```{mermaid}
 graph TD
-    A[Pull Request] --> B[Unit Tests]
-    B --> C[Docs Build]
-    C --> D[Lint & Type Check]
-    D --> E[Merge to Main]
-    E --> F[Detect Changes]
-    F --> G[Build Processor Images]
-    F --> H[Ensure Secrets]
-    F --> I[Deploy Modal Functions]
-    G --> J[Pin Image Digests]
-    J --> K[Bot PR]
-    H --> L[Update Functions]
-    I --> L
-    L --> M[App Deployment]
+    PR[Pull Request → dev] --> Fast[PR Checks (lint/unit/docs)]
+    Fast --> MergeDev[Merge to dev]
+    MergeDev --> BP[Build & Pin (bot PR)]
+    BP --> PinPR[Pin PR merged]
+    PinPR --> Accept[Acceptance (Docker, mock mode)]
+    Accept --> DeployDev[Modal Deploy → dev + smoke]
+    DeployDev --> PromoteStg[Promote → staging]
+    PromoteStg --> DeployStg[Modal Deploy → staging + smoke]
+    DeployStg --> PromoteMain[Promote → main]
+    PromoteMain --> DeployMain[Modal Deploy → main + smoke]
 ```
 
-## Pull Request Checks
+## Stage-by-Stage Summary
 
-### Required Status Checks
+| Stage | Workflow | Trigger | Key Actions |
+|-------|----------|---------|-------------|
+| PR Checks | `pr-checks.yml` | PRs, pushes to `dev`/`main` | Ruff lint & format, unit tests (`pytest -m "unit and not integration"`), coverage, docs drift, deptry/deadcode |
+| Build & Pin | `build-and-pin.yml` | Pushes to `dev`, manual dispatch | Build processor images once, push to GHCR, rewrite registry with digests, open bot PR if changes |
+| Acceptance | `acceptance.yml` | Pushes to `dev` | Docker-compose stack, run `make test-acceptance` (adapter=`local`, mode=`smoke`), skip if any digest pending |
+| Modal Deploy | `modal-deploy.yml` | Pushes to `dev`, `staging`, `main` | Sync secrets to Modal env, deploy pinned digests, smoke test each processor via Modal `smoke` function |
 
-All PRs must pass these checks before merge (Fast Lane):
+All downstream environments reuse the digests pinned on `dev`; **never rebuild** as part of staging/main promotion.
 
-1. **Unit Tests (SQLite)**
-   ```bash
-   make test-unit
-   # Equivalent to: pytest -q -m "unit and not integration and not requires_postgres"
-   ```
+## 1. Pull Request Checks (Fast Lane)
 
-2. **Documentation Build & Drift Check**
-   ```bash
-   make docs
-   # Runs: docs_export → drift check → sphinx build with -W (warnings fail)
-   ```
+The `pr-checks.yml` workflow enforces the following before merging into `dev`:
 
-3. **Lint & Type Checks** (if configured)
-   ```bash
-   # Example targets
-   make lint
-   make typecheck
-   ```
+- **Linting & formatting**: `ruff check` and `ruff format --check` on the `code/` tree.
+- **Unit tests**: executed inside `code/` using SQLite (`DJANGO_SETTINGS_MODULE=backend.settings.unittest`). Only tests marked `unit` run.
+- **Coverage**: `make test-coverage` produces `coverage.xml` & `coverage.json` and enforces a baseline threshold.
+- **Docs & drift**: `make docs` runs the docs export, drift check, and Sphinx build with `-W`.
+- **Static guards**: dead-code gate, deptry, import reachability.
 
-### PR Template Validation
+> Need Docker-based checks pre-merge? Label the PR with `run-acceptance` and manually run the acceptance workflow.
 
-PRs must use `.github/pull_request_template.md` and complete:
-- **Linked Issue**: Reference to GitHub issue
-- **Summary**: 1-3 line description
-- **Documentation**: List of updated docs files
-- **Testing**: Smoke test commands
-- **Safety**: Backout steps
+## 2. Build & Pin (Image Factory)
 
-## CI Lanes
+Workflow: `.github/workflows/build-and-pin.yml`
 
-- **Fast lane (unit + docs):** Runs on every PR and on pushes to `dev`/`main`. Platform‑agnostic (no Docker).
-- **Docker lane (acceptance + property):** Runs on Ubuntu with Docker. Triggers on pushes to `dev`/`main` and on PRs labeled `run-acceptance`.
+### Permissions & Checkout
 
-Add the `run-acceptance` label to a PR to execute Docker‑based tests before merge.
-
-## Main Branch Pipeline
-
-### 1. Processor Image Build (0023)
-
-**Trigger**: Changes under `code/apps/core/processors/**`
-
-**Process**:
-1. Detect modified processor directories
-2. Build linux/amd64 images for each processor
-3. Push to GitHub Container Registry (GHCR)
-4. Capture image SHA256 digests
-5. Create bot PR updating `image.oci` in registry YAML files
-
-**Example**:
 ```yaml
-# Before (registry YAML)
-image:
-  oci: ghcr.io/veyorokon/llm_litellm:latest
+permissions:
+  contents: write
+  packages: write
+  pull-requests: write
 
-# After (bot PR)
-image:
-  oci: ghcr.io/veyorokon/llm_litellm@sha256:09e1fb31078db18369fa50c393ded009c88ef880754dbfc1131d750ce3f8f225
+steps:
+  - uses: actions/checkout@v4
+    with:
+      fetch-depth: 0
+      persist-credentials: true
 ```
 
-### GHCR Package Access & Authentication
+### Processor Matrix Resolution
 
-GitHub Actions must be able to pull private images from GHCR. Configure GHCR package access and add an auth step in CI:
+- Read `code/apps/core/registry/processors/*.yaml`.
+- For each entry capture: registry path, processor package (`code/apps/core/processors/<name>`), Dockerfile location.
+- Optional workflow input `processors` limits the build list.
 
-**IMPORTANT**: New processor packages must be created manually before first CI build.
+### Build & Push
 
-#### Creating New GHCR Packages (Required Before First Build)
+- `docker setup-buildx-action` enables BuildKit.
+- Each processor is built with context `code/` (Dockerfile lives under the processor dir).
+- Images are tagged `ghcr.io/<repo>/<processor>:build-<timestamp>` and pushed (single arch `linux/amd64`; extend if needed).
+- Digests are extracted via `docker buildx imagetools inspect`.
 
-When adding a new processor (e.g., `replicate/generic@1`), the GHCR package must exist before the Build & Pin workflow can push to it:
+### Update Registry & Bot PR
 
-1. **Build and push initial image locally**:
+- Registry YAMLs are rewritten so `image.oci` points to `<image>@sha256:<digest>`.
+- A change detector runs: `git diff --quiet -- code/apps/core/registry/processors`.
+- If differences exist, `peter-evans/create-pull-request@v6` opens `bot/pin-${{ github.run_id }}` with commit message `ci: pin processor images (bot)`.
+
+**Important:** GHCR packages must exist and grant this repository **Actions: Write**.
+
+#### Onboarding a New Processor Package
+
+1. Build & push an initial tag locally to create the GHCR package:
    ```bash
-   # Navigate to processor directory
    cd code/apps/core/processors/replicate_generic
-
-   # Build the image locally
-   docker build -t ghcr.io/veyorokon/replicate-generic:initial .
-
-   # Login to GHCR (use GITHUB_TOKEN or PAT)
-   echo "$GITHUB_TOKEN" | docker login ghcr.io -u username --password-stdin
-
-   # Push to create the package
-   docker push ghcr.io/veyorokon/replicate-generic:initial
+   docker build -t ghcr.io/<owner>/<repo>/replicate-generic:initial .
+   echo "$GH_PAT" | docker login ghcr.io -u <user> --password-stdin
+   docker push ghcr.io/<owner>/<repo>/replicate-generic:initial
    ```
+2. GitHub → Packages → (package) → Settings → Repository access → add this repo with **Actions: Write**.
+3. Subsequent automated pushes from the workflow will succeed.
 
-2. **Configure package permissions**:
-   - Go to GitHub → Packages → Select the new package (e.g., `replicate-generic`)
-   - Package settings → Repository access → Add this repository
-   - Permission: **Actions: Write** (allows CI to push new tags/digests)
+## 3. Acceptance Tests (Docker, Smoke Mode)
 
-#### Repository Access Configuration
+Workflow: `.github/workflows/acceptance.yml`
 
-For existing packages, ensure proper repository access:
+- Runs on pushes to `dev` after the pin PR merges.
+- Early guard: exits if any registry YAML still contains `oci: sha256:pending`.
+- Starts Docker services via `docker compose up -d postgres redis minio`.
+- Runs `make test-acceptance` inside `code/` (adapter=`local`, `--mode smoke`), exercising budgets, artifact writes, and receipts.
+- Ensure branch protection on `dev` requires this workflow before deploy.
 
-- Package settings → Repository access → Add this repository → Permission: **Actions: Write** (not just Read)
+## 4. Modal Deploy & Smoke
 
-CI authentication step (example):
-```yaml
-- name: Authenticate Docker to GHCR
-  run: |
-    echo "${{ secrets.GHCR_RO || secrets.GITHUB_TOKEN }}" | \
-      docker login ghcr.io -u ${{ github.actor }} --password-stdin
-```
+Workflow: `.github/workflows/modal-deploy.yml`
 
-Preflight manifest check (optional):
-```yaml
-- name: Assert pinned image exists in GHCR
-  run: |
-    REF=$(make ci-get-image-ref)
-    docker manifest inspect "$REF" || exit 1
-```
+### Trigger Strategy
 
-### 2. Secrets Ensure (Per Environment)
+- Pushes to `dev`, `staging`, `main` (optionally manual `workflow_dispatch`).
+- Each branch deploys to its matching Modal environment (`MODAL_ENVIRONMENT` defaults to the branch name).
 
-**Trigger**: Registry YAML changes or manual dispatch
+### Steps
 
-**Purpose**: Idempotent secret creation/updates for each Modal environment
+1. **Checkout** repo (full history not required).
+2. **Collect processors**: parse registry YAML into JSON (ref, pinned digest, secret list).
+3. **Secret sync**: for every secret name listed, read matching GitHub secret and `modal secret create <name> --env $ENV --force`. Missing GitHub secrets emit warnings.
+4. **Deploy**: invoke `modal deploy -m code/modal_app.py --env $ENV` for each processor with `PROCESSOR_REF`, `IMAGE_REF`, `TOOL_SECRETS` in the environment. This deploys the pinned digest.
+5. **Post-deploy smoke**: call `modal function call code.modal_app::smoke --env $ENV --args '{"ref":"...","mode":"mock"}'` to verify the deployment without touching external providers.
 
-**Process**:
-```bash
-# For each environment (dev, staging, main)
-modal secret create REGISTRY_AUTH \
-  --from-literal REGISTRY_USERNAME="$GITHUB_USERNAME" \
-  --from-literal REGISTRY_PASSWORD="$GITHUB_PAT"
+### Promotion Philosophy
 
-modal secret create OPENAI_API_KEY \
-  --from-literal OPENAI_API_KEY="$OPENAI_API_KEY"
+- **Build once** on `dev` → reuse digests for `staging` and `main`.
+- Promotion is simply merging the same registry YAML commit across branches.
+- Optional: after staging deploy, run a single “real mode” canary invocation if quotas allow.
 
-modal secret create LITELLM_API_BASE \
-  --from-literal LITELLM_API_BASE="$LITELLM_API_BASE"
-```
+## Secrets & Configuration
 
-**Secret Sources**: CI secret store provides environment-specific values
+- Processor registry YAMLs declare required/optional secrets. Example:
+  ```yaml
+  secrets:
+    required:
+      - OPENAI_API_KEY
+    optional:
+      - LITELLM_API_BASE
+  ```
+- GitHub is the source of truth. Store per-environment values as repository/environment secrets with consistent names (`OPENAI_API_KEY_DEV`, etc.). The deploy workflow reads them and pushes to Modal.
+- `REGISTRY_AUTH` must be present in each Modal env (credentials for pulling from GHCR).
 
-### 3. Modal Function Deployment (Committed Module)
+## Promotion Checklist
 
-**Trigger**: Registry YAML changes (image/runtime/secrets modifications)
+1. Merge pin PR → `dev`. Confirm Acceptance (Docker) and Modal deploy (dev) are green.
+2. Promote to `staging` (merge or cherry-pick). Modal deploy (staging) runs automatically and smokes succeed.
+3. Promote to `main`. Modal deploy (main) runs, smoke succeed.
+4. Downstream Django releases can now assume the processors are deployed with the pinned digests.
 
-**Process**:
-```bash
-# For each environment
-export PROCESSOR_REF=llm/litellm@1
-export IMAGE_REF=ghcr.io/veyorokon/llm_litellm@sha256:...
-export TOOL_SECRETS=OPENAI_API_KEY
-python manage.py sync_modal --env $MODAL_ENV
-```
+Rollback is mechanical: revert the pin commit on `dev`, merge through staging/main, and rerun deploy.
 
-**Validation**: Functions deployed successfully and accessible
+## Workflow Reference
 
-### 4. Application Deployment
+| File | Purpose |
+|------|---------|
+| `.github/workflows/pr-checks.yml` | Fast lane: lint, unit, docs, coverage |
+| `.github/workflows/build-and-pin.yml` | Build processor images once, pin digests, open bot PR |
+| `.github/workflows/acceptance.yml` | Docker-based acceptance on `dev` using mock mode |
+| `.github/workflows/modal-deploy.yml` | Deploy & smoke processors on Modal dev/staging/main |
 
-**Final step**: Deploy Django application with updated processor registry
-
-## Environment-Specific Workflows
-
-### Development Environment
-
-**Secrets**: Development API keys and test credentials
-**Modal App**: `theory-rt`
-**Registry**: Uses same image digests as main, different secret values
-
-### Staging Environment
-
-**Secrets**: Staging API keys (often same as main)
-**Modal App**: `theory-rt`
-**Registry**: Pre-production validation before main deployment
-
-### Main Environment
-
-**Secrets**: Production API keys
-**Modal App**: `theory-rt`
-**Registry**: Authoritative processor definitions
-
-## Pipeline Triggers
-
-### Automatic Triggers
-
-| Change Type | Trigger | Jobs |
-|-------------|---------|------|
-| Processor source code | Push to main | Build images → Pin digests → Deploy functions |
-| Registry YAML updates | Push to main | Ensure secrets → Deploy functions |
-| Documentation changes | Push to main | Build & deploy docs |
-| Any code changes | Pull request | Unit tests → Docs build → Lint |
-
-### Manual Triggers
-
-| Workflow | Purpose | When to Use |
-|----------|---------|-------------|
-| Secrets Ensure | Update/create secrets | New environment setup, secret rotation |
-| Function Deploy | Redeploy Modal functions | Function issues, registry rollback |
-| Full Pipeline | Complete rebuild | Major version deployment |
-
-## Configuration Files
-
-### GitHub Actions
-
-```
-.github/workflows/
-├── pr-checks.yml       # Fast lane (lint, unit, docs, coverage, dead-code)
-├── acceptance.yml      # Docker lane (compose + acceptance/property)
-├── build-and-pin.yml   # Processor image builds + digest pin PR
-└── modal-deploy.yml    # Modal deploy (committed module) + smoke
-```
-
-### Pipeline Secrets
-
-Required in GitHub repository secrets:
-
-| Secret | Purpose | Environments |
-|--------|---------|--------------|
-| `GITHUB_PAT` | GHCR access, bot PRs | All |
-| `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` | Modal API access | All |
-| `OPENAI_API_KEY_DEV` | Development OpenAI | Development |
-| `OPENAI_API_KEY_MAIN` | Production OpenAI | Staging, Production |
-
-## Deployment Order
-
-**Critical**: Maintain correct deployment sequence per environment:
-
-1. **Create/verify secrets** (names identical across environments)
-2. **Ensure image digests pinned** in registry YAML
-3. **Deploy Modal functions** with `sync_modal --env <env>`
-4. **Deploy application** with updated registry
-5. **Verify functionality** with smoke tests
-
-## Rollback Procedures
-
-### Registry Rollback
-
-```bash
-# 1. Revert registry YAML to previous digest
-git revert <commit-hash>
-
-# 2. Redeploy Modal functions
-export PROCESSOR_REF=llm/litellm@1
-export IMAGE_REF=ghcr.io/veyorokon/llm_litellm@sha256:...
-python manage.py sync_modal --env main
-
-# 3. Deploy application
-# (application deployment process)
-```
-
-### Secret Rollback
-
-```bash
-# Update secret with previous value
-modal secret update OPENAI_API_KEY \
-  --from-literal OPENAI_API_KEY="$PREVIOUS_API_KEY"
-```
-
-### Function Rollback
-
-```bash
-# Redeploy with previous registry state
-export PROCESSOR_REF=llm/litellm@1
-export IMAGE_REF=ghcr.io/veyorokon/llm_litellm@sha256:prev...
-python manage.py sync_modal --env main
-```
-
-## Monitoring & Alerts
-
-### Pipeline Health
-
-- **Build failures**: Alert on processor image build failures
-- **Deployment failures**: Alert on Modal function deployment issues
-- **Test failures**: Block merges on failing unit tests or docs builds
-- **Secret issues**: Monitor secret access failures in Modal
-
-### Performance Metrics
-
-- **Build times**: Track processor image build duration
-- **Deployment times**: Monitor Modal function deployment speed
-- **Test execution**: Track test suite performance over time
-
-## Troubleshooting
-
-### Common Pipeline Issues
-
-**"invalid username/password" in processor build:**
-- Check GitHub PAT in `GITHUB_PAT` secret
-- Verify PAT has `read:packages` and `write:packages` scopes
-
-**"function not found" after deployment:**
-- Ensure deployment ran to the correct environment (`--env dev|staging|main`)
-- App name: `{slug}-v{ver}-{env}`; Function name: `run`
-- Verify Modal deployment completed successfully
-
-**Unit tests failing on PR:**
-- Run tests locally: `make test-unit`
-- Check for database migration issues
-- Verify test environment setup
-
-**Docs build failures:**
-- Missing referenced documents in toctree
-- Cross-reference syntax errors
-- Generated content drift (run `make docs` locally)
-
-### Debug Commands
-
-**Check CI status:**
-```bash
-gh workflow list
-gh run list --workflow=ci-cd.yml
-```
-
-**Test locally:**
-```bash
-make test-unit
-make docs
-python manage.py run_processor --ref llm/litellm@1 --adapter local --write-prefix /artifacts/outputs/text/ --inputs-json '{}'
-```
-
-**Modal debugging:**
-```bash
-modal app list
-modal function list --app theory-rt
-modal logs --app theory-rt
-```
-
-## Cross-References
-
-- {doc}`../guides/modal` - Modal deployment and secrets management
-- {doc}`../guides/tests` - Test matrix and execution details
-- {doc}`deployments` - Manual deployment procedures
-- [ADR-0003: Branch Strategy CI/CD](../adr/ADR-0003-branch-strategy-cicd.md) - CI/CD design decisions
+Keep this runbook in sync with workflow changes—update both together whenever CI/CD behavior shifts.
