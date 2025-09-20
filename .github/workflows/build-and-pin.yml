@@ -144,7 +144,7 @@ jobs:
 
           python - <<'PY'
           import os, json, yaml, pathlib, re
-          data = json.loads(os.environ["DIGESTS"] or '${{ steps.builds.outputs.digests }}')
+          data = json.loads('${{ steps.builds.outputs.digests }}')
           for item in data:
             yml = pathlib.Path(item["registry_yaml"])
             if not yml.exists():
