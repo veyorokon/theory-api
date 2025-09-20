@@ -1,6 +1,6 @@
 ref: llm/litellm@1
 image:
-  oci: ghcr.io/veyorokon/theory-api/llm_litellm@sha256:1e74b655b76d141fe66747e7d51f2bfd144015ad909cdd1ef8ff78f3910ff289
+  oci: ghcr.io/veyorokon/theory-api/llm-litellm@sha256:1ba33c0574be8068f65f384ef0553d96d8073852d8e0bc7b0aa57baace4fb803
 build:
   context: .
   dockerfile: apps/core/processors/llm_litellm/Dockerfile
