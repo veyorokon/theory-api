@@ -30,6 +30,9 @@ jobs:
       DOCKER_DEFAULT_PLATFORM: linux/amd64
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -135,13 +138,10 @@ jobs:
         env:
           LIST: ${{ steps.matrix.outputs.list }}
 
-      - name: Update registry pins in a branch
+      - name: Update registry pins
         id: pin
         run: |
           set -euo pipefail
-          BRANCH="bot/pin-$(date +%Y%m%d-%H%M%S)"
-          git checkout -b "$BRANCH"
-
           python - <<'PY'
           import os, json, yaml, pathlib, re
           data = json.loads('${{ steps.builds.outputs.digests }}')
@@ -159,16 +159,26 @@ jobs:
             yml.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
             print(f"Pinned {item['pkg']} => {item['full_ref']} in {yml}")
           PY
-          git add code/apps/core/registry/processors/*.yaml
-          git commit -m "ci: pin processor images (bot) [skip ci]" || echo "No changes"
-          echo "BRANCH=$BRANCH" >> $GITHUB_OUTPUT
 
-      - name: Open PR with pinned digests
+      - name: Detect registry changes
+        id: detect
+        run: |
+          if git diff --quiet -- code/apps/core/registry/processors; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Pin PR
+        if: steps.detect.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "ci: pin processor images (bot)"
-          title: "CI: Pin processor images"
-          body: "Automated pin update after successful builds."
-          branch: ${{ steps.pin.outputs.BRANCH }}
-          base: dev
+          branch: "bot/pin-${{ github.run_id }}"
+          title: "ci: pin processor images"
+          body: |
+            This PR pins processor images to the latest built digests.
+            • Workflow: ${{ github.workflow }}  • Run: ${{ github.run_id }}
+          labels: ci,automated
+          signoff: false

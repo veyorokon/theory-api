@@ -90,7 +90,37 @@ image:
 
 GitHub Actions must be able to pull private images from GHCR. Configure GHCR package access and add an auth step in CI:
 
-- Package settings → Repository access → Add this repository → Permission: **Actions: Read** (not Codespaces).
+**IMPORTANT**: New processor packages must be created manually before first CI build.
+
+#### Creating New GHCR Packages (Required Before First Build)
+
+When adding a new processor (e.g., `replicate/generic@1`), the GHCR package must exist before the Build & Pin workflow can push to it:
+
+1. **Build and push initial image locally**:
+   ```bash
+   # Navigate to processor directory
+   cd code/apps/core/processors/replicate_generic
+
+   # Build the image locally
+   docker build -t ghcr.io/veyorokon/replicate-generic:initial .
+
+   # Login to GHCR (use GITHUB_TOKEN or PAT)
+   echo "$GITHUB_TOKEN" | docker login ghcr.io -u username --password-stdin
+
+   # Push to create the package
+   docker push ghcr.io/veyorokon/replicate-generic:initial
+   ```
+
+2. **Configure package permissions**:
+   - Go to GitHub → Packages → Select the new package (e.g., `replicate-generic`)
+   - Package settings → Repository access → Add this repository
+   - Permission: **Actions: Write** (allows CI to push new tags/digests)
+
+#### Repository Access Configuration
+
+For existing packages, ensure proper repository access:
+
+- Package settings → Repository access → Add this repository → Permission: **Actions: Write** (not just Read)
 
 CI authentication step (example):
 ```yaml
@@ -160,7 +190,7 @@ python manage.py sync_modal --env $MODAL_ENV
 ### Staging Environment
 
 **Secrets**: Staging API keys (often same as main)
-**Modal App**: `theory-rt`  
+**Modal App**: `theory-rt`
 **Registry**: Pre-production validation before main deployment
 
 ### Main Environment
