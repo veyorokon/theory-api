@@ -87,10 +87,11 @@ jobs:
                   continue
               val = allow.get(name, "")
               if not val:
+                  print(f"  ⚠️  {name} is empty in GitHub secrets")
                   missing.append(name)
                   continue
               # Upsert in Modal with the same name/value
-              print(f"  Creating/updating {name}...")
+              print(f"  Creating/updating {name}... (length: {len(val)})")
               subprocess.run(
                   ["modal","secret","create", name, f"{name}={val}", "--env", os.environ["MODAL_ENVIRONMENT"], "--force"],
                   check=True, stdout=subprocess.DEVNULL
@@ -155,6 +156,7 @@ jobs:
           DJANGO_SETTINGS_MODULE: backend.settings.unittest
           MODAL_ENABLED: "true"
           MODAL_ENVIRONMENT: ${{ inputs.environment != '' && inputs.environment || github.ref_name }}
+          MODAL_ENV: ${{ inputs.environment != '' && inputs.environment || github.ref_name }}
         run: |
           set -euo pipefail
           python - <<'PY'
