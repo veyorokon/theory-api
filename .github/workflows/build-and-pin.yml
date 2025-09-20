@@ -1,215 +1,172 @@
-name: Build & Pin Processor Images
+name: Build & Pin
 
 on:
+  workflow_dispatch:
+    inputs:
+      processors:
+        description: "Comma-separated processor package names (e.g. llm_litellm,replicate_generic). Empty = all."
+        required: false
+        default: ""
   push:
-    branches: [dev]
+    branches: [dev, main]
     paths:
       - "code/apps/core/processors/**"
-      - "code/libs/**"
       - "code/apps/core/registry/processors/**"
-  workflow_dispatch: {}
+      - ".github/workflows/build-and-pin.yml"
+
+permissions:
+  contents: write
+  packages: write
+  pull-requests: write
 
 jobs:
-  discover-changes:
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.set.outputs.matrix }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: dorny/paths-filter@v3
-        id: changes
-        with:
-          filters: |
-            processors:
-              - 'code/apps/core/processors/**'
-              - 'code/libs/**'
-              - 'code/apps/core/registry/processors/**'
-
-      - name: Set matrix
-        id: set
-        run: |
-          set -euo pipefail
-
-          if [[ "${{ steps.changes.outputs.processors }}" != 'true' ]]; then
-            echo 'matrix={"include":[]}' >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          # Find processor directories
-          procs=$(ls -1 code/apps/core/processors 2>/dev/null | tr '\n' ' ' || echo "")
-          if [ -z "$procs" ]; then
-            echo 'matrix={"include":[]}' >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          # Build matrix JSON
-          matrix_items=""
-          for p in $procs; do
-            if [ -d "code/apps/core/processors/$p" ]; then
-              matrix_items="${matrix_items}{\"processor\":\"$p\"},"
-            fi
-          done
-          matrix_items=$(echo "$matrix_items" | sed 's/,$//')
-
-          echo "matrix={\"include\":[$matrix_items]}" >> $GITHUB_OUTPUT
-
   build-and-pin:
-    needs: discover-changes
-    if: ${{ fromJSON(needs.discover-changes.outputs.matrix).include[0] != null }}
     runs-on: ubuntu-latest
-    strategy:
-      matrix: ${{ fromJSON(needs.discover-changes.outputs.matrix) }}
-    permissions:
-      contents: write
-      packages: write
-      pull-requests: write
-      actions: read
-      issues: write
     env:
-      REGISTRY: ghcr.io
-      TAG: sha-${{ github.sha }}
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      PYTHONUNBUFFERED: "1"
+      REGISTRY_OWNER: ${{ github.repository_owner }}
+      GHCR_IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}
+      DOCKER_DEFAULT_PLATFORM: linux/amd64
     steps:
       - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          persist-credentials: true
-          ref: ${{ github.ref }}
+          python-version: "3.11"
 
-      - name: Set up QEMU (multi-arch)
-        uses: docker/setup-qemu-action@v3
+      - name: Install helper deps
+        run: |
+          pip install -U pip wheel pyyaml
 
-      - name: Set up Buildx
+      - name: Docker login GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Enable Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve processor matrix
+        id: matrix
+        run: |
+          python - <<'PY'
+          import os, yaml, json, pathlib
+          force = os.environ.get("FORCE", "")
+          requested = os.getenv("INPUT_PROCESSORS", "") or "${{ inputs.processors }}"
+          req = [p.strip() for p in requested.split(",") if p.strip()]
+          base = pathlib.Path("code/apps/core/registry/processors")
+          items = []
+          for y in sorted(base.glob("*.yaml")):
+            data = yaml.safe_load(y.read_text())
+            ref = data["ref"]  # e.g. "llm/litellm@1"
+            ns, rest = ref.split("/", 1)
+            name, ver = rest.split("@", 1)
+            pkg = f"{ns}_{name}"            # e.g. "llm_litellm"
+            proc_dir = f"code/apps/core/processors/{pkg}"
+            dockerfile = f"{proc_dir}/Dockerfile"
+            if req and pkg not in req:
+              continue
+            items.append({
+              "ref": ref,
+              "pkg": pkg,
+              "proc_dir": proc_dir,
+              "dockerfile": dockerfile,
+              "registry_yaml": f"code/apps/core/registry/processors/{name if ns=='llm' else pkg.replace('_','-')}.yaml"
+            })
+          print("::set-output name=list::" + json.dumps(items))
+          PY
 
-      - name: Derive image name
-        id: img
+      - name: Fail if no processors found
+        if: steps.matrix.outputs.list == '[]'
+        run: |
+          echo "::error::No processors resolved for build."
+          exit 1
+
+      - name: Build each processor (push to GHCR)
+        id: builds
         run: |
           set -euo pipefail
-          PROC="${{ matrix.processor }}"
-          SLUG="${PROC//_/-}"
-          IMAGE="${REGISTRY}/${{ github.repository_owner }}/${SLUG}"
-          echo "image=${IMAGE}" >> $GITHUB_OUTPUT
+          python - <<'PY'
+          import json, os, subprocess, hashlib, sys, time, pathlib, yaml
+          procs = json.loads(os.environ["LIST"] or '${{ steps.matrix.outputs.list }}')
+          owner = os.environ["REGISTRY_OWNER"]
+          prefix = os.environ["GHCR_IMAGE_PREFIX"]
+          digests = []
 
-      - name: Build & Push (multi-platform)
+          for p in procs:
+            pkg = p["pkg"]
+            dockerfile = p["dockerfile"]
+            context = "code"  # <<<<<< build context moved to ./code
+            tag_base = f"{prefix}/{pkg}"
+            tag_tmp  = f"{tag_base}:build-{int(time.time())}"
+            print(f"--- Building {pkg} with context={context}, dockerfile={dockerfile}")
+            # Build & push (single-platform by default; add platforms= if you need multi-arch)
+            subprocess.check_call([
+              "docker", "buildx", "build",
+              "--platform", os.environ.get("DOCKER_DEFAULT_PLATFORM","linux/amd64"),
+              "-f", dockerfile,
+              "-t", tag_tmp,
+              "--push",
+              context
+            ])
+            # Get digest
+            out = subprocess.check_output(["docker", "buildx", "imagetools", "inspect", tag_tmp])
+            out = out.decode("utf-8", "replace")
+            digest = None
+            for line in out.splitlines():
+              line=line.strip()
+              if line.startswith("Digest: "):
+                digest = line.split("Digest:",1)[1].strip()
+                break
+            if not digest:
+              print(out)
+              raise SystemExit(f"Could not determine digest for {pkg}")
+
+            full_ref = f"{tag_base}@{digest}"
+            digests.append({"pkg":pkg, "digest":digest, "full_ref":full_ref, "registry_yaml":p["registry_yaml"]})
+            print(f"✅ Built {pkg} => {full_ref}")
+
+          # write outputs
+          print("::set-output name=digests::" + json.dumps(digests))
+          PY
+        env:
+          LIST: ${{ steps.matrix.outputs.list }}
+
+      - name: Update registry pins in a branch
+        id: pin
         run: |
           set -euo pipefail
-          PROC="${{ matrix.processor }}"
-          DOCKERFILE="code/apps/core/processors/${PROC}/Dockerfile"
+          BRANCH="bot/pin-$(date +%Y%m%d-%H%M%S)"
+          git checkout -b "$BRANCH"
 
-          if [ ! -f "$DOCKERFILE" ]; then
-            echo "ERROR: Dockerfile not found: $DOCKERFILE"
-            exit 1
-          fi
+          python - <<'PY'
+          import os, json, yaml, pathlib, re
+          data = json.loads(os.environ["DIGESTS"] or '${{ steps.builds.outputs.digests }}')
+          for item in data:
+            yml = pathlib.Path(item["registry_yaml"])
+            if not yml.exists():
+              # fallback to filename by pkg (common case)
+              yml = pathlib.Path("code/apps/core/registry/processors") / (item["pkg"] + ".yaml")
+              if not yml.exists():
+                print(f"::warning ::Registry yaml not found for {item['pkg']}, skipping")
+                continue
+            doc = yaml.safe_load(yml.read_text())
+            doc.setdefault("image", {})
+            doc["image"]["oci"] = item["full_ref"]
+            yml.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+            print(f"Pinned {item['pkg']} => {item['full_ref']} in {yml}")
+          PY
+          git add code/apps/core/registry/processors/*.yaml
+          git commit -m "ci: pin processor images (bot) [skip ci]" || echo "No changes"
+          echo "BRANCH=$BRANCH" >> $GITHUB_OUTPUT
 
-          docker buildx build \
-            --platform linux/amd64,linux/arm64 \
-            -f "${DOCKERFILE}" \
-            -t "${{ steps.img.outputs.image }}:${TAG}" \
-            --push \
-            .
-
-      - name: Resolve digest
-        id: digest
-        run: |
-          set -euo pipefail
-          DIGEST=$(docker buildx imagetools inspect "${{ steps.img.outputs.image }}:${TAG}" --format '{{json .}}' | jq -r '.manifest.digest // .descriptor.digest')
-          echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
-
-      - name: Pin digest into registry YAML
-        run: |
-          set -euo pipefail
-          PROC="${{ matrix.processor }}"
-          IMAGE_BASE="${{ steps.img.outputs.image }}"
-          DIGEST="${{ steps.digest.outputs.digest }}"
-
-          python scripts/ci/pin_processor.py "$PROC" "$IMAGE_BASE" "$DIGEST"
-
-      - name: Cleanup old pin branches
-        run: |
-          set -euo pipefail
-          PROC="${{ matrix.processor }}"
-
-          # List and delete old pin branches for this processor (keep only the one we're about to create)
-          git fetch origin
-          OLD_BRANCHES=$(git branch -r | grep "origin/chore/pin-${PROC}" | grep -v "chore/pin-${PROC}$" || true)
-
-          if [ -n "$OLD_BRANCHES" ]; then
-            echo "🧹 Cleaning up old pin branches for ${PROC}:"
-            echo "$OLD_BRANCHES"
-
-            for branch in $OLD_BRANCHES; do
-              branch_name=$(echo "$branch" | sed 's|origin/||')
-              echo "Deleting branch: $branch_name"
-              git push origin --delete "$branch_name" || echo "Failed to delete $branch_name (may not exist)"
-            done
-          else
-            echo "✅ No old pin branches to clean up for ${PROC}"
-          fi
-
-      - name: Create pin PR
-        id: cpr
+      - name: Open PR with pinned digests
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          branch: chore/pin-${{ matrix.processor }}
-          title: "Pin digest for ${{ matrix.processor }}"
-          commit-message: "chore(registry): pin ${{ matrix.processor }} to ${{ steps.digest.outputs.digest }}"
-          body: |
-            Auto-pinned by Build & Pin workflow.
-
-            **Processor**: ${{ matrix.processor }}
-            **Image**: ${{ steps.img.outputs.image }}
-            **Digest**: ${{ steps.digest.outputs.digest }}
-            **Commit**: ${{ github.sha }}
-
-            This PR updates the registry with the latest built image digest.
-          labels: registry, automation
+          commit-message: "ci: pin processor images (bot)"
+          title: "CI: Pin processor images"
+          body: "Automated pin update after successful builds."
+          branch: ${{ steps.pin.outputs.BRANCH }}
           base: dev
-          signoff: true
-          delete-branch: true
-
-      - name: Ensure PR exists (fail-closed)
-        if: ${{ steps.cpr.outputs.pull-request-number == '' }}
-        run: |
-          echo "::error::Pin branch pushed but PR was not created (policy/permissions?)."
-          echo "This likely means GitHub Actions lacks permission to create PRs."
-          echo "The registry changes have been committed to branch chore/pin-${{ matrix.processor }}"
-          echo "Manual intervention required to merge these changes."
-          exit 1
-
-      - name: Cleanup on failure
-        if: failure()
-        run: |
-          set +e  # Don't fail if cleanup fails
-          echo "🧹 Workflow failed, attempting cleanup..."
-
-          # If PR creation failed, the branch still exists - leave it for manual merge
-          # But clean up any truly orphaned branches from previous failed runs
-          git fetch origin
-
-          # Find branches older than the current one (based on commit timestamp)
-          PROC="${{ matrix.processor }}"
-          CURRENT_COMMIT="${{ github.sha }}"
-
-          # Get list of all pin branches for this processor except current
-          OLD_PIN_BRANCHES=$(git branch -r | grep "origin/chore/pin-${PROC}-" | grep -v "${CURRENT_COMMIT}" || true)
-
-          if [ -n "$OLD_PIN_BRANCHES" ]; then
-            echo "Found old pin branches to clean up:"
-            echo "$OLD_PIN_BRANCHES"
-
-            for branch in $OLD_PIN_BRANCHES; do
-              branch_name=$(echo "$branch" | sed 's|origin/||' | xargs)
-              echo "Deleting old branch: $branch_name"
-              git push origin --delete "$branch_name" || echo "Could not delete $branch_name"
-            done
-          fi
-
-          echo "Cleanup completed (non-fatal)"

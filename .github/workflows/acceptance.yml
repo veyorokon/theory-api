@@ -7,26 +7,23 @@ on:
     branches: [dev, main]
     types: [opened, synchronize, labeled]
   schedule:
-    - cron: "0 6 * * *"  # daily 06:00 UTC
+    - cron: "0 6 * * *"
   workflow_dispatch: {}
 
-# Test Actions access to GHCR package
 jobs:
   acceptance:
     runs-on: ubuntu-latest
-    # Run on push to dev/main OR on PRs with 'run-acceptance' label
     if: |
       github.event_name == 'push' ||
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
-      contains(github.event.pull_request.labels.*.name, 'run-acceptance')
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'run-acceptance'))
     permissions:
       contents: read
       packages: read
     env:
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       PYTHONUNBUFFERED: "1"
-      # Provide keys only if your tests call real providers
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY_DEV }}
     steps:
       - uses: actions/checkout@v4
@@ -49,7 +46,10 @@ jobs:
 
       - name: Wait for services
         run: |
-          sleep 8
+          for i in {1..30}; do
+            curl -fsS http://127.0.0.1:9000/minio/health/live && break
+            echo "waiting for MinIO..."; sleep 2
+          done
           docker compose ps
 
       - name: Authenticate Docker to GHCR
@@ -60,13 +60,9 @@ jobs:
         run: |
           set -euo pipefail
           REF=$(python - <<'PY'
-          import yaml,sys
-          try:
-              doc=yaml.safe_load(open("code/apps/core/registry/processors/llm_litellm.yaml"))
-              print(doc["image"]["oci"])
-          except Exception as e:
-              print(f"ERROR: Could not read registry: {e}", file=sys.stderr)
-              sys.exit(1)
+          import yaml
+          doc=yaml.safe_load(open("code/apps/core/registry/processors/llm_litellm.yaml"))
+          print(doc["image"]["oci"])
           PY
           )
           echo "🔍 Checking $REF in GHCR…"
@@ -77,7 +73,7 @@ jobs:
           }
           echo "✅ Image exists: $REF"
 
-      - name: Sanity check - verify pytest context
+      - name: Sanity check - verify Django imports
         working-directory: code
         run: |
           python -c "import os,sys; print('✅ CWD:', os.getcwd()); import backend, apps; print('✅ Django imports OK')"
@@ -101,11 +97,8 @@ jobs:
           S3_SECRET_KEY: minioadmin
           S3_BUCKET: default
         run: |
-          # Verify MinIO connectivity
-          echo "🔍 Testing MinIO connectivity..."
+          echo "🔍 MinIO health:"
           curl -f http://127.0.0.1:9000/minio/health/live || echo "⚠️ MinIO health check failed"
-
-          # Run integration tests with verbose output for debugging
           python -m pytest -s -v -m integration tests/integration
 
       - name: Teardown & logs
