@@ -4,7 +4,7 @@ runtime:
   memory: 2Gi
   gpu: none
 image:
-  oci: ghcr.io/veyorokon/theory-api/replicate_generic@sha256:bf546590d140f61fc6276e280c31285ebd5c45494148c18148ebcd508378c91a
+  oci: ghcr.io/veyorokon/theory-api/replicate_generic@sha256:a822404719c5226ca5dd0cc17ed64999e6e8449b71bc4f998b3194d8df80cd75
 build:
   context: .
   dockerfile: apps/core/processors/replicate_generic/Dockerfile
