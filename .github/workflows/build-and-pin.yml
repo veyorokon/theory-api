@@ -74,7 +74,8 @@ jobs:
               "dockerfile": dockerfile,
               "registry_yaml": f"code/apps/core/registry/processors/{name if ns=='llm' else pkg.replace('_','-')}.yaml"
             })
-          print("::set-output name=list::" + json.dumps(items))
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+            f.write(f"list={json.dumps(items)}\n")
           PY
 
       - name: Fail if no processors found
@@ -128,7 +129,8 @@ jobs:
             print(f"✅ Built {pkg} => {full_ref}")
 
           # write outputs
-          print("::set-output name=digests::" + json.dumps(digests))
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+            f.write(f"digests={json.dumps(digests)}\n")
           PY
         env:
           LIST: ${{ steps.matrix.outputs.list }}
