@@ -14,3 +14,14 @@ repos:
       - id: end-of-file-fixer
       - id: check-yaml
       - id: check-added-large-files
+
+  - repo: local
+    hooks:
+      - id: vulture
+        name: vulture (dead code detection)
+        entry: bash -c 'vulture code code/vulture_whitelist.py --min-confidence 80 --exclude "*/migrations/*" > vulture_report.txt || true && python scripts/ci/vulture_gate.py vulture_report.txt'
+        language: system
+        files: '\.py$'
+        require_serial: true
+        pass_filenames: false
+        always_run: true
