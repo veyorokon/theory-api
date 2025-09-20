@@ -13,6 +13,9 @@ from typing import Iterable, List
 
 import modal
 
+# Import registry naming utilities
+from apps.core.adapters.modal.naming import modal_app_name_from_ref
+
 
 # -------------------------------
 # Small utilities (pure helpers)
@@ -75,7 +78,20 @@ TOOL_SECRETS = _parse_tool_secrets(os.environ.get("TOOL_SECRETS"))
 # Build Modal image from the pinned container
 image = modal.Image.from_registry(IMAGE_REF)
 
-app = modal.App("theory-runtime")
+# Import registry naming utilities
+
+
+def _app_name_from_env() -> str:
+    """Build app name from PROCESSOR_REF and MODAL_ENVIRONMENT using registry naming."""
+    ref = os.environ.get("PROCESSOR_REF", "")
+    env = os.environ.get("MODAL_ENVIRONMENT") or os.environ.get("MODAL_ENV") or "dev"
+    if ref:
+        return modal_app_name_from_ref(ref, env)
+    return os.getenv("MODAL_APP_NAME", "theory-runtime")
+
+
+APP_NAME = _app_name_from_env()
+app = modal.App(APP_NAME)
 
 
 def _modal_secret_objects(names: Iterable[str]) -> List[modal.Secret]:
