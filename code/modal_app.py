@@ -21,7 +21,7 @@ import subprocess
 from typing import List
 
 import modal
-from libs.runtime_common.naming import modal_app_name_from_ref, modal_fn_name
+from apps.core.adapters.modal.naming import modal_app_name_from_ref, modal_fn_name
 
 
 # ---------- Naming ----------
