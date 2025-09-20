@@ -105,12 +105,13 @@ jobs:
             # Normalize underscores to hyphens for image names
             image_suffix = pkg.replace("_", "-")
             tag_base = f"{prefix}/{image_suffix}"
-            tag_tmp  = f"{tag_base}:build-{int(time.time())}"
+            tag_tmp  = f"{tag_base}:build-${{ github.sha }}"
             print(f"--- Building {pkg} with context={context}, dockerfile={dockerfile}")
             # Build & push (single-platform by default; add platforms= if you need multi-arch)
             subprocess.check_call([
               "docker", "buildx", "build",
               "--platform", os.environ.get("DOCKER_DEFAULT_PLATFORM","linux/amd64"),
+              "--provenance=false", "--sbom=false",
               "-f", dockerfile,
               "-t", tag_tmp,
               "--push",
@@ -147,6 +148,7 @@ jobs:
           python - <<'PY'
           import os, json, yaml, pathlib, re
           data = json.loads('${{ steps.builds.outputs.digests }}')
+          changed_any = False
           for item in data:
             yml = pathlib.Path(item["registry_yaml"])
             if not yml.exists():
@@ -157,9 +159,17 @@ jobs:
                 continue
             doc = yaml.safe_load(yml.read_text())
             doc.setdefault("image", {})
-            doc["image"]["oci"] = item["full_ref"]
+            current_oci = doc["image"].get("oci", "")
+            new_oci = item["full_ref"]
+            if current_oci == new_oci:
+              print(f"No change for {item['pkg']}: {new_oci}")
+              continue
+            doc["image"]["oci"] = new_oci
             yml.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
-            print(f"Pinned {item['pkg']} => {item['full_ref']} in {yml}")
+            print(f"Pinned {item['pkg']} => {new_oci} (was: {current_oci})")
+            changed_any = True
+          if not changed_any:
+            print("No registry changes needed")
           PY
 
       - name: Detect registry changes
