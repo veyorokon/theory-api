@@ -9,7 +9,7 @@ compose-down:
 	docker compose down
 
 wait-db:
-	until pg_isready -h 127.0.0.1 -p 5432 -U postgres -d postgres >/dev/null 2>&1; do sleep 1; done
+	until docker exec theory_api-postgres-1 pg_isready -U postgres -d postgres >/dev/null 2>&1; do sleep 1; done
 
 # --- Django tasks (always from ./code) ---
 migrate:
