@@ -14,7 +14,7 @@ import io
 import ipaddress
 import socket
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Tuple
 from urllib.parse import urlparse
 
 # Import requests at module level for easier testing

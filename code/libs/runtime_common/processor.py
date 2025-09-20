@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, UTC
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 
 # Canonical error messages - used across all processors

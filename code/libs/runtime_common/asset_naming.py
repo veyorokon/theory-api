@@ -14,7 +14,7 @@ import hashlib
 import mimetypes
 import re
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple
+from typing import Dict, Tuple
 from urllib.parse import urlparse
 
 try:
