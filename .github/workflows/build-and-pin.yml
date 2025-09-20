@@ -27,7 +27,7 @@ jobs:
       PYTHONUNBUFFERED: "1"
       REGISTRY_OWNER: ${{ github.repository_owner }}
       GHCR_IMAGE_PREFIX: ghcr.io/${{ github.repository }}
-      DOCKER_DEFAULT_PLATFORM: linux/amd64
+      DOCKER_DEFAULT_PLATFORM: linux/amd64,linux/arm64
     steps:
       - uses: actions/checkout@v4
         with:
@@ -102,7 +102,9 @@ jobs:
             pkg = p["pkg"]
             dockerfile = p["dockerfile"]
             context = "code"  # <<<<<< build context moved to ./code
-            tag_base = f"{prefix}/{pkg}"
+            # Normalize underscores to hyphens for image names
+            image_suffix = pkg.replace("_", "-")
+            tag_base = f"{prefix}/{image_suffix}"
             tag_tmp  = f"{tag_base}:build-{int(time.time())}"
             print(f"--- Building {pkg} with context={context}, dockerfile={dockerfile}")
             # Build & push (single-platform by default; add platforms= if you need multi-arch)
