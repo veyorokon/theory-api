@@ -131,7 +131,6 @@ make test-coverage
 DJANGO_SETTINGS_MODULE=backend.settings.{unittest|test}
 
 # Optional
-LLM_PROVIDER=mock|auto        # Provider selection for CI/testing
 OPENAI_API_KEY=...           # Real API key or placeholder
 S3_ENDPOINT=http://127.0.0.1:9000
 S3_ACCESS_KEY=minioadmin
@@ -144,16 +143,16 @@ DOCKER_PULL_PLATFORM=linux/amd64  # CI compatibility
 ```bash
 cd code
 # Local execution
-python manage.py run_processor --ref llm/litellm@1 --adapter local \
-  --inputs-json '{"messages":[{"role":"user","content":"Hello"}]}'
+python manage.py run_processor --ref llm/litellm@1 --adapter local --mode real \
+  --inputs-json '{"schema":"v1","params":{"messages":[{"role":"user","content":"Hello"}]}}'
 
 # Modal execution
-MODAL_ENV=dev python manage.py run_processor --ref llm/litellm@1 --adapter modal \
-  --inputs-json '{"messages":[{"role":"user","content":"Hello"}]}'
+MODAL_ENV=dev python manage.py run_processor --ref llm/litellm@1 --adapter modal --mode real \
+  --inputs-json '{"schema":"v1","params":{"messages":[{"role":"user","content":"Hello"}]}}'
 
 # Mock execution (CI/testing)
-LLM_PROVIDER=mock python manage.py run_processor --ref llm/litellm@1 --adapter mock \
-  --inputs-json '{"messages":[{"role":"user","content":"Hello"}]}'
+python manage.py run_processor --ref llm/litellm@1 --adapter local --mode mock \
+  --inputs-json '{"schema":"v1","params":{"messages":[{"role":"user","content":"Hello"}]}}'
 ```
 
 ## CI/CD PIPELINE & CURRENT STATE
@@ -465,8 +464,8 @@ export DOCKER_PULL_PLATFORM=linux/amd64
 python manage.py makemigrations --check
 
 # Processor execution debugging
-python manage.py run_processor --ref llm/litellm@1 --adapter mock \
-  --inputs-json '{"messages":[{"role":"user","content":"debug"}]}' --json
+python manage.py run_processor --ref llm/litellm@1 --adapter local --mode mock \
+  --inputs-json '{"schema":"v1","params":{"messages":[{"role":"user","content":"debug"}]}}' --json
 ```
 
 ### GitHub Actions Error Extraction
@@ -509,7 +508,7 @@ def _looks_real_key(val: str | None) -> bool:
 ### Test Environment Isolation
 - **Unit tests**: SQLite, fast feedback, no external dependencies
 - **Integration tests**: Full PostgreSQL stack, real containers
-- **Mock mode**: `LLM_PROVIDER=mock` bypasses external API calls
+- **Mock mode**: `--mode mock` bypasses external API calls
 - **CI compatibility**: Platform-specific Docker pulls
 
 ## AGENT COORDINATION PROTOCOLS

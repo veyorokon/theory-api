@@ -6,11 +6,13 @@ Pure function available at libs.runtime_common.core.run_processor_core for progr
 
 from __future__ import annotations
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
 from django.core.management.base import BaseCommand
+from libs.runtime_common.mode import resolve_mode
 
 from apps.core.orchestrator import run_processor_core
 from apps.storage.artifact_store import artifact_store
@@ -27,9 +29,8 @@ class Command(BaseCommand):
         parser.add_argument("--adapter", choices=["local", "modal"], default="local", help="Execution adapter to use")
         parser.add_argument(
             "--mode",
-            choices=["default", "smoke"],
-            default="default",
-            help="Execution mode: 'default' (normal), 'smoke' (hermetic, no external services)",
+            choices=["real", "mock", "smoke"],
+            help="Processor mode",
         )
         parser.add_argument("--plan", help="Plan key for budget tracking (creates if not exists)")
         parser.add_argument(
@@ -172,6 +173,25 @@ class Command(BaseCommand):
         except json.JSONDecodeError as e:
             self.stderr.write(f"Error: Invalid --inputs-json: {e}")
             sys.exit(1)
+
+        # Inject mode into inputs if specified
+        if options.get("mode"):
+            inputs_json["mode"] = options["mode"]
+        else:
+            import os
+
+            if os.environ.get("CI") == "true" and "mode" not in inputs_json:
+                # CI ergonomic default: set mode to mock if not specified
+                inputs_json["mode"] = "mock"
+
+        # CI guardrail: validate mode before proceeding
+        try:
+            resolve_mode(inputs_json)  # This will raise if CI=true and mode=real
+        except Exception as e:
+            if hasattr(e, "code") and e.code == "ERR_CI_SAFETY":
+                self.stderr.write(f"Error: {e}")
+                sys.exit(1)
+            raise
 
         # Materialize attachments
         attachment_map = {}

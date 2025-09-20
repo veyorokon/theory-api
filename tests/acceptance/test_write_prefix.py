@@ -42,15 +42,16 @@ def _run_processor_with_template(template_prefix: str) -> dict:
         "llm/litellm@1",
         "--adapter",
         "local",
+        "--mode",
+        "mock",
         "--write-prefix",
         template_prefix,
         "--inputs-json",
-        '{"messages":[{"role":"user","content":"test templating"}]}',
+        '{"schema":"v1","params":{"messages":[{"role":"user","content":"test templating"}]}}',
         "--json",
     ]
 
     env = os.environ.copy()
-    env["LLM_PROVIDER"] = "mock"
     env["PYTHONPATH"] = "."
 
     result = subprocess.run(cmd, cwd=".", env=env, capture_output=True, text=True)
@@ -154,15 +155,16 @@ class TestWritePrefixTemplating:
                 "llm/litellm@1",
                 "--adapter",
                 "local",
+                "--mode",
+                "mock",
                 "--write-prefix",
                 invalid_prefix,
                 "--inputs-json",
-                '{"messages":[]}',
+                '{"schema":"v1","params":{"messages":[]}}',
                 "--json",
             ]
 
             env = os.environ.copy()
-            env["LLM_PROVIDER"] = "mock"
             env["PYTHONPATH"] = "."
 
             result = subprocess.run(cmd, cwd=".", env=env, capture_output=True, text=True)

@@ -44,15 +44,16 @@ def _run_processor_and_get_receipt(test_name: str) -> dict:
         "llm/litellm@1",
         "--adapter",
         "local",
+        "--mode",
+        "mock",
         "--write-prefix",
         f"/artifacts/outputs/{test_name}/{{execution_id}}/",
         "--inputs-json",
-        '{"messages":[{"role":"user","content":"receipt test"}]}',
+        '{"schema":"v1","params":{"messages":[{"role":"user","content":"receipt test"}]}}',
         "--json",
     ]
 
     env = os.environ.copy()
-    env["LLM_PROVIDER"] = "mock"
     env["PYTHONPATH"] = "."
 
     result = subprocess.run(cmd, cwd=".", env=env, capture_output=True, text=True)

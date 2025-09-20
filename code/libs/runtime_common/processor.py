@@ -150,12 +150,7 @@ def validate_and_normalize_v1(inputs: Dict[str, Any], *, allowed_modes=None) -> 
     if mode not in allowed_modes:
         raise ValueError(f"{ERR_INPUT_UNSUPPORTED}: mode '{mode}' not in allowed modes {allowed_modes}")
 
-    # Mode guardrails: mock only allowed in CI/SMOKE environments
-    if mode == "mock":
-        ci = os.getenv("CI") == "true" or os.getenv("SMOKE") == "true"
-        if not ci:
-            # Downgrade to default in non-CI environments
-            normalized["mode"] = "default"
+    # Mode is preserved as specified - no environment-based overrides
 
     # Validate files is a list
     if not isinstance(normalized["files"], list):
@@ -173,17 +168,13 @@ def build_config_from_env() -> Dict[str, Any]:
     Build provider config from environment variables.
 
     Returns:
-        Config dict with CI detection, tokens, timeouts
+        Config dict with tokens and timeouts
     """
-    ci = os.getenv("CI") == "true" or os.getenv("SMOKE") == "true"
-
     return {
-        "ci": ci,
         "openai_token": os.getenv("OPENAI_API_KEY", ""),
         "replicate_token": os.getenv("REPLICATE_API_TOKEN", ""),
         "litellm_timeout": int(os.getenv("LITELLM_TIMEOUT_S", "30")),
         "replicate_timeout": int(os.getenv("REPLICATE_TIMEOUT_S", "120")),
-        "llm_provider": os.getenv("LLM_PROVIDER", "auto"),
     }
 
 

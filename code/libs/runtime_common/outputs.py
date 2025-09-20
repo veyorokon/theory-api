@@ -12,6 +12,7 @@ class OutputItem:
 
     relpath: str  # posix relative path under write_prefix (must start with outputs/)
     bytes_: bytes  # raw bytes content
+    mime: str = "application/octet-stream"  # MIME type (e.g., "application/json")
     meta: Mapping[str, str] | None = None  # optional metadata
 
 
