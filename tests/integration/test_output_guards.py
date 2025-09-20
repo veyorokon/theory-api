@@ -73,12 +73,11 @@ print("Processor completed")
             "--write-prefix",
             "/artifacts/outputs/collision-test/{execution_id}/",
             "--inputs-json",
-            '{"messages":[{"role":"user","content":"collision test"}]}',
+            '{"schema":"v1","params":{"messages":[{"role":"user","content":"collision test"}]}}',
             "--json",
         ]
 
         env = os.environ.copy()
-        env["LLM_PROVIDER"] = "mock"
         env["PYTHONPATH"] = "."
 
         # Run two processors "simultaneously" (sequentially but with same template)
@@ -122,12 +121,11 @@ print("Processor completed")
             "--write-prefix",
             "/artifacts/outputs/overwrite-test/{execution_id}/",
             "--inputs-json",
-            '{"messages":[{"role":"user","content":"overwrite test"}]}',
+            '{"schema":"v1","params":{"messages":[{"role":"user","content":"overwrite test"}]}}',
             "--json",
         ]
 
         env = os.environ.copy()
-        env["LLM_PROVIDER"] = "mock"
         env["PYTHONPATH"] = "."
 
         result = subprocess.run(cmd, cwd=".", env=env, capture_output=True, text=True)
@@ -165,12 +163,11 @@ print("Processor completed")
             "--write-prefix",
             "/artifacts/outputs/reserved-test/{execution_id}/",
             "--inputs-json",
-            '{"messages":[{"role":"user","content":"reserved test"}]}',
+            '{"schema":"v1","params":{"messages":[{"role":"user","content":"reserved test"}]}}',
             "--json",
         ]
 
         env = os.environ.copy()
-        env["LLM_PROVIDER"] = "mock"
         env["PYTHONPATH"] = "."
 
         result = subprocess.run(cmd, cwd=".", env=env, capture_output=True, text=True)
@@ -201,12 +198,11 @@ print("Processor completed")
             "--write-prefix",
             "/artifacts/outputs/sanitize-test/{execution_id}/",
             "--inputs-json",
-            '{"messages":[{"role":"user","content":"path test"}]}',
+            '{"schema":"v1","params":{"messages":[{"role":"user","content":"path test"}]}}',
             "--json",
         ]
 
         env = os.environ.copy()
-        env["LLM_PROVIDER"] = "mock"
         env["PYTHONPATH"] = "."
 
         result = subprocess.run(cmd, cwd=".", env=env, capture_output=True, text=True)

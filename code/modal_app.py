@@ -151,7 +151,10 @@ def run(payload: dict) -> bytes:
 def smoke(payload: dict) -> bytes:
     import os
 
-    os.environ["LLM_PROVIDER"] = "mock"
+    # Clear API keys to force mock mode
     for k in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"):
         os.environ.pop(k, None)
+    # Ensure mode is set to smoke
+    if isinstance(payload, dict):
+        payload["mode"] = "smoke"
     return run(payload)

@@ -42,53 +42,14 @@ import sys
 import time
 from typing import Any, Dict
 
-from libs.runtime_common.processor import parse_args, load_inputs, ensure_write_prefix, ProviderConfig
+from libs.runtime_common.processor import parse_args, load_inputs, ensure_write_prefix
 from libs.runtime_common.hashing import inputs_hash
 from libs.runtime_common.fingerprint import compose_env_fingerprint
 from libs.runtime_common.outputs import write_outputs, write_outputs_index
 from libs.runtime_common.receipts import write_dual_receipts
+from libs.runtime_common.mode import resolve_mode
 
 from .provider import make_runner
-
-
-def _normalize_inputs_legacy_to_v1(payload: Dict[str, Any]) -> Dict[str, Any]:
-    \"\"\"Normalize legacy inputs into:
-    {
-      "schema": "v1",
-      "model": Optional[str],
-      "params": {...},    # processor-specific
-      "files": {...},     # optional
-      "mode": "default|mock|orchestrator"
-    }
-    \"\"\"
-    if payload.get("schema") == "v1":
-        return payload
-
-    # Common legacy shims:
-    if "params" in payload:
-        return {
-            "schema": "v1",
-            "model": payload.get("model"),
-            "params": payload["params"],
-            "files": payload.get("files", {}),
-            "mode": payload.get("mode", "default"),
-        }
-
-    # Fallback: wrap raw payload as params
-    return {
-        "schema": "v1",
-        "model": payload.get("model"),
-        "params": payload,
-        "files": payload.get("files", {}),
-        "mode": payload.get("mode", "default"),
-    }
-
-
-def _should_mock(mode: str) -> bool:
-    # CI should force mock, regardless of secrets
-    if os.getenv("CI", "").lower() == "true":
-        return True
-    return (mode or "default").lower() == "mock"
 
 
 def _env_fingerprint() -> str:
@@ -105,23 +66,16 @@ def _env_fingerprint() -> str:
 def main() -> int:
     args = parse_args()
     write_prefix = ensure_write_prefix(args.write_prefix)
-    raw_inputs = load_inputs(args.inputs)
-    inputs_v1 = _normalize_inputs_legacy_to_v1(raw_inputs)
+    inputs = load_inputs(args.inputs)
 
-    ih = inputs_hash(inputs_v1)
+    ih = inputs_hash(inputs)
+    mode = resolve_mode(inputs)
+    config = {}  # Provider-specific config as needed
 
-    mode = (inputs_v1.get("mode") or "default").lower()
-    cfg = ProviderConfig(
-        mock=_should_mock(mode),
-        model=inputs_v1.get("model"),
-        # Add provider-specific fields to ProviderConfig as needed (e.g., api_key, token)
-        extra={},  # free-form metadata to the provider, if needed
-    )
-
-    runner = make_runner(cfg)
+    runner = make_runner(config)
 
     t0 = time.time()
-    result = runner(inputs_v1)  # callable(inputs) -> ProcessorResult
+    result = runner(inputs)  # callable(inputs) -> ProcessorResult
     duration_ms = int((time.time() - t0) * 1000)
 
     abs_paths = write_outputs(write_prefix, result.outputs, enforce_outputs_prefix=True)
@@ -166,24 +120,25 @@ from typing import Any, Callable, Dict, List, Mapping, Optional
 
 # Import shared types
 from libs.runtime_common.outputs import OutputItem
-from apps.core.integrations.types import ProcessorResult
-from libs.runtime_common.processor import ProviderConfig
+from libs.runtime_common.types import ProcessorResult
+from libs.runtime_common.mode import resolve_mode, is_mock
 
 
-def _make_mock_runner(cfg: ProviderConfig) -> Callable[[Dict[str, Any]], ProcessorResult]:
+def _make_mock_runner(config: Dict[str, Any]) -> Callable[[Dict[str, Any]], ProcessorResult]:
     def _runner(inputs: Dict[str, Any]) -> ProcessorResult:
         # Minimal, deterministic mock
-        payload = ("mock-" + (inputs.get("params") or {}).__class__.__name__).encode("utf-8")
+        model = inputs.get("model", "mock-model")
+        payload = f"mock response from {model}".encode("utf-8")
         return ProcessorResult(
-            outputs=[OutputItem(relpath="outputs/result.txt", bytes_=payload)],
-            processor_info=f"{cfg.model or 'no-model'}@mock",
+            outputs=[OutputItem(relpath="outputs/result.txt", bytes_=payload, mime="text/plain")],
+            processor_info={"provider": "mock", "model": model},
             usage={},
             extra={"mode": "mock"},
         )
     return _runner
 
 
-def _make_real_runner(cfg: ProviderConfig) -> Callable[[Dict[str, Any]], ProcessorResult]:
+def _make_real_runner(config: Dict[str, Any]) -> Callable[[Dict[str, Any]], ProcessorResult]:
     # TODO: Import and use your real SDK(s) here.
     # Example (pseudocode):
     #   import some_sdk
@@ -195,8 +150,8 @@ def _make_real_runner(cfg: ProviderConfig) -> Callable[[Dict[str, Any]], Process
     #       # Normalize to OutputItem(s)
     #       content = (str(data) + "\\n").encode("utf-8")
     #       return ProcessorResult(
-    #           outputs=[OutputItem(relpath="outputs/result.txt", bytes_=content)],
-    #           processor_info=f"{model or 'no-model'}@real",
+    #           outputs=[OutputItem(relpath="outputs/result.txt", bytes_=content, mime="text/plain")],
+    #           processor_info={"provider": "real", "model": model or "no-model"},
     #           usage={},
     #           extra={"mode": "real"},
     #       )
@@ -206,10 +161,16 @@ def _make_real_runner(cfg: ProviderConfig) -> Callable[[Dict[str, Any]], Process
     return _runner
 
 
-def make_runner(cfg: ProviderConfig) -> Callable[[Dict[str, Any]], ProcessorResult]:
-    if cfg.mock:
-        return _make_mock_runner(cfg)
-    return _make_real_runner(cfg)
+def make_runner(config: Dict[str, Any]) -> Callable[[Dict[str, Any]], ProcessorResult]:
+    \"\"\"Returns a callable(inputs) -> ProcessorResult.
+    - inputs expects: {\"schema\":\"v1\",\"model\":\"...\",\"params\":{...},\"mode\":\"real|mock|smoke\"}
+    \"\"\"
+    def _runner(inputs: Dict[str, Any]) -> ProcessorResult:
+        mode = resolve_mode(inputs)
+        if is_mock(mode):
+            return _make_mock_runner(config)(inputs)
+        return _make_real_runner(config)(inputs)
+    return _runner
 '''
 
 TEMPLATE_REQUIREMENTS = """blake3

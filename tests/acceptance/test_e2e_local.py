@@ -52,14 +52,15 @@ class TestE2ELocal:
             "local",
             "--write-prefix",
             prefix,
+            "--mode",
+            "mock",
             "--inputs-json",
-            '{"messages":[{"role":"user","content":"Hello integration test"}]}',
+            '{"schema":"v1","params":{"messages":[{"role":"user","content":"Hello integration test"}]}}',
             "--json",
         ]
 
-        # Set mock mode to avoid network calls
+        # Set environment for execution
         env = os.environ.copy()
-        env["LLM_PROVIDER"] = "mock"
         env["PYTHONPATH"] = "."
 
         # Execute processor
@@ -102,8 +103,10 @@ class TestE2ELocal:
         response_data = json.loads(response_obj["Body"].read().decode())
 
         # Verify response contains mock LLM output
-        assert response_data["status"] == "ok"
-        assert "Mock LLM response to:" in response_data["response"]
+        assert response_data["model"] == "mock-model"
+        assert response_data["mode"] == "mock"
+        assert "choices" in response_data
+        assert response_data["choices"][0]["message"]["content"] == "this is a mock reply"
 
         # Check receipt.json exists
         receipt_key = f"artifacts/outputs/text/{exec_id}/receipt.json"
@@ -130,15 +133,16 @@ class TestE2ELocal:
             "nonexistent/processor@1",
             "--adapter",
             "local",
+            "--mode",
+            "mock",
             "--write-prefix",
             "/artifacts/outputs/error/",
             "--inputs-json",
-            '{"messages":[]}',
+            '{"schema":"v1","messages":[]}',
             "--json",
         ]
 
         env = os.environ.copy()
-        env["LLM_PROVIDER"] = "mock"
         env["PYTHONPATH"] = "."
 
         result = subprocess.run(cmd, cwd=".", env=env, capture_output=True, text=True)

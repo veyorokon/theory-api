@@ -20,10 +20,13 @@ class TestLiteLLMSmokeMock:
         """Test that LiteLLM runs successfully with mock provider (no network)."""
         # Prepare inputs
         inputs = {
-            "messages": [{"role": "user", "content": "test message"}],
+            "schema": "v1",
             "model": "gpt-4o-mini",
-            "temperature": 0.1,
-            "seed": 42,
+            "params": {
+                "messages": [{"role": "user", "content": "test message"}],
+                "temperature": 0.1,
+                "seed": 42,
+            },
         }
 
         # Execute processor
@@ -45,7 +48,6 @@ class TestLiteLLMSmokeMock:
         ]
 
         env = os.environ.copy()
-        env["LLM_PROVIDER"] = "mock"
         env["PYTHONPATH"] = "."
 
         result = subprocess.run(cmd, env=env, capture_output=True, text=True, cwd=".")
@@ -62,7 +64,11 @@ class TestLiteLLMSmokeMock:
     def test_litellm_ci_forces_mock(self):
         """Test that CI=true forces mock mode even with API key present."""
         # Prepare inputs
-        inputs = {"messages": [{"role": "user", "content": "test"}], "model": "gpt-4o-mini"}
+        inputs = {
+            "schema": "v1",
+            "model": "gpt-4o-mini",
+            "params": {"messages": [{"role": "user", "content": "test"}]},
+        }
 
         # Execute processor
         cmd = [
@@ -83,7 +89,6 @@ class TestLiteLLMSmokeMock:
         ]
 
         env = os.environ.copy()
-        env["LLM_PROVIDER"] = "mock"
         env["PYTHONPATH"] = "."
         env["CI"] = "true"
         env["OPENAI_API_KEY"] = "fake-key-should-be-ignored"
