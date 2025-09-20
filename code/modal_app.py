@@ -217,6 +217,7 @@ def _invoke_processor(payload: dict) -> bytes:
     # Attach secrets dynamically based on TOOL_SECRETS env; nothing is hard-coded.
     secrets=_modal_secret_objects(TOOL_SECRETS),
     timeout=60 * 10,  # 10 minutes, adjust as needed
+    serialized=True,
 )
 def run(payload: dict) -> bytes:
     """
@@ -236,6 +237,7 @@ def run(payload: dict) -> bytes:
     # No secrets attached for smoke; ensures zero-egress mock-only validation.
     secrets=[],
     timeout=60 * 5,  # quicker timeout for smoke
+    serialized=True,
 )
 def smoke(payload: dict) -> bytes:
     """

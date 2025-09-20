@@ -102,7 +102,6 @@ jobs:
 
       - name: Integration tests (deterministic seams)
         if: steps.pincheck.outputs.skip != 'true'
-        working-directory: code
         env:
           DJANGO_SETTINGS_MODULE: backend.settings.test
           DOCKER_PULL_PLATFORM: linux/amd64
@@ -113,7 +112,7 @@ jobs:
         run: |
           echo "🔍 MinIO health:"
           curl -f http://127.0.0.1:9000/minio/health/live || echo "⚠️ MinIO health check failed"
-          python -m pytest -s -v -m integration tests/integration
+          cd code && python -m pytest -s -v -m integration ../tests/integration
 
       - name: Teardown & logs
         if: always()

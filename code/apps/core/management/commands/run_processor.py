@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from django.core.management.base import BaseCommand
-from libs.runtime_common.mode import resolve_mode
+from libs.runtime_common.mode import resolve_mode, ModeSafetyError
 
 from apps.core.orchestrator import run_processor_core
 from apps.storage.artifact_store import artifact_store
@@ -187,11 +187,14 @@ class Command(BaseCommand):
         # CI guardrail: validate mode before proceeding
         try:
             resolve_mode(inputs_json)  # This will raise if CI=true and mode=real
+        except ModeSafetyError as e:
+            # Explicit non-zero exit for guardrail violation; no adapter invoked
+            self.stderr.write(f"Error: {e.message}")
+            sys.exit(1)
         except Exception as e:
-            if hasattr(e, "code") and e.code == "ERR_CI_SAFETY":
-                self.stderr.write(f"Error: {e}")
-                sys.exit(1)
-            raise
+            # Keep existing behavior for other validation errors
+            self.stderr.write(f"Error: {e}")
+            sys.exit(1)
 
         # Materialize attachments
         attachment_map = {}

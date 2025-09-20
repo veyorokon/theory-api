@@ -117,11 +117,11 @@ class TestE2ELocal:
         assert "env_fingerprint" in receipt_data
         assert "duration_ms" in receipt_data
 
-        # Verify outputs metadata
-        assert len(payload["outputs"]) >= 2  # At least response.json + receipt.json
+        # Verify outputs metadata - receipts are NOT outputs, only processor artifacts
+        assert len(payload["outputs"]) >= 1  # At least response.json
         output_paths = [output["path"] for output in payload["outputs"]]
         assert any("response.json" in path for path in output_paths)
-        assert any("receipt.json" in path for path in output_paths)
+        # Receipt is verified separately above via MinIO, not in outputs list
 
     def test_local_adapter_error_handling(self):
         """Test local adapter properly handles processor failures."""
