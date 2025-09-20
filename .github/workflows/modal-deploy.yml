@@ -36,11 +36,78 @@ jobs:
           pip install -r requirements.txt
           pip install modal pyyaml
 
+      - name: Compute required processor secrets
+        run: |
+          python code/ops/list_required_secrets.py > required_secrets.json
+          echo "Required secrets: $(cat required_secrets.json)"
+
+      - name: Lint registry secrets vs allow-list
+        run: |
+          set -euo pipefail
+          REQ=$(python code/ops/list_required_secrets.py)
+          echo "$REQ" | python -c "import json,sys; [print(s) for s in json.load(sys.stdin)]" | while read -r name; do
+            case "$name" in
+              OPENAI_API_KEY|REPLICATE_API_TOKEN) : ;;
+              *) echo "❌ Secret '$name' not in allow-list; add it to the workflow env"; exit 1 ;;
+            esac
+          done
+          echo "✅ Registry secrets conform to allow-list."
+
+      - name: Sync secrets to Modal
+        env:
+          # Modal auth
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          MODAL_ENVIRONMENT: ${{ inputs.environment != '' && inputs.environment || github.ref_name }}
+
+          # Allow-listed secrets (same names in GH and Modal)
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Log in once
+          modal token set --token-id "$MODAL_TOKEN_ID" --token-secret "$MODAL_TOKEN_SECRET" >/dev/null
+          echo "🔐 Syncing secrets to Modal env=${MODAL_ENVIRONMENT}"
+
+          # Build a tiny allow-list map from current env
+          export ALLOW_LIST="OPENAI_API_KEY REPLICATE_API_TOKEN"
+
+          # For each required secret from registry, create/update in Modal if present in allow-list.
+          python - <<'PY'
+          import json, os, subprocess, sys
+          req = json.load(open("required_secrets.json"))
+
+          allow = {k: os.environ.get(k, "") for k in os.environ.keys()}
+          allowed_names = set(os.environ.get("ALLOW_LIST","OPENAI_API_KEY REPLICATE_API_TOKEN").split())
+
+          missing = []
+          for name in req:
+              if name not in allowed_names:
+                  missing.append(name)
+                  continue
+              val = allow.get(name, "")
+              if not val:
+                  missing.append(name)
+                  continue
+              # Upsert in Modal with the same name/value
+              print(f"  Creating/updating {name}...")
+              subprocess.run(
+                  ["modal","secret","create", name, f"{name}={val}", "--env", os.environ["MODAL_ENVIRONMENT"], "--force"],
+                  check=True, stdout=subprocess.DEVNULL
+              )
+
+          if missing:
+              print("❌ Missing GitHub secret(s) for:", ", ".join(missing))
+              sys.exit(1)
+          else:
+              print("✅ All required secrets present and synced.")
+          PY
+
       - name: Deploy all processors to Modal
         working-directory: code
         env:
-          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          # Modal auth already set by previous step
+          MODAL_ENVIRONMENT: ${{ inputs.environment != '' && inputs.environment || github.ref_name }}
         run: |
           set -euo pipefail
           python - <<'PY'
