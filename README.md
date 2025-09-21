@@ -15,3 +15,4 @@ Unified, event-driven orchestration: Plans propose Transitions to mutate the Wor
 ![CI](https://github.com/veyorokon/theory-api/actions/workflows/ci-cd.yml/badge.svg)
 ![Docs](https://github.com/veyorokon/theory-api/actions/workflows/docs.yml/badge.svg)
 # test vulture hook
+# Trigger CI
