@@ -17,7 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]  # scripts/ci -> theory_api
 sys.path.insert(0, str(ROOT / "code"))
 
-from grimp import build_graph
+from grimp import build_graph  # noqa: E402
 
 PURE_PYTHON_ENTRYPOINTS = {
     # Runtime libraries (Django-free)
