@@ -51,7 +51,7 @@ class TestModalAdapterParity:
             def remote(self, payload):
                 return self._value
 
-        mock_modal.Function.lookup.return_value = DummyFn(tar_bytes)
+        mock_modal.Function.from_name.return_value = DummyFn(tar_bytes)
 
         # Minimal spec snapshot (no required secrets)
         snapshot = {
@@ -94,7 +94,7 @@ class TestModalAdapterParity:
         # Use paths that canonicalize to the same target after normalization
         tar_bytes = make_tar_bytes({"dup.txt": b"a", "./dup.txt": b"b"})
         adapter = ModalAdapter()
-        mock_modal.Function.lookup.return_value = DummyFn(tar_bytes)
+        mock_modal.Function.from_name.return_value = DummyFn(tar_bytes)
 
         snapshot = {
             "processors": {

@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 from typing import Any, Dict, List
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FTimeout
 
 from django.conf import settings
 
@@ -90,6 +91,35 @@ def _resolve_app_name(*, processor_ref: str, preferred: str | None) -> str:
 
 
 # ---------------------------
+# Modal Invoker (injectable transport)
+# ---------------------------
+
+
+class ModalInvoker:
+    """Synchronous Modal function invoker with injectable resolver for testing."""
+
+    def __init__(self, fn_resolver):
+        self._resolve = fn_resolver
+
+    def invoke(self, fn_fullname: str, payload: dict, timeout_s: int) -> bytes:
+        """Invoke Modal function synchronously with timeout."""
+        try:
+            fn = self._resolve(fn_fullname)
+        except Exception as e:
+            error("modal.lookup.fail", fn_fullname=fn_fullname, error=str(e))
+            raise
+
+        # Synchronous call with thread-based timeout (no asyncio)
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            fut = ex.submit(fn.remote, payload)
+            try:
+                return fut.result(timeout=timeout_s)
+            except FTimeout:
+                error("modal.remote.timeout", fn_fullname=fn_fullname, timeout_s=timeout_s)
+                raise FTimeout("Modal function call timed out")
+
+
+# ---------------------------
 # Adapter
 # ---------------------------
 
@@ -110,9 +140,17 @@ class ModalAdapter:
         ) -> Dict[str, Any]                # canonical envelope
     """
 
-    def __init__(self) -> None:
-        # Lazy import of modal in invoke() for better testability environments
-        pass
+    def __init__(self, invoker: ModalInvoker | None = None) -> None:
+        # Inject invoker for testing; default to real Modal resolver
+        self._invoker = invoker or ModalInvoker(self._real_fn_resolver)
+
+    def _real_fn_resolver(self, fn_fullname: str):
+        """Real Modal function resolver for production use."""
+        import modal  # type: ignore
+
+        app_name, fn_name = fn_fullname.rsplit(".", 1)
+        env_name = os.getenv("MODAL_ENVIRONMENT", "dev")
+        return modal.Function.from_name(app_name, fn_name, environment_name=env_name)
 
     def invoke(
         self,
@@ -192,48 +230,49 @@ class ModalAdapter:
             "inputs_json": inputs_json,
         }
 
+        # Function identity and payload summary for observability
+        fn_fullname = f"{app_name}.{function_name}"
+        payload_size = len(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+        timeout_s = 120
+
         # Bind context for this modal execution
         bind(trace_id=execution_id, adapter="modal", processor_ref=processor_ref, mode=mode)
 
         try:
             info(
-                "modal.invoke",
-                app=app_name,
-                fn=function_name,
+                "modal.invoke.start",
+                fn_fullname=fn_fullname,
+                timeout_s=timeout_s,
+                payload_keys=sorted(payload.keys()),
+                payload_size_bytes=payload_size,
                 env=env_name,
-                keys=list(payload.keys()),
             )
 
-            # Import modal only now; return helpful error if unavailable
+            # Use injected invoker for synchronous call with timeout
             try:
-                import modal  # type: ignore
+                raw: bytes = self._invoker.invoke(fn_fullname, payload, timeout_s)
             except Exception as e:
-                error("modal.import.fail", error=str(e))
-                return _err(execution_id, "ERR_DEPENDENCY", "Modal SDK not installed", meta={"adapter": "modal"})
-
-            # Lookup remote function and call it
-            try:
-                fn = modal.Function.lookup(app_name, function_name, environment_name=env_name)
-            except Exception as e:
-                error("modal.lookup.fail", app=app_name, fn=function_name, env=env_name, error=str(e))
-                return _err(
-                    execution_id,
-                    "ERR_MODAL_LOOKUP",
-                    f"Modal function not found: {app_name}.{function_name} ({env_name})",
-                    meta={"adapter": "modal"},
-                )
-
-            try:
-                # Remote call returns bytes (canonical envelope JSON) per modal_app.py contract
-                raw: bytes = fn.remote(payload)  # type: ignore[attr-defined]
-            except Exception as e:
-                error("modal.remote.fail", app=app_name, fn=function_name, env=env_name, error=str(e))
-                return _err(
-                    execution_id,
-                    "ERR_MODAL_INVOCATION",
-                    f"Modal invocation failed: {type(e).__name__}: {e}",
-                    meta={"adapter": "modal"},
-                )
+                if "not found" in str(e).lower() or "lookup" in str(e).lower():
+                    return _err(
+                        execution_id,
+                        "ERR_MODAL_LOOKUP",
+                        f"Modal function not found: {fn_fullname} ({env_name})",
+                        meta={"adapter": "modal"},
+                    )
+                elif isinstance(e, FTimeout):
+                    return _err(
+                        execution_id,
+                        "ERR_TIMEOUT",
+                        "Modal function call timed out",
+                        meta={"adapter": "modal"},
+                    )
+                else:
+                    return _err(
+                        execution_id,
+                        "ERR_MODAL_INVOCATION",
+                        f"Modal invocation failed: {type(e).__name__}: {e}",
+                        meta={"adapter": "modal"},
+                    )
 
             # Decode + parse envelope
             try:
@@ -248,21 +287,22 @@ class ModalAdapter:
                     meta={"adapter": "modal"},
                 )
 
-            # Validate envelope shape minimally
+            # Validate envelope shape minimally and log completion
             status = env.get("status")
             if status == "success":
                 info(
-                    "modal.complete",
+                    "modal.invoke.complete",
                     status="success",
                     outputs_count=len(env.get("outputs", []) or []),
                     index_path=env.get("index_path"),
                 )
                 return env
             elif status == "error":
+                error_code = (env.get("error") or {}).get("code")
                 error(
-                    "modal.complete",
+                    "modal.invoke.complete",
                     status="error",
-                    code=(env.get("error") or {}).get("code"),
+                    error_code=error_code,
                     message=(env.get("error") or {}).get("message"),
                 )
                 return env

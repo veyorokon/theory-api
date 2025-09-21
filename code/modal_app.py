@@ -35,14 +35,14 @@ _PROVIDER_ENV_VARS = (
 )
 
 
-# Minimal, dependency-free logging (single-line JSON to stdout)
+# Minimal, dependency-free logging (single-line JSON to stderr)
 def _log(event: str, **fields: Any) -> None:
     payload = {"event": event, **fields}
     try:
-        print(json.dumps(payload, separators=(",", ":"), sort_keys=False), flush=True)
+        print(json.dumps(payload, separators=(",", ":"), sort_keys=False), file=sys.stderr, flush=True)
     except Exception:
         # Last resort if something in fields isn't serializable
-        print(json.dumps({"event": event, "msg": str(fields)}), flush=True)
+        print(json.dumps({"event": event, "msg": str(fields)}), file=sys.stderr, flush=True)
 
 
 def _ok(execution_id: str, outputs: List[Dict[str, Any]], index_path: str, meta: Dict[str, Any] | None = None) -> bytes:
@@ -265,30 +265,100 @@ def run(payload: Dict[str, Any] | None = None) -> bytes:
         inputs_path = _write_tmp_json(inputs_obj)
         cmd = _build_subprocess_cmd(module, inputs_path=inputs_path, write_prefix=write_prefix, execution_id=eid)
 
-        # Run the processor main. Stdout is expected to be the envelope JSON.
-        proc = subprocess.run(cmd, capture_output=True, text=True)
+        # Run the processor main with timeout; log start/duration + bounded IO breadcrumbs.
+        def _digest(b: bytes) -> str:
+            import hashlib
+
+            return "sha256:" + hashlib.sha256(b).hexdigest()
+
+        def _tail(b: bytes, n: int = 256) -> str:
+            try:
+                return b.decode("utf-8", "replace")[-n:]
+            except Exception:
+                return "<non-text>"
+
+        import time
+
+        _log(
+            "processor.exec.start",
+            module=module,
+            cmd=cmd,
+            mode=mode,
+            processor_ref=ref,
+            write_prefix=write_prefix,
+            execution_id=eid,
+        )
+        t0 = time.time()
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=False, timeout=600)
+        except subprocess.TimeoutExpired:
+            dur = int((time.time() - t0) * 1000)
+            _log(
+                "processor.exec.timeout",
+                timeout_s=600,
+                duration_ms=dur,
+                module=module,
+                processor_ref=ref,
+                execution_id=eid,
+            )
+            return _err(eid, "ERR_TIMEOUT", "Processor execution timed out")
+
+        dur = int((time.time() - t0) * 1000)
+        stderr_b = proc.stderr or b""
+        stdout_b = proc.stdout or b""
+        stderr_tail = _tail(stderr_b)
+        stdout_tail = _tail(stdout_b)
+        stderr_len = len(stderr_b)
+        stdout_len = len(stdout_b)
+        stderr_sha = _digest(stderr_b) if stderr_len else None
+        stdout_sha = _digest(stdout_b) if stdout_len else None
+
+        # Non-zero exit → structured fail with bounded diagnostics.
         if proc.returncode != 0:
             _log(
                 "processor.exec.fail",
-                rc=proc.returncode,
-                stderr=(proc.stderr or "").strip()[:2000],
+                returncode=proc.returncode,
+                duration_ms=dur,
+                stderr_len=stderr_len,
+                stderr_sha=stderr_sha,
+                stderr_tail=stderr_tail,
+                stdout_len=stdout_len,
+                stdout_sha=stdout_sha,
+                stdout_tail=stdout_tail,
+                processor_ref=ref,
+                execution_id=eid,
             )
-            # Return a canonical error envelope
             return _err(
                 eid,
                 "ERR_ADAPTER_INVOCATION",
                 f"Processor failed (rc={proc.returncode})",
-                meta={"stderr": (proc.stderr or "").strip()[:2000]},
+                meta={"stderr_tail": stderr_tail},
             )
 
-        # If processor wrote a canonical envelope to stdout, relay as-is.
-        stdout = (proc.stdout or "").strip()
-        if not stdout:
-            _log("processor.exec.empty_stdout")
-            return _err(eid, "ERR_ADAPTER_INVOCATION", "Processor returned empty stdout")
+        # Parse stdout as canonical envelope; log invalid JSON with breadcrumbs.
+        try:
+            envelope = json.loads(stdout_b.decode("utf-8", "replace"))
+        except Exception as ex:
+            _log(
+                "processor.exec.envelope_invalid",
+                error=str(ex),
+                duration_ms=dur,
+                stdout_len=stdout_len,
+                stdout_sha=stdout_sha,
+                stdout_tail=stdout_tail,
+                processor_ref=ref,
+                execution_id=eid,
+            )
+            return _err(eid, "ERR_ADAPTER_INVOCATION", "Processor emitted invalid JSON")
 
-        _log("processor.exec.complete", bytes=len(stdout))
-        return stdout.encode("utf-8")
+        _log(
+            "processor.exec.success",
+            duration_ms=dur,
+            outputs_count=len(envelope.get("outputs", [])),
+            processor_ref=ref,
+            execution_id=eid,
+        )
+        return json.dumps(envelope, separators=(",", ":")).encode("utf-8")
 
     except ValueError as ve:
         _log("invoke.payload.invalid", error=str(ve))

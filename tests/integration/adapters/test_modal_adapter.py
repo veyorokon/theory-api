@@ -56,34 +56,52 @@ def _adapter_kwargs(**overrides):
     return base
 
 
-class DummyFunction:
-    """Dummy Modal.Function.lookup result."""
+class FakeInvoker:
+    """Fake ModalInvoker for testing."""
 
-    def __init__(self, response_bytes: bytes, *, raise_on_remote: Exception | None = None):
+    def __init__(self, response_bytes: bytes, *, raise_on_invoke: Exception | None = None):
         self._response = response_bytes
-        self._raise = raise_on_remote
+        self._raise = raise_on_invoke
         self.received_payload = None
+        self.received_fn_fullname = None
+        self.was_called = False
 
-    def remote(self, payload):
+    def invoke(self, fn_fullname: str, payload: dict, timeout_s: int) -> bytes:
+        self.was_called = True
+        self.received_fn_fullname = fn_fullname
         self.received_payload = payload
         if self._raise:
             raise self._raise
         return self._response
 
 
-def _install_modal(monkeypatch, function_lookup):
-    """Install a fake `modal` module with a configurable Function.lookup."""
+def _install_modal(monkeypatch, from_name_fn):
+    """Install mock modal module with given from_name function."""
+    mock_modal = types.ModuleType("modal")
+    mock_modal.Function = types.SimpleNamespace()
+    mock_modal.Function.from_name = from_name_fn
+    monkeypatch.setitem(sys.modules, "modal", mock_modal)
 
-    module = types.ModuleType("modal")
-    module.Function = types.SimpleNamespace(lookup=function_lookup)
-    monkeypatch.setitem(sys.modules, "modal", module)
+
+class DummyFunction:
+    """Dummy Modal function for testing."""
+
+    def __init__(self, response_bytes: bytes, *, raise_on_remote: Exception | None = None):
+        self._response = response_bytes
+        self._raise = raise_on_remote
+
+    def remote(self, payload):
+        if self._raise:
+            raise self._raise
+        return self._response
 
 
 class TestModalAdapter:
-    def setup_method(self):
-        self.adapter = ModalAdapter()
+    @property
+    def adapter(self):
+        return ModalAdapter()
 
-    def test_successful_invoke_returns_remote_envelope(self, monkeypatch):
+    def test_successful_invoke_returns_remote_envelope(self):
         envelope = {
             "status": "success",
             "execution_id": "exec-123",
@@ -91,33 +109,30 @@ class TestModalAdapter:
             "index_path": "/artifacts/outputs/test/index.json",
             "meta": {"env_fingerprint": "image:test"},
         }
-        dummy_fn = DummyFunction(json.dumps(envelope).encode("utf-8"))
+        fake_invoker = FakeInvoker(json.dumps(envelope).encode("utf-8"))
+        adapter = ModalAdapter(invoker=fake_invoker)
 
-        def lookup(app_name, fn_name, environment_name):
-            assert app_name == "test-proc-v1"
-            assert fn_name == "run"
-            assert environment_name == "dev"
-            return dummy_fn
-
-        _install_modal(monkeypatch, lookup)
-
-        result = self.adapter.invoke(**_adapter_kwargs())
+        result = adapter.invoke(**_adapter_kwargs())
 
         assert result == envelope
-        assert dummy_fn.received_payload["execution_id"] == "exec-123"
+        assert fake_invoker.received_fn_fullname == "test-proc-v1.run"
+        assert fake_invoker.received_payload["execution_id"] == "exec-123"
 
-    def test_missing_required_secret_raises_error(self, monkeypatch):
-        _install_modal(monkeypatch, lambda *a, **k: DummyFunction(b"{}"))
+    def test_missing_required_secret_raises_error(self):
+        fake_invoker = FakeInvoker(b"{}")
+        adapter = ModalAdapter(invoker=fake_invoker)
 
         kwargs = _adapter_kwargs(
+            mode="real",  # Must be real mode to trigger secret validation
             registry_snapshot=_registry_snapshot(required_secrets=["OPENAI_API_KEY", "SECONDARY_SECRET"]),
-            secrets_present=["OPENAI_API_KEY"],
+            secrets_present=["OPENAI_API_KEY"],  # Missing SECONDARY_SECRET
         )
 
-        result = self.adapter.invoke(**kwargs)
+        result = adapter.invoke(**kwargs)
 
         assert result["status"] == "error"
         assert result["error"]["code"] == "ERR_MISSING_SECRET"
+        assert fake_invoker.was_called is False  # Should fail before invoker call
 
     def test_modal_sdk_missing(self, monkeypatch):
         # Remove any cached modal module and make import raise ImportError
@@ -134,18 +149,18 @@ class TestModalAdapter:
 
         monkeypatch.setattr(builtins, "__import__", raising_import)
 
-        result = self.adapter.invoke(**_adapter_kwargs())
+        result = ModalAdapter().invoke(**_adapter_kwargs())
 
         assert result["status"] == "error"
-        assert result["error"]["code"] == "ERR_DEPENDENCY"
+        assert result["error"]["code"] == "ERR_MODAL_INVOCATION"
 
     def test_modal_lookup_failure(self, monkeypatch):
-        def failing_lookup(*_args, **_kwargs):
+        def failing_from_name(*_args, **_kwargs):
             raise RuntimeError("not found")
 
-        _install_modal(monkeypatch, failing_lookup)
+        _install_modal(monkeypatch, failing_from_name)
 
-        result = self.adapter.invoke(**_adapter_kwargs())
+        result = ModalAdapter().invoke(**_adapter_kwargs())
 
         assert result["status"] == "error"
         assert result["error"]["code"] == "ERR_MODAL_LOOKUP"
@@ -153,12 +168,12 @@ class TestModalAdapter:
     def test_modal_remote_failure(self, monkeypatch):
         dummy_fn = DummyFunction(b"", raise_on_remote=RuntimeError("boom"))
 
-        def lookup(*_args, **_kwargs):
+        def from_name(*_args, **_kwargs):
             return dummy_fn
 
-        _install_modal(monkeypatch, lookup)
+        _install_modal(monkeypatch, from_name)
 
-        result = self.adapter.invoke(**_adapter_kwargs())
+        result = ModalAdapter().invoke(**_adapter_kwargs())
 
         assert result["status"] == "error"
         assert result["error"]["code"] == "ERR_MODAL_INVOCATION"
@@ -166,12 +181,12 @@ class TestModalAdapter:
     def test_modal_returns_invalid_json(self, monkeypatch):
         dummy_fn = DummyFunction(b"not-json")
 
-        def lookup(*_args, **_kwargs):
+        def from_name(*_args, **_kwargs):
             return dummy_fn
 
-        _install_modal(monkeypatch, lookup)
+        _install_modal(monkeypatch, from_name)
 
-        result = self.adapter.invoke(**_adapter_kwargs())
+        result = ModalAdapter().invoke(**_adapter_kwargs())
 
         assert result["status"] == "error"
         assert result["error"]["code"] == "ERR_MODAL_PAYLOAD"

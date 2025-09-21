@@ -37,6 +37,7 @@ class TestLocalAdapterExecutionIdContract:
             registry_spec=registry_spec,
             execution_id=exec_id,
             image_ref="test:latest",
+            image_id_for_meta="sha256:testimage123",
         )
 
         # Should succeed for normal case with mocked storage

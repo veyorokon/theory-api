@@ -7,7 +7,8 @@ WORKDIR /work
 
 # 1) Install Python deps for this processor only
 COPY apps/core/processors/replicate_generic/requirements.txt /work/requirements.txt
-RUN pip install --no-cache-dir -r /work/requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r /work/requirements.txt
 
 # 2) Copy shared runtime libs (no Django)
 COPY libs/runtime_common /work/libs/runtime_common
