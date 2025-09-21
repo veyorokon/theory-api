@@ -267,8 +267,14 @@ class LocalAdapter(RuntimeAdapter):
             output_dir = workdir / "out"
             output_dir.mkdir(exist_ok=True)
 
-            # Resolve secrets from registry specification
-            env_vars = self._resolve_secrets(registry_spec)
+            # Resolve secrets from registry specification (only required in real mode)
+            try:
+                inputs = json.loads(inputs_json)
+                mode = inputs.get("mode", "mock")
+            except (json.JSONDecodeError, AttributeError):
+                mode = "mock"  # Default to mock if parsing fails
+
+            env_vars = self._resolve_secrets(registry_spec, mode)
             if isinstance(env_vars, dict) and env_vars.get("status") == "error":
                 return env_vars  # Return error for missing required secrets
 
@@ -314,12 +320,13 @@ class LocalAdapter(RuntimeAdapter):
         with open(registry_file) as f:
             return yaml.safe_load(f)
 
-    def _resolve_secrets(self, registry_spec: Dict[str, Any]) -> Dict[str, str]:
+    def _resolve_secrets(self, registry_spec: Dict[str, Any], mode: str = "mock") -> Dict[str, str]:
         """
         Resolve secrets per registry specification.
 
         Args:
             registry_spec: Processor specification from registry
+            mode: Processor mode ("mock" or "real") - secrets only required in real mode
 
         Returns:
             Dict of environment variables or error dict for missing required secrets
@@ -329,6 +336,10 @@ class LocalAdapter(RuntimeAdapter):
         secrets_spec = registry_spec.get("secrets", {})
         required = secrets_spec.get("required", [])
         optional = secrets_spec.get("optional", [])
+
+        # In mock mode, skip secret validation for hermetic PR lane testing
+        if mode == "mock":
+            return {}  # Return empty env vars for mock mode
 
         env_vars = {}
         missing_required = []

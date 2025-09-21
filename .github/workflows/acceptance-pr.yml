@@ -18,6 +18,8 @@ jobs:
       PYTHONUNBUFFERED: "1"
       # Guard hermeticity: fail if secrets are present
       FAIL_IF_SECRETS: "1"
+      # Force build from source for PR lane testing
+      RUN_PROCESSOR_FORCE_BUILD: "1"
     steps:
       - uses: actions/checkout@v4
 
