@@ -13,9 +13,15 @@ from libs.runtime_common.outputs import write_outputs, write_outputs_index
 from libs.runtime_common.receipts import write_dual_receipts
 from libs.runtime_common.mode import resolve_mode
 from libs.runtime_common.types import ProcessorResult
-from apps.core.logging import bind, clear, info, error
+# Processors are Django-free. Use minimal console logging if needed.
 
 from .provider import make_runner  # local provider only
+
+
+def _log(msg: str) -> None:
+    # Quiet by default in containers/CI; enable with PROCESSOR_DEBUG=1
+    if os.getenv("PROCESSOR_DEBUG") == "1":
+        print(msg, file=sys.stderr)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -36,33 +42,25 @@ def main() -> int:
     payload = _load_inputs(args.inputs)
     mode = resolve_mode(payload)  # single source of truth
 
-    # Bind processor context for logging
-    bind(
-        trace_id=args.execution_id,
-        processor_ref="replicate/generic@1",
-        mode=mode.value,
-        adapter=os.getenv("RUNTIME_ADAPTER", "local"),
-    )
-
     try:
         ih = inputs_hash(payload)
-        info("processor.start", inputs_hash=ih["value"])
+        _log(f"processor.start replicate_generic inputs_hash={ih['value']}")
 
         t0 = time.time()
 
         # Log provider call
         model = payload.get("model", "black-forest-labs/flux-schnell")
-        info("provider.call", provider="replicate", model=model)
+        _log(f"provider.call replicate model={model}")
 
         runner = make_runner(config={})
         result: ProcessorResult = runner(payload)
 
         latency_ms = int((time.time() - t0) * 1000)
-        info("provider.response", latency_ms=latency_ms, usage=result.usage)
+        _log(f"provider.response latency_ms={latency_ms} usage={result.usage}")
 
         abs_paths = write_outputs(write_prefix, result.outputs)
         outputs_bytes = sum(len(output.bytes_) for output in result.outputs)
-        info("processor.outputs", outputs_count=len(result.outputs), outputs_bytes=outputs_bytes)
+        _log(f"processor.outputs count={len(result.outputs)} bytes={outputs_bytes}")
 
         idx_path = write_outputs_index(
             execution_id=args.execution_id,
@@ -91,16 +89,16 @@ def main() -> int:
             "duration_ms": int((time.time() - t0) * 1000),
         }
         write_dual_receipts(args.execution_id, write_prefix, receipt)
-        info("processor.receipt", receipt_path=f"{write_prefix}receipt.json")
+        _log(f"processor.receipt path={write_prefix}receipt.json")
 
         return 0
 
     except Exception as e:
-        error("execution.fail", error={"code": "ERR_PROCESSOR", "message": str(e)})
+        _log(f"execution.fail error=ERR_PROCESSOR message={str(e)}")
         return 1
 
     finally:
-        clear()
+        _log("processor.end replicate_generic")
 
 
 if __name__ == "__main__":

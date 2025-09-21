@@ -7,6 +7,7 @@ Executes processors as isolated Docker containers with standardized I/O.
 import json
 import logging
 import os
+import re
 import subprocess
 import yaml
 from pathlib import Path
@@ -19,7 +20,8 @@ from .ensure_image import ensure_image
 from .envelope import success_envelope, error_envelope, write_outputs_index
 from libs.runtime_common.fingerprint import compose_env_fingerprint
 from .redaction import redact_msg
-from apps.core.utils.processor_ref import registry_path
+from apps.core.utils.processor_ref import registry_path, local_processor_path
+from apps.core.adapters.modal.naming import modal_app_name_from_ref
 from apps.core.logging import bind, clear, info, error
 
 logger = logging.getLogger(__name__)
@@ -204,8 +206,53 @@ class LocalAdapter(RuntimeAdapter):
         # Extract build flag from adapter options
         build_flag = adapter_opts.get("build", build)
 
-        # Ensure container image is available
-        image_ref = ensure_image(registry_spec, adapter="local", build=build_flag)
+        # -----------------------------
+        # Optional local build (immutable run by image ID)
+        # -----------------------------
+        image_ref = ensure_image(registry_spec, adapter="local", build=False)  # default: pinned digest
+        image_to_run = image_ref  # default: pinned digest
+        image_tag_for_logs = None  # human-friendly, optional
+        image_id_for_meta = image_ref  # default to pinned digest; overwritten if build=True
+
+        if build_flag:
+            slug = re.sub(r"[^a-z0-9\-]+", "-", processor_ref.lower().replace("/", "-").replace("@", "-v"))
+            short = os.getenv("GITHUB_SHA", "")[:7] or "dev"
+            local_tag = f"theory-local/{slug}:{short}"
+
+            processor_dir = local_processor_path(processor_ref)
+            dockerfile_path = processor_dir / "Dockerfile"
+            # Build context must be project root for Dockerfile paths to work
+            from django.conf import settings
+
+            build_ctx = Path(settings.BASE_DIR)
+
+            if not dockerfile_path.exists():
+                raise RuntimeError(f"Dockerfile missing for {processor_ref}: {dockerfile_path}")
+
+            # build multi-arch isn't needed for local; ensure --load to get a local image
+            subprocess.check_call(
+                [
+                    "docker",
+                    "buildx",
+                    "build",
+                    "--load",
+                    "-t",
+                    local_tag,
+                    "--label",
+                    f"org.opencontainers.image.revision={short}",
+                    "-f",
+                    str(dockerfile_path),
+                    str(build_ctx),
+                ]
+            )
+            # capture immutable image ID (sha256:...)
+            image_id = subprocess.check_output(
+                ["docker", "inspect", "--format", "{{.Id}}", local_tag], text=True
+            ).strip()
+
+            image_to_run = image_id  # run by immutable ID
+            image_id_for_meta = image_id  # record in receipts/meta
+            image_tag_for_logs = local_tag  # optional, for humans/logs
 
         # Use orchestrator-provided execution_id (never generate/override)
         workdir = self._create_workdir(plan_id, plan_id)
@@ -227,7 +274,7 @@ class LocalAdapter(RuntimeAdapter):
 
             # Build Docker command
             docker_cmd = self._build_docker_command(
-                registry_spec, image_ref, workdir, env_vars, timeout_s, write_prefix, execution_id
+                registry_spec, image_to_run, workdir, env_vars, timeout_s, write_prefix, execution_id
             )
 
             # Execute container
@@ -243,11 +290,15 @@ class LocalAdapter(RuntimeAdapter):
                     write_prefix=write_prefix,
                     registry_spec=registry_spec,
                     execution_id=execution_id,
-                    image_ref=image_ref,
+                    image_ref=image_to_run,
+                    image_id_for_meta=image_id_for_meta,
+                    image_tag_for_logs=image_tag_for_logs,
                     host_artifacts=host_artifacts,
                 )
             else:
-                return self._process_failure_outputs(result, registry_spec, execution_id, image_ref=image_ref)
+                return self._process_failure_outputs(
+                    result, registry_spec, execution_id, image_ref=image_to_run, image_id_for_meta=image_id_for_meta
+                )
 
         finally:
             # Clean up workdir
@@ -391,6 +442,8 @@ class LocalAdapter(RuntimeAdapter):
         registry_spec: Dict[str, Any],
         execution_id: str,
         image_ref: str,
+        image_id_for_meta: str,
+        image_tag_for_logs: str = None,
         host_artifacts: str = None,
     ) -> Dict[str, Any]:
         """Canonicalize outputs with deterministic ordering and index artifact."""
@@ -455,7 +508,9 @@ class LocalAdapter(RuntimeAdapter):
                 paths = []
 
         # Idempotent re-run check
-        index_path = f"/artifacts/execution/{execution_id}/outputs.json"
+        # Use write_prefix for index_path instead of execution artifacts path
+        expanded_write_prefix = write_prefix.format(execution_id=execution_id)
+        index_path = f"{expanded_write_prefix.rstrip('/')}/outputs.json"
         if host_index_global.exists():
             try:
                 prev_data = json.loads(host_index_global.read_text(encoding="utf-8"))
@@ -510,32 +565,48 @@ class LocalAdapter(RuntimeAdapter):
             entries.append({"path": stored, "cid": cid, "size_bytes": size, "mime": mime})
 
         # Create index artifact with centralized helper
-        index_path = f"/artifacts/execution/{execution_id}/outputs.json"
+        # Use write_prefix for index_path (where outputs actually live)
+        expanded_write_prefix = write_prefix.format(execution_id=execution_id)
+        index_path = f"{expanded_write_prefix.rstrip('/')}/outputs.json"
         index_bytes = write_outputs_index(index_path, entries)
         artifact_store.put_bytes(index_path, index_bytes, "application/json")
 
         # Use shared envelope serializer
-        image_digest = image_ref if image_ref else registry_spec.get("image", {}).get("oci") or "local-build"
-        env_fingerprint = self._build_env_fingerprint(registry_spec, image_ref)
-        meta_extra = {"io_bytes": io_bytes}
+        # env fingerprint should include the immutable identifier we actually ran
+        env_fingerprint = self._build_env_fingerprint(registry_spec, image_id_for_meta)
 
-        return success_envelope(execution_id, entries, index_path, image_digest, env_fingerprint, 0, meta_extra)
+        meta = {"env_fingerprint": env_fingerprint}
+        # record the actual image we ran
+        meta["image_digest"] = image_id_for_meta
+        if image_tag_for_logs:
+            meta["image_tag"] = image_tag_for_logs
+        # existing code may add duration_ms, io_bytes, etc.
+        meta["io_bytes"] = io_bytes
+
+        return success_envelope(execution_id, entries, index_path, image_id_for_meta, env_fingerprint, 0, meta)
 
     def _process_failure_outputs(
-        self, result: subprocess.CompletedProcess, registry_spec: Dict[str, Any], execution_id: str, image_ref: str
+        self,
+        result: subprocess.CompletedProcess,
+        registry_spec: Dict[str, Any],
+        execution_id: str,
+        image_ref: str,
+        image_id_for_meta: str = None,
     ) -> Dict[str, Any]:
         """Process failed container execution."""
         error_msg = f"Container failed with exit code {result.returncode}"
         if result.stderr.strip():
-            # Redact sensitive information from stderr
-            stderr_tail = redact_msg(result.stderr[:200])
-            error_msg += f". STDERR: {stderr_tail}"
+            # Redact sensitive information from stderr (keep full traceback for debugging)
+            stderr_full = redact_msg(result.stderr[:8192])  # Increased from 200 to 8KB
+            error_msg += f". STDERR:\n{stderr_full}"
         if result.stdout.strip():
             # Redact sensitive information from stdout
             stdout_tail = redact_msg(result.stdout[:200])
             error_msg += f". STDOUT: {stdout_tail}"
 
-        env_fingerprint = self._build_env_fingerprint(registry_spec, image_ref)
+        # Use image metadata for proper fingerprinting
+        image_digest = image_id_for_meta or image_ref
+        env_fingerprint = self._build_env_fingerprint(registry_spec, image_digest)
         return error_envelope(execution_id, "container_execution_failed", error_msg, env_fingerprint)
 
     def _build_env_fingerprint(self, registry_spec: Dict[str, Any], image_ref: str = None) -> str:

@@ -139,6 +139,9 @@ class TestReceiptInvariants:
         if "estimated_cost_micro" in receipt:
             assert receipt["estimated_cost_micro"] == 0, "Mock provider should have zero estimated cost"
 
+    @pytest.mark.skipif(
+        os.getenv("RUN_PROCESSOR_FORCE_BUILD") == "1", reason="PR lane tests build from source, not pinned artifacts"
+    )
     def test_receipt_image_digest_pinned(self):
         """Test that receipt contains pinned image digest reference."""
         data = _run_processor_and_get_receipt("image-digest")

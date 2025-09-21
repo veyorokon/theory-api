@@ -54,6 +54,8 @@ code/artifacts/
 # Test output directories
 **/tests/.output/
 **/.output/
+# Runtime artifacts (execution outputs, test data)
+/artifacts/
 # Django stuff:
 *.log
 local_settings.py

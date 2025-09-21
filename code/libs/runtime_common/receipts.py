@@ -9,6 +9,32 @@ from pathlib import Path
 from typing import Dict, Any
 
 
+def _jsonify(obj):
+    """Keep receipts strictly JSON-serializable; convert known wrappers."""
+    from pathlib import Path
+
+    try:
+        # Optional import to avoid hard dep in import graph
+        from libs.runtime_common.mode import ResolvedMode  # type: ignore
+    except Exception:
+
+        class ResolvedMode:  # sentinel if not importable
+            pass
+
+    if obj is None or isinstance(obj, (str, int, float, bool)):
+        return obj
+    if isinstance(obj, dict):
+        return {str(k): _jsonify(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_jsonify(v) for v in obj]
+    if isinstance(obj, Path):
+        return obj.as_posix()
+    if isinstance(obj, ResolvedMode):
+        return getattr(obj, "value", str(obj))
+    # Last resort, stringify (better than crashing; tests still assert schema)
+    return str(obj)
+
+
 @dataclass
 class Receipt:
     processor: str  # e.g., "llm/litellm@1"
@@ -92,7 +118,8 @@ def write_dual_receipts(
     statuses = {"global_path": global_path, "local_path": local_path, "global_ok": False, "local_ok": False}
 
     # JSON bytes (identical for both locations)
-    receipt_bytes = json.dumps(receipt, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    safe_receipt = _jsonify(receipt)
+    receipt_bytes = json.dumps(safe_receipt, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
     # Write global receipt with error handling
     try:

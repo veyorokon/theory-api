@@ -7,7 +7,7 @@ Usage:
 
 import json
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone, UTC
 from django.core.management.base import BaseCommand
 
 from apps.core.modalctl import list_apps, delete_app
@@ -55,21 +55,22 @@ class Command(BaseCommand):
                 sys.exit(1)
 
             apps = result.get("apps", [])
-            cutoff_date = datetime.now() - timedelta(days=older_than_days)
+            cutoff_date = datetime.now(UTC) - timedelta(days=older_than_days)
 
             # Find stale apps
             stale_apps = []
             for app in apps:
-                # Parse last_updated (this will depend on Modal's actual format)
-                last_updated_str = app.get("last_updated", "")
+                # Modal CLI uses "Created at" field, not "last_updated"
+                created_at_str = app.get("Created at", "")
+                app_name = app.get("Description", app.get("App ID", "unknown"))
                 try:
-                    # Assume ISO format for now - adjust based on actual Modal output
-                    last_updated = datetime.fromisoformat(last_updated_str.replace("Z", "+00:00"))
-                    if last_updated < cutoff_date:
+                    # Parse Modal's datetime format: "2025-09-20 20:20:21-04:00"
+                    created_at = datetime.fromisoformat(created_at_str)
+                    if created_at < cutoff_date:
                         stale_apps.append(app)
                 except (ValueError, AttributeError):
                     # If we can't parse the date, skip this app
-                    self.stdout.write(f"⚠️  Skipping {app.get('name', 'unknown')}: couldn't parse last_updated")
+                    self.stdout.write(f"⚠️  Skipping {app_name}: couldn't parse Created at '{created_at_str}'")
                     continue
 
             # Output results
@@ -92,9 +93,9 @@ class Command(BaseCommand):
 
             self.stdout.write(f"📊 Found {len(stale_apps)} stale apps:")
             for app in stale_apps:
-                name = app.get("name", "unknown")
-                updated = app.get("last_updated", "unknown")
-                self.stdout.write(f"  - {name} (last updated: {updated})")
+                name = app.get("Description", app.get("App ID", "unknown"))
+                created = app.get("Created at", "unknown")
+                self.stdout.write(f"  - {name} (created: {created})")
 
             if dry_run:
                 gc_result["message"] = f"Would delete {len(stale_apps)} apps (dry run)"
@@ -106,15 +107,12 @@ class Command(BaseCommand):
                 self.stderr.write("❌ Use --force to actually delete apps")
                 sys.exit(1)
 
-            # Confirm deletion
-            confirm = input(f"Delete {len(stale_apps)} stale apps? [y/N]: ")
-            if confirm.lower() not in ("y", "yes"):
-                self.stdout.write("Deletion cancelled")
-                return
+            # When --force is used, skip interactive confirmation
+            self.stdout.write(f"🚀 Force deleting {len(stale_apps)} stale apps")
 
             # Delete stale apps
             for app in stale_apps:
-                app_name = app.get("name")
+                app_name = app.get("Description", app.get("App ID"))
                 if not app_name:
                     continue
 

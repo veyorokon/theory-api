@@ -12,11 +12,6 @@ def make_runner(config: Dict[str, Any]) -> Callable[[Dict[str, Any]], ProcessorR
     Returns a callable(inputs) -> ProcessorResult.
     - inputs expects: {"schema":"v1","model":"...","params":{...},"mode":"real|mock"}
     """
-    # Late import to keep container deps local
-    try:
-        import litellm  # type: ignore
-    except Exception:
-        litellm = None
 
     def _runner(inputs: Dict[str, Any]) -> ProcessorResult:
         mode = resolve_mode(inputs)
@@ -39,7 +34,10 @@ def make_runner(config: Dict[str, Any]) -> Callable[[Dict[str, Any]], ProcessorR
             ]
             return ProcessorResult(outputs=out, processor_info=f"litellm:{model}:{mode.value}", usage={}, extra={})
 
-        if litellm is None:
+        # Import litellm only when needed for real mode (lazy import)
+        try:
+            import litellm  # type: ignore
+        except ImportError:
             raise RuntimeError("litellm not installed in this container")
 
         # Call: prefer chat.completions if present; else fallback to completion()

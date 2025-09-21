@@ -1,0 +1,48 @@
+name: PR Acceptance (mock, build)
+
+on:
+  pull_request:
+    branches: [ dev, main ]
+    paths-ignore:
+      - 'docs/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pr-acceptance:
+    runs-on: ubuntu-latest
+    env:
+      DJANGO_SETTINGS_MODULE: backend.settings.unittest
+      PYTHONUNBUFFERED: "1"
+      # Guard hermeticity: fail if secrets are present
+      FAIL_IF_SECRETS: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Hermeticity guard (no secrets)
+        run: |
+          set -euo pipefail
+          bad=0
+          for k in OPENAI_API_KEY REPLICATE_API_TOKEN AWS_SECRET_ACCESS_KEY AWS_ACCESS_KEY_ID; do
+            if [ -n "${!k:-}" ]; then echo "❌ Secret $k present in env"; bad=1; fi
+          done
+          [ "$bad" -eq 0 ] || exit 1
+
+      - name: Bring up compose stack
+        run: |
+          docker compose up -d --wait
+
+      - name: Run PR acceptance (build from source)
+        run: |
+          make test-acceptance-pr
