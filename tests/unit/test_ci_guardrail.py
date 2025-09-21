@@ -1,8 +1,11 @@
 """Test clean mode system validation."""
 
+import os
+from unittest import mock
+
 import pytest
 
-from libs.runtime_common.mode import resolve_mode, is_mock, is_real
+from libs.runtime_common.mode import resolve_mode, is_mock, is_real, ModeSafetyError
 
 
 class TestModeSystem:
@@ -16,8 +19,9 @@ class TestModeSystem:
         assert is_mock(mode)
         assert not is_real(mode)
 
+    @mock.patch.dict(os.environ, {"CI": ""}, clear=True)
     def test_real_mode_validation(self):
-        """Test that real mode is parsed correctly."""
+        """Test that real mode is parsed correctly when not in CI."""
         inputs = {"mode": "real"}
         mode = resolve_mode(inputs)
         assert mode.value == "real"
@@ -39,8 +43,9 @@ class TestModeSystem:
         assert mode.value == "mock"
         assert is_mock(mode)
 
+    @mock.patch.dict(os.environ, {"CI": ""}, clear=True)
     def test_case_insensitive_mode(self):
-        """Test that mode parsing is case insensitive."""
+        """Test that mode parsing is case insensitive when not in CI."""
         for mode_value in ["MOCK", "Mock", "mock", "REAL", "Real", "real"]:
             inputs = {"mode": mode_value}
             mode = resolve_mode(inputs)
@@ -49,5 +54,22 @@ class TestModeSystem:
     def test_none_inputs(self):
         """Test that None inputs defaults to mock mode."""
         mode = resolve_mode(None)
+        assert mode.value == "mock"
+        assert is_mock(mode)
+
+    @mock.patch.dict(os.environ, {"CI": "true"})
+    def test_ci_safety_blocks_real_mode(self):
+        """Test that real mode is blocked when CI=true."""
+        inputs = {"mode": "real"}
+        with pytest.raises(ModeSafetyError) as exc_info:
+            resolve_mode(inputs)
+        assert "ERR_CI_SAFETY" in str(exc_info.value)
+        assert "Real mode is blocked in CI environments" in str(exc_info.value)
+
+    @mock.patch.dict(os.environ, {"CI": "true"})
+    def test_ci_allows_mock_mode(self):
+        """Test that mock mode works fine in CI environment."""
+        inputs = {"mode": "mock"}
+        mode = resolve_mode(inputs)
         assert mode.value == "mock"
         assert is_mock(mode)
