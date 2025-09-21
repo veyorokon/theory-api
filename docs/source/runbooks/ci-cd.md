@@ -70,14 +70,14 @@ steps:
 
 - `docker setup-buildx-action` enables BuildKit.
 - Each processor is built with context `code/` (Dockerfile lives under the processor dir).
-- Images are tagged `ghcr.io/<repo>/<processor>:build-<timestamp>` and pushed (single arch `linux/amd64`; extend if needed).
-- Digests are extracted via `docker buildx imagetools inspect`.
+- Images are tagged `ghcr.io/<repo>/<processor>:build-<run>` and pushed (multi-arch `linux/amd64,linux/arm64`).
+- After `docker buildx imagetools inspect`, the workflow asserts both platforms are present; missing either fails fast.
 
 ### Update Registry & Bot PR
 
 - Registry YAMLs are rewritten so `image.oci` points to `<image>@sha256:<digest>`.
 - A change detector runs: `git diff --quiet -- code/apps/core/registry/processors`.
-- If differences exist, `peter-evans/create-pull-request@v6` opens `bot/pin-${{ github.run_id }}` with commit message `ci: pin processor images (bot)`.
+- If differences exist, `peter-evans/create-pull-request@v6` opens `bot/pin-images` with commit message `ci: pin processor images (bot)`.
 
 **Important:** GHCR packages must exist and grant this repository **Actions: Write**.
 
@@ -93,14 +93,14 @@ steps:
 2. GitHub → Packages → (package) → Settings → Repository access → add this repo with **Actions: Write**.
 3. Subsequent automated pushes from the workflow will succeed.
 
-## 3. Acceptance Tests (Docker, Smoke Mode)
+## 3. Acceptance Tests (Docker, `mode=mock`)
 
 Workflow: `.github/workflows/acceptance.yml`
 
 - Runs on pushes to `dev` after the pin PR merges.
 - Early guard: exits if any registry YAML still contains `oci: sha256:pending`.
 - Starts Docker services via `docker compose up -d postgres redis minio`.
-- Runs `make test-acceptance` inside `code/` (adapter=`local`, `--mode smoke`), exercising budgets, artifact writes, and receipts.
+- Runs `make test-acceptance` inside `code/` (adapter=`local`, `--mode mock`), exercising budgets, artifact writes, and receipts.
 - Ensure branch protection on `dev` requires this workflow before deploy.
 
 ## 4. Modal Deploy & Smoke
@@ -116,9 +116,10 @@ Workflow: `.github/workflows/modal-deploy.yml`
 
 1. **Checkout** repo (full history not required).
 2. **Collect processors**: parse registry YAML into JSON (ref, pinned digest, secret list).
-3. **Secret sync**: for every secret name listed, read matching GitHub secret and `modal secret create <name> --env $ENV --force`. Missing GitHub secrets emit warnings.
-4. **Deploy**: invoke `modal deploy -m code/modal_app.py --env $ENV` for each processor with `PROCESSOR_REF`, `IMAGE_REF`, `TOOL_SECRETS` in the environment. This deploys the pinned digest.
-5. **Post-deploy smoke**: call `modal function call code.modal_app::smoke --env $ENV --args '{"ref":"...","mode":"mock"}'` to verify the deployment without touching external providers.
+3. **Secret sync**: for every secret name listed, read matching GitHub secret. Command fails if any value is missing **or** a secret name is unknown (drift prevention).
+4. **Deploy**: invoke `modal deploy -m modal_app --env $ENV` for each processor with `PROCESSOR_REF`, `IMAGE_REF`, `TOOL_SECRETS`, `MODAL_APP_NAME` exported. `modal_app.py` reads these and registers the canonical app name.
+5. **Post-deploy smoke**: call `python manage.py run_processor ... --mode mock --adapter modal --json` for each processor to verify deployments without hitting providers.
+6. **Negative probe**: explicitly run `python manage.py run_processor ... --mode real --adapter modal --json` with `CI=false` to confirm Modal returns `ERR_MISSING_SECRET` when secrets are absent (ensures guard rails stay intact).
 
 ### Promotion Philosophy
 

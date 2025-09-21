@@ -150,7 +150,7 @@ class LeaseManager:
             def __enter__(self_nonlocal):
                 return handle
 
-            def __exit__(self_nonlocal, exc_type, exc, tb):
+            def __exit__(self_nonlocal, exc_type, exc, _tb):
                 self.release(handle)
 
         return _Ctx()

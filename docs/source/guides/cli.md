@@ -23,7 +23,7 @@ python manage.py run_processor \
 - `--ref` (required): Processor reference (e.g. `llm/litellm@1`)
 - `--adapter` (required): `local` or `modal`
 - `--mode` (optional): `mock` (default) or `real`
-- `--write-prefix` (optional): Output prefix (default `/artifacts/outputs/`)
+- `--write-prefix` (optional): Output prefix (default `/artifacts/outputs/`). Must include `{execution_id}` to prevent collisions.
 - `--inputs-json` (optional): JSON payload (schema v1)
 - `--adapter-opts-json` (optional): Adapter-specific options
 - `--plan`, `--attach`, `--json`, `--save-dir`, `--save-first`: unchanged
@@ -48,8 +48,11 @@ python manage.py run_processor --ref llm/litellm@1 --adapter local --mode real
 
 # Modal real run
 python manage.py run_processor --ref llm/litellm@1 --adapter modal --mode real --json
+
+# Capture stdout only (machine-readable envelope); logs stream to stderr automatically when --json is set.
+python manage.py run_processor ... --json 1>result.json 2>logs.ndjson
 ```
 
-## sync_modal
+## sync_modal_secrets
 
-(unchanged — still deploys Modal functions according to pinned digests.)
+Idempotently ensures all registry-declared secrets exist in the Modal environment. Uses GitHub secrets as the source of truth.

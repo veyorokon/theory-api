@@ -2,7 +2,7 @@
 Delete a specific Modal app.
 
 Usage:
-    python manage.py destroy_modal --env dev --app-name xyz [options]
+    python manage.py destroy_modal --env dev --ref llm/litellm@1 [options]
 """
 
 import json
@@ -17,17 +17,21 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--env", required=True, choices=["dev", "staging", "main"], help="Target environment")
-        parser.add_argument("--app-name", help="Modal app name (defaults to convention)")
+        parser.add_argument("--ref", help="Processor reference (e.g., llm/litellm@1)")
+        parser.add_argument("--app-name", help="Modal app name (defaults to canonical ref-based name)")
         parser.add_argument("--force", action="store_true", help="Skip confirmation prompt")
 
     def handle(self, *args, **options):
         env = options["env"]
-        app_name = resolve_app_name(env, options.get("app_name"))
+        processor_ref = options.get("ref")
+        app_name = resolve_app_name(env, preferred=options.get("app_name"), processor_ref=processor_ref)
         force = options["force"]
 
         # Log start
         self.stdout.write(f"🗑️  Destroying Modal app: {app_name}")
         self.stdout.write(f"📦 Environment: {env}")
+        if processor_ref:
+            self.stdout.write(f"🔧 Processor: {processor_ref}")
 
         # Safety confirmation
         if not force:

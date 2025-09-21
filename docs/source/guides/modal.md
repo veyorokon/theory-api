@@ -1,6 +1,6 @@
-# Modal Deployment & Secrets (Single-Module Flow)
+# Modal Deployment & Secrets
 
-Modal provides serverless execution for processors with pre-deployed functions and centralized secrets. This guide uses a committed module (no codegen, no extra container).
+Modal provides serverless execution for processors using a committed module (`code/modal_app.py`). This guide reflects the updated naming and control flow: **modes are explicit** and **app names are deterministic**.
 
 ## Secrets Policy
 
@@ -8,190 +8,92 @@ The authoritative secrets standard for Modal integration.
 
 ### Core Principle
 
-**Secret names = environment variable names** used by processors, identical across all environments.
-
-### Rules
-
-1. **Per-runtime environment variables**: Create a Modal secret **with the same name** as the environment variable
-2. **Registry authentication**: Create **`REGISTRY_AUTH`** containing `REGISTRY_USERNAME` and `REGISTRY_PASSWORD` keys
-3. **Same names across environments**: dev/staging/main use identical secret names, only values differ
-4. **Code consistency**: Same code runs in all environments without modification
+Secret names match the environment variables consumed by processors (`OPENAI_API_KEY`, `REGISTRY_AUTH`, etc.). Names stay the same across all environments; only values differ.
 
 ### Required Secrets
 
-| Secret Name | Purpose | Keys | Required |
-|-------------|---------|------|----------|
-| `REGISTRY_AUTH` | GHCR image pulls | `REGISTRY_USERNAME`, `REGISTRY_PASSWORD` | Yes |
-| `OPENAI_API_KEY` | OpenAI API access | `OPENAI_API_KEY` | Yes |
-| `LITELLM_API_BASE` | Custom LiteLLM endpoint | `LITELLM_API_BASE` | Optional |
+| Secret | Keys | Purpose |
+|--------|------|---------|
+| `REGISTRY_AUTH` | `REGISTRY_USERNAME`, `REGISTRY_PASSWORD` | GHCR image pulls |
+| `OPENAI_API_KEY` | `OPENAI_API_KEY` | Real-mode LLM calls |
+| `LITELLM_API_BASE` | `LITELLM_API_BASE` | Optional custom LiteLLM endpoint |
 
-### Secret Creation
+Example creation:
 
-**GHCR authentication** (special case: 2 keys in one secret):
 ```bash
 modal secret create REGISTRY_AUTH \
   --from-literal REGISTRY_USERNAME="$GITHUB_USERNAME" \
   --from-literal REGISTRY_PASSWORD="$GITHUB_PAT"
-```
 
-**Runtime secrets** (1 secret per environment variable):
-```bash
 modal secret create OPENAI_API_KEY \
   --from-literal OPENAI_API_KEY="$OPENAI_API_KEY"
-
-modal secret create LITELLM_API_BASE \
-  --from-literal LITELLM_API_BASE="$LITELLM_API_BASE"
 ```
 
-### GitHub Personal Access Token
+## Processor App Naming
 
-For `REGISTRY_AUTH`, create a GitHub PAT with:
-- **Scope**: `read:packages`
-- **Purpose**: Pull container images from GitHub Container Registry (GHCR)
-- **Expiration**: Set appropriate expiration policy for your organization
+`modal_app_name_from_ref()` is the single source of truth. `llm/litellm@1` → **`llm-litellm-v1`**.
 
-## Deployment Workflow
+- **CI/CD** (`modal deploy -m modal_app` with `PROCESSOR_REF` set): app name is exactly the processor slug (`llm-litellm-v1`, `replicate-generic-v1`). The Modal environment (`--env dev|staging|main`) scopes deployments; no human prefixes.
+- **Human management commands** (e.g., `deploy_modal`, `logs_modal`): by default we reuse the same canonical slug. Pass `--app-name` if you truly need a custom sandbox name, or set `MODAL_APP_NAME` before calling `modal deploy`.
 
-### Deploy Functions
+## Deploying Processors
 
-Deploy committed module and test processor execution:
+### CI/CD pipeline
+
+The deploy workflow simply runs:
+
 ```bash
-cd code
-modal deploy --env dev -m modal_app
-
-# Or via Django management command (thin wrapper)
-python manage.py sync_modal --env dev
-```
-Naming in Modal UI is clean and deterministic:
-- App: `{slug}-v{ver}-{env}` (e.g., `llm-litellm-v1-dev`)
-- Function: `run`
-
-## Environment Isolation
-
-### Modal App
-
-Use a stable app name (default `theory-rt`). Select the environment at deploy/invoke time using `--env` and `environment_name`.
-
-### Secret Isolation
-
-Modal environments provide automatic secret isolation:
-- Secrets created in `dev` are not accessible from `staging`
-- Same secret names, different values per environment
-- No code changes required between environments
-
-## Registry Integration
-
-### Image Digests
-
-Processors reference specific image digests from registry YAML:
-
-```yaml
-# code/apps/core/registry/processors/llm_litellm.yaml
-name: llm/litellm@1
-image:
-  oci: ghcr.io/veyorokon/llm_litellm@sha256:09e1fb31078db18369fa50c393ded009c88ef880754dbfc1131d750ce3f8f225
+modal deploy -m modal_app --env "$MODAL_ENVIRONMENT"
 ```
 
-### Secret Requirements
+`PROCESSOR_REF`, `IMAGE_REF`, and `TOOL_SECRETS` are exported in the job environment. `modal_app.py` reads them, names the app (`llm-litellm-v1`), and registers the function.
 
-Registry YAML defines required secrets:
+After deploy, a smoke test calls the `smoke` function with `mode="mock"`.
 
-```yaml
-secrets:
-  required: [OPENAI_API_KEY]
+### Local / manual usage
+
+Developer-friendly Django commands take only the processor ref; registry metadata is resolved automatically.
+
+```bash
+python manage.py deploy_modal --env dev --ref llm/litellm@1
+
+# App resolves to llm-litellm-v1 (override with --app-name if needed)
 ```
 
-Optional secrets (like `LITELLM_API_BASE`) can be present but are not required for function deployment.
+To inspect logs or call functions manually:
+
+```bash
+python manage.py logs_modal --env dev --ref llm/litellm@1
+python manage.py invoke_modal --env dev --ref llm/litellm@1 --payload-json '{"schema":"v1","mode":"mock","params":{...}}'
+```
+
+## Modes & Payloads
+
+Processors look at `inputs["mode"]`:
+
+- `mode="mock"`: deterministic responses; used by CI smoke tests and local quick checks.
+- `mode="real"`: hits external providers; secrets must exist (e.g., `OPENAI_API_KEY`).
+
+Modal smoke functions force `mode="mock"`; real production jobs pass `mode="real"`.
 
 ## Troubleshooting
 
-### Common Issues
+| Issue | Fix |
+|-------|-----|
+| `ERR_MISSING_SECRET` | Ensure required secret exists in the target Modal environment. |
+| `Image pull failed` | Verify `REGISTRY_AUTH` values and the pinned `image.oci` digest. |
+| Function not found | Confirm the processor ref was deployed for that Modal env (`modal app list --env dev`). |
 
-**"invalid username/password" during deploy:**
-- Verify `REGISTRY_AUTH` secret exists
-- Check GitHub PAT has `read:packages` scope
-- Ensure PAT hasn't expired
+Example checks:
 
-**"function not found" during execution:**
-- Ensure deployment ran to the correct environment (`--env dev|staging|main`).
-- App name is `{slug}-v{ver}-{env}`; function name is `run`.
-- Re-deploy committed module: `cd code && modal deploy --env <env> -m modal_app`.
-
-**"403 forbidden" on secret access:**
-- Secret name must match environment variable name exactly
-- Verify secret exists in correct Modal environment
-- Check Modal environment permissions
-
-**"image pull failed":**
-- Verify GHCR image exists and is accessible
-- Check `REGISTRY_AUTH` credentials are valid
-- Ensure image digest in registry YAML is correct
-
-### Debug Commands
-
-**List deployed apps/functions:**
 ```bash
 modal app list --env dev
-modal function list --app llm-litellm-v1-dev --env dev
+modal function list --app llm-litellm-v1 --env dev
+modal logs --app llm-litellm-v1 --env dev
 ```
-
-**Check secret existence:**
-```bash
-modal secret list
-```
-
-**View function logs:**
-```bash
-modal logs --app llm-litellm-v1-dev --env dev
-```
-
-## Performance Considerations
-
-### Warm Pool Management
-
-- Pre-deployed functions maintain warm pools
-- GPU functions benefit most from warm starts
-- Function idle timeout affects warm pool retention
-
-### Resource Allocation
-
-Configure resources in registry YAML:
-
-```yaml
-runtime:
-  cpu: "2"
-  memory_gb: 4
-  timeout_s: 300
-```
-
-Higher resource allocations may reduce cold start frequency but increase costs.
-
-### Concurrent Execution
-
-Modal automatically scales functions based on demand:
-- No manual scaling configuration required
-- Concurrent executions share warm pools when possible
-- Different profiles create separate function instances
-
-## Security Best Practices
-
-### Secret Management
-
-1. **Rotate secrets regularly**: Update GitHub PATs and API keys periodically
-2. **Principle of least privilege**: Only grant necessary scopes to tokens
-3. **Environment isolation**: Use separate secrets for dev/staging/main
-4. **Audit access**: Monitor secret usage in Modal dashboard
-
-### Image Security
-
-1. **Pin specific digests**: Always use SHA256 digests, not tags
-2. **Scan images**: Use security scanning on processor images
-3. **Minimal base images**: Reduce attack surface in processor containers
-4. **Regular updates**: Keep base images and dependencies current
 
 ## Cross-References
 
-- {doc}`cli` - CLI commands for Modal deployment (`sync_modal`, `run_processor`)
-- {doc}`../concepts/adapters` - Modal adapter implementation details
-- {doc}`../reference/configuration` - Complete secrets standard reference
-- [ADR-0015: Local Adapter Docker Execution](../adr/ADR-0015-local-adapter-docker-execution.md) - Docker execution patterns that inform Modal design
+- {doc}`cli` – `run_processor` (`--mode mock|real`) and Modal management commands
+- {doc}`../concepts/adapters` – Adapter behaviour for mock vs real mode
+- {doc}`../runbooks/ci-cd` – Pipeline stages for build, acceptance, and deploy

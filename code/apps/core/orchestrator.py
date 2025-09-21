@@ -49,6 +49,7 @@ def run_processor_core(
     build: bool = False,
     timeout: int | None = None,
     started_at: datetime.datetime | None = None,
+    execution_id: str | None = None,
 ) -> Dict[str, Any]:
     """
     Pure function: orchestrates one processor run and returns the envelope dict.
@@ -80,7 +81,8 @@ def run_processor_core(
             registry_snapshot = snapshot_for_ref(ref)
             spec = registry_snapshot["processors"][ref]
         except Exception as e:
-            execution_id = str(execution.id) if execution else str(uuid.uuid4())
+            if execution_id is None:
+                execution_id = str(execution.id) if execution else str(uuid.uuid4())
             logger.error("Registry loading failed", extra={"execution_id": execution_id, "ref": ref}, exc_info=True)
             return error_envelope(
                 execution_id=execution_id,
@@ -96,7 +98,8 @@ def run_processor_core(
         try:
             adapter_instance = _get_adapter(adapter)
         except ValueError as e:
-            execution_id = str(execution.id) if execution else str(uuid.uuid4())
+            if execution_id is None:
+                execution_id = str(execution.id) if execution else str(uuid.uuid4())
             logger.error(
                 "Adapter initialization failed", extra={"execution_id": execution_id, "adapter": adapter}, exc_info=True
             )
@@ -107,8 +110,9 @@ def run_processor_core(
                 env_fingerprint="adapter_error",
             )
 
-        # Generate execution_id
-        execution_id = str(execution.id) if execution else str(uuid.uuid4())
+        # Use provided execution_id or generate one
+        if execution_id is None:
+            execution_id = str(execution.id) if execution else str(uuid.uuid4())
         if execution:
             adapter_opts["execution_id"] = execution_id
 

@@ -6,21 +6,28 @@ Redacts API keys, tokens, URLs with credentials, and other sensitive patterns.
 
 import re
 
-# Patterns for sensitive information
+# Enhanced patterns for sensitive information (consolidated from logging.py)
 PATTERNS = [
-    # API keys (various formats)
-    r"sk-[A-Za-z0-9]{20,}",  # OpenAI style
-    r"[A-Za-z0-9]{32,}:[A-Za-z0-9]{32,}",  # Replicate style
-    r"Bearer\s+[A-Za-z0-9\-_=]+",  # Bearer tokens
-    # URL credentials
-    r"https?://[^@\s]+@[^\s]+",  # URLs with embedded credentials
+    # Authorization headers (full header pattern)
+    r"\bAuthorization:\s+Bearer\s+[A-Za-z0-9._-]+",
+    # Bearer tokens (standalone)
+    r"\bBearer\s+[A-Za-z0-9._-]+",
+    # API keys and tokens (key=value pattern)
+    r"\b(api[_-]?key|token)\b[:=]\s*[^,\s]+",
+    # URL credentials (user:pass@host)
+    r"(https?://)[^/\s]+:[^/@\s]+@",
+    # OpenAI style keys
+    r"sk-[A-Za-z0-9]{20,}",
+    # Replicate style keys
+    r"[A-Za-z0-9]{32,}:[A-Za-z0-9]{32,}",
     # Long hex strings (potential secrets)
-    r"[a-fA-F0-9]{40,}",  # SHA1 and longer
+    r"\b[0-9a-fA-F]{32,}\b",
     # Percent-encoded sequences
     r"(%[0-9A-Fa-f]{2}){2,}",
 ]
 
-REDACT = re.compile("|".join(f"({p})" for p in PATTERNS))
+# Use case-insensitive flag at the regex level instead of inline
+REDACT = re.compile("|".join(f"({p})" for p in PATTERNS), re.IGNORECASE)
 
 
 def redact_msg(s: str) -> str:

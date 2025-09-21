@@ -1,7 +1,23 @@
-"""Integration tests for Modal adapter functionality."""
+"""Modal adapter integration-friendly tests.
+
+These tests focus on the adapter surface without invoking real Modal services.
+We monkeypatch the `modal` module so the adapter logic can be exercised end-to-end:
+
+* canonical app naming and context binding
+* required secret validation
+* graceful handling of import/lookup/remote failures
+* envelope decoding and error codes
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+import types
+from typing import Dict
 
 import pytest
-from unittest.mock import patch, MagicMock
+import yaml
 
 from apps.core.adapters.modal_adapter import ModalAdapter
 
@@ -9,79 +25,153 @@ from apps.core.adapters.modal_adapter import ModalAdapter
 pytestmark = pytest.mark.integration
 
 
+def _registry_snapshot(required_secrets: list[str] | None = None) -> Dict[str, Dict[str, Dict[str, Dict[str, str]]]]:
+    """Build a minimal registry snapshot structure expected by the adapter."""
+
+    return {
+        "processors": {
+            "test/proc@1": {
+                "image": {"oci": "ghcr.io/example/test-proc@sha256:abc123"},
+                "runtime": {"cpu": "1", "memory_gb": 2},
+                "secrets": {"required": required_secrets or []},
+            }
+        }
+    }
+
+
+def _adapter_kwargs(**overrides):
+    """Base kwargs for ModalAdapter.invoke with sensible defaults."""
+
+    base = {
+        "processor_ref": "test/proc@1",
+        "mode": "mock",
+        "inputs_json": {"schema": "v1", "params": {"ping": True}},
+        "write_prefix": "/artifacts/outputs/test/{execution_id}/",
+        "execution_id": "exec-123",
+        "registry_snapshot": _registry_snapshot(),
+        "adapter_opts": {"env_name": "dev"},
+        "secrets_present": ["OPENAI_API_KEY"],
+    }
+    base.update(overrides)
+    return base
+
+
+class DummyFunction:
+    """Dummy Modal.Function.lookup result."""
+
+    def __init__(self, response_bytes: bytes, *, raise_on_remote: Exception | None = None):
+        self._response = response_bytes
+        self._raise = raise_on_remote
+        self.received_payload = None
+
+    def remote(self, payload):
+        self.received_payload = payload
+        if self._raise:
+            raise self._raise
+        return self._response
+
+
+def _install_modal(monkeypatch, function_lookup):
+    """Install a fake `modal` module with a configurable Function.lookup."""
+
+    module = types.ModuleType("modal")
+    module.Function = types.SimpleNamespace(lookup=function_lookup)
+    monkeypatch.setitem(sys.modules, "modal", module)
+
+
 class TestModalAdapter:
     def setup_method(self):
         self.adapter = ModalAdapter()
-        self.invoke_kwargs = {
-            "processor_ref": "test/proc@1",
-            "inputs_json": {"test": True},
-            "write_prefix": "/artifacts/test/",
+
+    def test_successful_invoke_returns_remote_envelope(self, monkeypatch):
+        envelope = {
+            "status": "success",
             "execution_id": "exec-123",
-            "registry_snapshot": {
-                "test/proc@1": {"runtime": {"cpu": "1", "memory_gb": 2}, "image": {"oci": "test@sha256:abc123"}}
-            },
-            "adapter_opts": {},
-            "secrets_present": ["OPENAI_API_KEY"],
+            "outputs": [{"path": "/artifacts/outputs/test/file.txt", "cid": "b3:123"}],
+            "index_path": "/artifacts/outputs/test/index.json",
+            "meta": {"env_fingerprint": "image:test"},
         }
+        dummy_fn = DummyFunction(json.dumps(envelope).encode("utf-8"))
 
-    @pytest.mark.skip("Modal adapter early exit prevents deep mocking - integration test required")
-    @patch("apps.core.adapters.modal_adapter.modal.Function.from_name")
-    @patch("apps.core.adapters.modal_adapter.storage_service")
-    def test_function_lookup_happy_path(self, mock_storage, mock_from_name):
-        """Test successful Modal function lookup and execution"""
-        # Mock Modal function and remote execution
-        mock_function = MagicMock()
-        mock_function.remote.return_value = b"fake tar bytes"
-        mock_from_name.return_value = mock_function
+        def lookup(app_name, fn_name, environment_name):
+            assert app_name == "test-proc-v1"
+            assert fn_name == "run"
+            assert environment_name == "dev"
+            return dummy_fn
 
-        # Mock storage service for artifact write
-        mock_storage.write_bytes.return_value = None
+        _install_modal(monkeypatch, lookup)
 
-        result = self.adapter.invoke(**self.invoke_kwargs)
+        result = self.adapter.invoke(**_adapter_kwargs())
 
-        # Verify function lookup called with correct parameters
-        mock_from_name.assert_called_once()
-        app_name_arg = mock_from_name.call_args[1]["app"]
-        assert "test-proc-v1-dev" in app_name_arg
+        assert result == envelope
+        assert dummy_fn.received_payload["execution_id"] == "exec-123"
 
-        # Verify successful envelope
-        assert result["status"] == "success"
-        assert "outputs" in result
+    def test_missing_required_secret_raises_error(self, monkeypatch):
+        _install_modal(monkeypatch, lambda *a, **k: DummyFunction(b"{}"))
 
-    @patch("apps.core.adapters.modal_adapter.modal.Function.from_name")
-    def test_function_lookup_not_found(self, mock_from_name):
-        """Test Modal function lookup failure returns nested error"""
-        # Mock Modal not available
-        mock_from_name.side_effect = ImportError("Modal not available")
+        kwargs = _adapter_kwargs(
+            registry_snapshot=_registry_snapshot(required_secrets=["OPENAI_API_KEY", "SECONDARY_SECRET"]),
+            secrets_present=["OPENAI_API_KEY"],
+        )
 
-        result = self.adapter.invoke(**self.invoke_kwargs)
+        result = self.adapter.invoke(**kwargs)
 
-        # Verify nested error envelope
         assert result["status"] == "error"
-        assert "error" in result
+        assert result["error"]["code"] == "ERR_MISSING_SECRET"
 
-    @pytest.mark.skip("Modal adapter early exit prevents deep mocking - integration test required")
-    @patch("apps.core.adapters.modal_adapter.modal.Function.from_name")
-    def test_remote_runtime_error(self, mock_from_name):
-        """Test Modal remote execution error with stderr tail"""
-        mock_function = MagicMock()
-        mock_function.remote.side_effect = RuntimeError("processor failed (exit=1):\nstderr tail here")
-        mock_from_name.return_value = mock_function
+    def test_modal_sdk_missing(self, monkeypatch):
+        # Remove any cached modal module and make import raise ImportError
+        sys.modules.pop("modal", None)
 
-        result = self.adapter.invoke(**self.invoke_kwargs)
+        import builtins
 
-        # Verify nested error with stderr information
+        real_import = builtins.__import__
+
+        def raising_import(name, *args, **kwargs):
+            if name == "modal":
+                raise ImportError("modal not installed")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", raising_import)
+
+        result = self.adapter.invoke(**_adapter_kwargs())
+
         assert result["status"] == "error"
-        assert "error" in result
-        assert "stderr tail here" in str(result)
+        assert result["error"]["code"] == "ERR_DEPENDENCY"
 
-    def test_write_prefix_validation(self):
-        """Test write prefix validation"""
-        # Valid prefix
-        valid = self.adapter.validate_write_prefix("/artifacts/test/")
-        assert valid
+    def test_modal_lookup_failure(self, monkeypatch):
+        def failing_lookup(*_args, **_kwargs):
+            raise RuntimeError("not found")
 
-        # Invalid prefixes
-        assert not self.adapter.validate_write_prefix("/invalid/")
-        assert not self.adapter.validate_write_prefix("artifacts/test/")
-        assert not self.adapter.validate_write_prefix("/artifacts/test")
+        _install_modal(monkeypatch, failing_lookup)
+
+        result = self.adapter.invoke(**_adapter_kwargs())
+
+        assert result["status"] == "error"
+        assert result["error"]["code"] == "ERR_MODAL_LOOKUP"
+
+    def test_modal_remote_failure(self, monkeypatch):
+        dummy_fn = DummyFunction(b"", raise_on_remote=RuntimeError("boom"))
+
+        def lookup(*_args, **_kwargs):
+            return dummy_fn
+
+        _install_modal(monkeypatch, lookup)
+
+        result = self.adapter.invoke(**_adapter_kwargs())
+
+        assert result["status"] == "error"
+        assert result["error"]["code"] == "ERR_MODAL_INVOCATION"
+
+    def test_modal_returns_invalid_json(self, monkeypatch):
+        dummy_fn = DummyFunction(b"not-json")
+
+        def lookup(*_args, **_kwargs):
+            return dummy_fn
+
+        _install_modal(monkeypatch, lookup)
+
+        result = self.adapter.invoke(**_adapter_kwargs())
+
+        assert result["status"] == "error"
+        assert result["error"]["code"] == "ERR_MODAL_PAYLOAD"

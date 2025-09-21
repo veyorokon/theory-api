@@ -58,18 +58,19 @@ def main() -> int:
         print("[drift] WARNING: no registry processors found", file=sys.stderr)
         return 0
 
-    missing: list[str] = []
+    problems: list[str] = []
     for ref, app_name, fn_name in checks:
         try:
             # Resolve by name in target environment
             modal.Function.from_name(app_name, fn_name, environment_name=env)
             print(f"[drift] OK: {ref} => {app_name}.{fn_name}")
         except Exception as e:
-            print(f"[drift] MISSING: {ref} => {app_name}.{fn_name}: {e}")
-            missing.append(ref)
+            problems.append(f"[drift] MISSING: {ref} => {app_name}.{fn_name}: {e}")
 
-    if missing:
-        print(f"[drift] Drift detected: {len(missing)} missing function(s)", file=sys.stderr)
+    if problems:
+        for msg in problems:
+            print(msg)
+        print(f"[drift] Drift detected: {len(problems)} missing function(s)", file=sys.stderr)
         return 2
 
     print("[drift] No drift detected")

@@ -26,36 +26,53 @@ def make_tar_bytes(files: dict[str, bytes]) -> bytes:
     return buf.getvalue()
 
 
+class DummyFn:
+    def __init__(self, value: bytes):
+        self._value = value
+
+    def remote(self, payload):
+        return self._value
+
+
 class TestModalAdapterParity:
     @override_settings(MODAL_ENABLED=True, MODAL_ENVIRONMENT="dev")
     @patch("apps.core.adapters.modal_adapter.storage_service")
-    def test_success_envelope_from_tar(self, mock_storage_service):
+    @patch("apps.core.adapters.modal_adapter.modal")
+    def test_success_envelope_from_tar(self, mock_modal, mock_storage_service):
         # Prepare tar with outputs
         tar_bytes = make_tar_bytes({"text/response.txt": b"OK", "meta.json": b"{}"})
 
         adapter = ModalAdapter()
 
-        # Patch network call to Modal to return our tar
-        with patch.object(adapter, "_call_generated", return_value=tar_bytes):
-            # Minimal spec snapshot (no required secrets)
-            snapshot = {
-                "processors": {
-                    "test/processor@1": {
-                        "image": {"oci": "ghcr.io/example@sha256:abcdef0123456789"},
-                        "runtime": {"cpu": 1, "memory_gb": 2, "timeout_s": 60},
-                        "secrets": {"required": []},
-                    }
+        class DummyFn:
+            def __init__(self, value):
+                self._value = value
+
+            def remote(self, payload):
+                return self._value
+
+        mock_modal.Function.lookup.return_value = DummyFn(tar_bytes)
+
+        # Minimal spec snapshot (no required secrets)
+        snapshot = {
+            "processors": {
+                "test/processor@1": {
+                    "image": {"oci": "ghcr.io/example@sha256:abcdef0123456789"},
+                    "runtime": {"cpu": 1, "memory_gb": 2, "timeout_s": 60},
+                    "secrets": {"required": []},
                 }
             }
-            result = adapter.invoke(
-                processor_ref="test/processor@1",
-                inputs_json={"x": 1},
-                write_prefix="/artifacts/outputs/",
-                execution_id="exec-1",
-                registry_snapshot=snapshot,
-                adapter_opts={},
-                secrets_present=[],
-            )
+        }
+        result = adapter.invoke(
+            processor_ref="test/processor@1",
+            mode="mock",
+            inputs_json={"x": 1},
+            write_prefix="/artifacts/outputs/",
+            execution_id="exec-1",
+            registry_snapshot=snapshot,
+            adapter_opts={"env_name": "dev"},
+            secrets_present=[],
+        )
 
         assert result["status"] == "success"
         assert result["execution_id"] == "exec-1"
@@ -72,29 +89,32 @@ class TestModalAdapterParity:
 
     @override_settings(MODAL_ENABLED=True, MODAL_ENVIRONMENT="dev")
     @patch("apps.core.adapters.modal_adapter.storage_service")
-    def test_duplicate_detection(self, _mock_storage_service):
+    @patch("apps.core.adapters.modal_adapter.modal")
+    def test_duplicate_detection(self, mock_modal, _mock_storage_service):
         # Use paths that canonicalize to the same target after normalization
         tar_bytes = make_tar_bytes({"dup.txt": b"a", "./dup.txt": b"b"})
         adapter = ModalAdapter()
-        with patch.object(adapter, "_call_generated", return_value=tar_bytes):
-            snapshot = {
-                "processors": {
-                    "test/processor@1": {
-                        "image": {"oci": "ghcr.io/example@sha256:abcdef0123456789"},
-                        "runtime": {},
-                        "secrets": {"required": []},
-                    }
+        mock_modal.Function.lookup.return_value = DummyFn(tar_bytes)
+
+        snapshot = {
+            "processors": {
+                "test/processor@1": {
+                    "image": {"oci": "ghcr.io/example@sha256:abcdef0123456789"},
+                    "runtime": {},
+                    "secrets": {"required": []},
                 }
             }
-            res = adapter.invoke(
-                processor_ref="test/processor@1",
-                inputs_json={},
-                write_prefix="/artifacts/outputs/",
-                execution_id="e",
-                registry_snapshot=snapshot,
-                adapter_opts={},
-                secrets_present=[],
-            )
+        }
+        res = adapter.invoke(
+            processor_ref="test/processor@1",
+            mode="mock",
+            inputs_json={},
+            write_prefix="/artifacts/outputs/",
+            execution_id="e",
+            registry_snapshot=snapshot,
+            adapter_opts={"env_name": "dev"},
+            secrets_present=[],
+        )
         assert res["status"] == "error"
         # Canonicalization should fail with adapter invocation error for dot-segments
         assert res["error"]["code"] == "ERR_ADAPTER_INVOCATION"

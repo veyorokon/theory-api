@@ -34,14 +34,12 @@ jobs:
         run: |
           cd code
           python scripts/drift_audit.py
-          echo "ℹ️ Drift detected on ${{ github.ref_name }} - reported for visibility"
 
       - name: Run drift audit (main - fail closed)
         if: github.ref_name == 'main'
         run: |
           cd code
           python scripts/drift_audit.py
-          echo "✅ Modal deployment matches repository state on main"
 
       - name: Run drift audit (PR - report only)
         if: github.event_name == 'pull_request'
