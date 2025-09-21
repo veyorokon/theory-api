@@ -2,7 +2,7 @@
 Deploy Modal functions to an environment.
 
 Usage:
-    python manage.py deploy_modal --env dev|staging|main [options]
+    python manage.py deploy_modal --env dev|staging|main --ref llm/litellm@1 [options]
 """
 
 import json
@@ -17,7 +17,8 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--env", required=True, choices=["dev", "staging", "main"], help="Target environment")
-        parser.add_argument("--app-name", help="Override app name (defaults to convention)")
+        parser.add_argument("--ref", required=True, help="Processor reference (e.g., llm/litellm@1)")
+        parser.add_argument("--app-name", help="Override app name (defaults to canonical ref-based name)")
         parser.add_argument(
             "--from-path", default="code/modal_app.py", help="Path to modal_app.py (default: code/modal_app.py)"
         )
@@ -26,7 +27,8 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         env = options["env"]
-        app_name = resolve_app_name(env, preferred=options.get("app_name"))
+        processor_ref = options["ref"]
+        app_name = resolve_app_name(env, preferred=options.get("app_name"), processor_ref=processor_ref)
         from_path = options["from_path"]
         timeout = options["timeout"]
         force = options["force"]
@@ -35,6 +37,7 @@ class Command(BaseCommand):
         self.stdout.write(f"🚀 Deploying Modal app: {app_name}")
         self.stdout.write(f"📦 Environment: {env}")
         self.stdout.write(f"📁 From: {from_path}")
+        self.stdout.write(f"🔧 Processor: {processor_ref}")
 
         # Confirmation for non-dev environments
         if env in ("staging", "main") and not force:
@@ -44,7 +47,9 @@ class Command(BaseCommand):
                 return
 
         try:
-            result = deploy(env, app_name, from_path, timeout)
+            result = deploy(
+                env=env, app_name=app_name, from_path=from_path, timeout=timeout, processor_ref=processor_ref
+            )
 
             # Always output canonical JSON
             json_output = json.dumps(result, separators=(",", ":"))

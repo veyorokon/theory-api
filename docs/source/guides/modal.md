@@ -31,10 +31,10 @@ modal secret create OPENAI_API_KEY \
 
 ## Processor App Naming
 
-We rely on a single source of truth, `modal_app_name_from_ref()`, which maps `llm/litellm@1` → **`llm-litellm-v1`**.
+`modal_app_name_from_ref()` is the single source of truth. `llm/litellm@1` → **`llm-litellm-v1`**.
 
-- **CI/CD** (`modal deploy -m modal_app` with `PROCESSOR_REF` set): app name is exactly the processor name (`llm-litellm-v1`, `replicate-generic-v1`). The Modal environment (`--env dev|staging|main`) scopes deployments, so no suffix is needed.
-- **Human management commands** (e.g., `deploy_modal`, `logs_modal`): we derive `user-branch-{processor}` via `_modalctl.resolve_app_name` so personal sandboxes stay distinct (`veyorokon-dev-llm-litellm-v1`). Pass `--app-name` to override.
+- **CI/CD** (`modal deploy -m modal_app` with `PROCESSOR_REF` set): app name is exactly the processor slug (`llm-litellm-v1`, `replicate-generic-v1`). The Modal environment (`--env dev|staging|main`) scopes deployments; no human prefixes.
+- **Human management commands** (e.g., `deploy_modal`, `logs_modal`): by default we reuse the same canonical slug. Pass `--app-name` if you truly need a custom sandbox name, or set `MODAL_APP_NAME` before calling `modal deploy`.
 
 ## Deploying Processors
 
@@ -52,14 +52,12 @@ After deploy, a smoke test calls the `smoke` function with `mode="mock"`.
 
 ### Local / manual usage
 
-Developer-friendly Django commands use `_modalctl.resolve_app_name` for sandbox names:
+Developer-friendly Django commands take only the processor ref; registry metadata is resolved automatically.
 
 ```bash
-python manage.py deploy_modal --env dev --ref llm/litellm@1 \
-    --image ghcr.io/.../llm-litellm@sha256:... \
-    --secrets OPENAI_API_KEY
+python manage.py deploy_modal --env dev --ref llm/litellm@1
 
-# App is veyorokon-<branch>-llm-litellm-v1 (automatically resolved)
+# App resolves to llm-litellm-v1 (override with --app-name if needed)
 ```
 
 To inspect logs or call functions manually:

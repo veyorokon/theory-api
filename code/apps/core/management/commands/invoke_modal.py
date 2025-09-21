@@ -2,7 +2,7 @@
 Generic Modal function invocation for debugging.
 
 Usage:
-    python manage.py invoke_modal --env dev --app-name xyz --fn run --payload-json '{...}'
+    python manage.py invoke_modal --env dev --ref llm/litellm@1 --fn run --payload-json '{...}'
 """
 
 import json
@@ -17,14 +17,16 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--env", required=True, choices=["dev", "staging", "main"], help="Target environment")
-        parser.add_argument("--app-name", help="Modal app name (defaults to convention)")
+        parser.add_argument("--ref", required=True, help="Processor reference (e.g., llm/litellm@1)")
+        parser.add_argument("--app-name", help="Modal app name (defaults to canonical ref-based name)")
         parser.add_argument("--fn", required=True, choices=["run", "smoke"], help="Function name to call")
         parser.add_argument("--payload-json", required=True, help="JSON payload to send to function")
         parser.add_argument("--timeout", type=int, default=900, help="Call timeout in seconds (default: 900)")
 
     def handle(self, *args, **options):
         env = options["env"]
-        app_name = resolve_app_name(env, preferred=options.get("app_name"))
+        processor_ref = options["ref"]
+        app_name = resolve_app_name(env, preferred=options.get("app_name"), processor_ref=processor_ref)
         fn_name = options["fn"]
         payload_json = options["payload_json"]
         timeout = options["timeout"]
@@ -39,6 +41,7 @@ class Command(BaseCommand):
         # Log start
         self.stdout.write(f"📞 Invoking Modal function: {app_name}::{fn_name}")
         self.stdout.write(f"📦 Environment: {env}")
+        self.stdout.write(f"🔧 Processor: {processor_ref}")
         self.stdout.write(f"📄 Payload keys: {list(payload.keys())}")
 
         try:

@@ -163,6 +163,11 @@ class Command(BaseCommand):
         """Execute the command - calls core function and prints JSON to stdout."""
         import uuid
 
+        if options.get("json"):
+            import os
+
+            os.environ["LOG_STREAM"] = "stderr"
+
         # Generate execution_id early for consistent logging context
         execution_id = str(uuid.uuid4())
 

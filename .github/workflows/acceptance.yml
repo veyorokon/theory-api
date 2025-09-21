@@ -24,7 +24,6 @@ jobs:
     env:
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       PYTHONUNBUFFERED: "1"
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -67,23 +66,20 @@ jobs:
             echo "✅ All digests pinned - proceeding with acceptance tests"
           fi
 
-      - name: Assert pinned image exists in GHCR
+      - name: Assert ALL pinned images exist in GHCR
         if: steps.pincheck.outputs.skip != 'true'
         run: |
           set -euo pipefail
-          REF=$(python - <<'PY'
-          import yaml
-          doc=yaml.safe_load(open("code/apps/core/registry/processors/llm_litellm.yaml"))
-          print(doc["image"]["oci"])
-          PY
-          )
-          echo "🔍 Checking $REF in GHCR…"
-          docker manifest inspect "$REF" >/dev/null || {
-            echo "::error::Pinned image not found in GHCR: $REF";
-            echo "Run Build & Pin workflow and merge the PR.";
-            exit 1;
-          }
-          echo "✅ Image exists: $REF"
+          for f in code/apps/core/registry/processors/*.yaml; do
+            REF=$(python -c 'import sys, yaml; doc = yaml.safe_load(open(sys.argv[1])); print(doc["image"]["oci"])' "$f")
+            echo "🔍 Checking $REF (from $f)…"
+            docker manifest inspect "$REF" >/dev/null || {
+              echo "::error::Pinned image not found in GHCR: $REF (from $f)";
+              echo "Run Build & Pin workflow and merge the PR.";
+              exit 1;
+            }
+          done
+          echo "✅ All pinned images exist in GHCR"
 
       - name: Sanity check - verify Django imports
         working-directory: code

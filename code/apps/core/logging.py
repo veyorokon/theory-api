@@ -46,10 +46,17 @@ def _sample(env_key: str, default: float = 0.0) -> bool:
     return random.random() < rate
 
 
+def _log_stream():
+    stream_name = (os.getenv("LOG_STREAM") or "stdout").lower()
+    return sys.stderr if stream_name == "stderr" else sys.stdout
+
+
 def log(level: str, event: str, **fields):
     """Emit structured JSON log event with context binding."""
     # Developer experience toggle - pretty output for local dev
     use_json = os.getenv("JSON_LOGS", "1").lower() not in ("0", "false", "no")
+
+    stream = _log_stream()
 
     base = {
         "ts": _ts(),
@@ -68,14 +75,14 @@ def log(level: str, event: str, **fields):
     base.update(fields)
 
     if use_json:
-        json.dump(base, sys.stdout, separators=(",", ":"), sort_keys=True)
-        sys.stdout.write("\n")
+        json.dump(base, stream, separators=(",", ":"), sort_keys=True)
+        stream.write("\n")
     else:
         # Pretty console output for development
         ctx_fields = " ".join(f"{k}={v}" for k, v in base.items() if k not in ("ts", "level", "event"))
-        print(f"[{base['level'].upper()}] {base['event']} {ctx_fields}")
+        stream.write(f"[{base['level'].upper()}] {base['event']} {ctx_fields}\n")
 
-    sys.stdout.flush()
+    stream.flush()
 
 
 def info(event: str, **fields):

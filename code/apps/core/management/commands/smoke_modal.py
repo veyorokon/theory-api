@@ -17,7 +17,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--env", required=True, choices=["dev", "staging", "main"], help="Target environment")
-        parser.add_argument("--app-name", help="Modal app name (defaults to convention)")
+        parser.add_argument("--app-name", help="Modal app name (defaults to canonical ref-based name)")
         parser.add_argument("--ref", required=True, help="Processor reference (e.g., llm/litellm@1)")
         parser.add_argument("--model", help="Model name for processor (optional)")
         parser.add_argument("--inputs-json", help="Custom inputs JSON (defaults to minimal test payload)")
@@ -25,8 +25,8 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         env = options["env"]
-        app_name = resolve_app_name(env, preferred=options.get("app_name"))
         ref = options["ref"]
+        app_name = resolve_app_name(env, preferred=options.get("app_name"), processor_ref=ref)
         model = options.get("model")
         inputs_json = options.get("inputs_json")
         timeout = options["timeout"]

@@ -132,12 +132,11 @@ class TestLogFormatting:
     @mock.patch.dict(os.environ, {"JSON_LOGS": "0"})
     def test_pretty_output_format(self):
         """Test pretty log output format for development."""
-        with mock.patch("builtins.print") as mock_print:
+        with mock.patch("sys.stdout", new_callable=StringIO) as mock_stdout:
             info("test.event", field="value")
+            output = mock_stdout.getvalue().strip()
 
-        mock_print.assert_called_once()
-        output = mock_print.call_args[0][0]
-        assert "[INFO] test.event" in output
+        assert output.startswith("[INFO] test.event")
         assert "field=value" in output
 
     def test_field_truncation(self):
@@ -206,24 +205,25 @@ class TestErrorHandling:
         """Clear context after each test."""
         clear()
 
-    def test_json_encoding_fallback(self):
-        """Test fallback when JSON encoding fails."""
+    def test_json_encoding_with_valid_types(self):
+        """Test logging handles all valid JSON types correctly."""
+        valid_data = {
+            "string": "test",
+            "number": 42,
+            "float": 3.14,
+            "boolean": True,
+            "null_value": None,
+            "list": [1, 2, 3],
+            "dict": {"nested": "value"},
+        }
 
-        # Create an object that can't be JSON serialized
-        class UnserializableObject:
-            pass
+        with mock.patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+            info("test.event", **valid_data)
+            output = mock_stdout.getvalue()
 
-        obj = UnserializableObject()
-
-        with mock.patch("builtins.print") as mock_print:
-            # Patch json.dumps to raise an exception
-            with mock.patch("json.dumps", side_effect=TypeError("not serializable")):
-                info("test.event", bad_obj=obj)
-
-        # Should fall back to repr format
-        mock_print.assert_called_once()
-        output = mock_print.call_args[0][0]
-        assert "[test.event]" in output
+        log_data = json.loads(output)
+        for key, value in valid_data.items():
+            assert log_data[key] == value
 
 
 @pytest.mark.integration

@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Any, List, Set
+from typing import Dict, Any, List, Set, Tuple
 
 import yaml
 
@@ -29,11 +29,11 @@ def _git_branch() -> str:
 
 def resolve_app_name(env: str, processor_ref: str | None = None, preferred: str | None = None) -> str:
     """
-    Human/manual Modal app naming.
+    Determine the Modal app name for CLI operations.
 
-    - If preferred: use exact name
-    - If processor_ref: user-branch-processor (e.g., veyorokon-dev-llm-litellm-v1)
-    - Else: user-branch (e.g., veyorokon-dev)
+    - If preferred: use exact name provided
+    - If processor_ref: return canonical registry-driven name (e.g., llm-litellm-v1)
+    - Else: fall back to user-branch sandbox naming
 
     Args:
         env: Environment (for validation only - scoping via --env flag)
@@ -50,14 +50,13 @@ def resolve_app_name(env: str, processor_ref: str | None = None, preferred: str 
     branch = _git_branch()
 
     if processor_ref:
-        # Human testing: user-branch-processor
         from apps.core.adapters.modal.naming import modal_app_name_from_ref
 
-        processor_name = modal_app_name_from_ref(processor_ref)
-        return f"{user}-{branch}-{processor_name}"
-    else:
-        # Generic sandbox: user-branch
-        return f"{user}-{branch}"
+        # Canonical naming for registry-driven deployments
+        return modal_app_name_from_ref(processor_ref)
+
+    # Generic sandbox fallback when no processor ref supplied
+    return f"{user}-{branch}"
 
 
 def validate_env(env: str) -> None:
@@ -68,8 +67,48 @@ def validate_env(env: str) -> None:
 
 def ensure_modal_auth() -> None:
     """Ensure Modal credentials are available."""
-    if not os.getenv("MODAL_TOKEN_ID") or not os.getenv("MODAL_TOKEN_SECRET"):
-        raise RuntimeError("MODAL_TOKEN_ID and MODAL_TOKEN_SECRET must be set")
+    try:
+        subprocess.run(["modal", "whoami"], capture_output=True, check=True)
+        return
+    except Exception:
+        pass
+
+    token_id = os.getenv("MODAL_TOKEN_ID")
+    token_secret = os.getenv("MODAL_TOKEN_SECRET")
+    if token_id and token_secret:
+        subprocess.run(
+            ["modal", "token", "set", "--token-id", token_id, "--token-secret", token_secret],
+            capture_output=True,
+            check=True,
+        )
+        return
+
+    raise RuntimeError(
+        "Modal authentication is not configured. Run `modal token set` locally or set MODAL_TOKEN_ID/MODAL_TOKEN_SECRET."
+    )
+
+
+def _load_processor_spec(ref: str) -> Tuple[str, List[str]]:
+    """Resolve processor image digest and required secrets from registry for the given ref."""
+    registry_dir = Path(__file__).parent / "registry" / "processors"
+    if not registry_dir.exists():
+        raise RuntimeError("Processor registry not found")
+
+    for yaml_file in registry_dir.glob("*.yaml"):
+        try:
+            spec = yaml.safe_load(yaml_file.read_text())
+        except Exception:
+            continue
+
+        if spec.get("ref") == ref:
+            image_oci = (spec.get("image") or {}).get("oci")
+            if not image_oci:
+                raise RuntimeError(f"Registry entry for {ref} is missing image.oci")
+            secrets_spec = spec.get("secrets") or {}
+            required = list(secrets_spec.get("required", []))
+            return image_oci, required
+
+    raise RuntimeError(f"Processor ref not found in registry: {ref}")
 
 
 def find_required_secrets_from_registry() -> Set[str]:
@@ -102,7 +141,14 @@ def find_required_secrets_from_registry() -> Set[str]:
     return secrets
 
 
-def deploy(env: str, app_name: str, from_path: str, timeout: int = 900) -> Dict[str, Any]:
+def deploy(
+    env: str,
+    app_name: str,
+    from_path: str,
+    timeout: int = 900,
+    *,
+    processor_ref: str,
+) -> Dict[str, Any]:
     """
     Deploy Modal functions to environment.
 
@@ -126,12 +172,21 @@ def deploy(env: str, app_name: str, from_path: str, timeout: int = 900) -> Dict[
     module_name = module_path.stem
 
     try:
+        image_oci, required_secrets = _load_processor_spec(processor_ref)
+        env_exports = {
+            **os.environ,
+            "MODAL_ENVIRONMENT": env,
+            "PROCESSOR_REF": processor_ref,
+            "IMAGE_REF": image_oci,
+            "TOOL_SECRETS": ",".join(required_secrets),
+            "MODAL_APP_NAME": app_name,
+        }
         cmd = ["modal", "deploy", "--env", env, "-m", module_name]
 
         result = subprocess.run(
             cmd,
             cwd=str(module_path.parent),
-            env={**os.environ, "MODAL_ENVIRONMENT": env},
+            env=env_exports,
             capture_output=True,
             text=True,
             timeout=timeout,

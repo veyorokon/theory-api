@@ -8,10 +8,9 @@
 | `MODAL_ENV`     | env/settings    | Logical env name (`dev`, `staging`, `main`); feeds `--env`. |
 | `PROCESSOR_REF` | env             | Set by workflows when deploying a specific processor.    |
 
-App names are now derived automatically:
-- CI/CD (`modal_app.py`): `modal_app_name_from_ref(ref)` → `llm-litellm-v1`
-- Manual commands: `_modalctl.resolve_app_name(env, ref)` → `user-branch-llm-litellm-v1`
-No `MODAL_APP_NAME` override is required.
+App names are derived automatically:
+- CI/CD (`modal_app.py`): canonical slug via `modal_app_name_from_ref(ref)` → `llm-litellm-v1`
+- Manual commands: default to the same slug; use `--app-name`/`MODAL_APP_NAME` only if a custom sandbox name is required.
 
 ## Secrets Standard
 

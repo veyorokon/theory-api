@@ -85,6 +85,7 @@ jobs:
 
           # Sync each secret
           missing=()
+          unknown=()
           for name in $SECRET_NAMES; do
               case "$name" in
                   OPENAI_API_KEY)
@@ -96,6 +97,7 @@ jobs:
                   *)
                       echo "::warning::Unknown secret '$name' - add to allow-list"
                       val=""
+                      unknown+=("$name")
                       ;;
               esac
 
@@ -109,8 +111,13 @@ jobs:
               modal secret create "$name" "$name=$val" --env "$MODAL_ENVIRONMENT" --force >/dev/null
           done
 
-          if [ ${#missing[@]} -gt 0 ]; then
-              echo "❌ Missing GitHub secret value(s): ${missing[*]}"
+          if [ ${#missing[@]} -gt 0 ] || [ ${#unknown[@]} -gt 0 ]; then
+              if [ ${#missing[@]} -gt 0 ]; then
+                  echo "❌ Missing GitHub secret value(s): ${missing[*]}"
+              fi
+              if [ ${#unknown[@]} -gt 0 ]; then
+                  echo "❌ Unknown secret name(s) (not in allow-list): ${unknown[*]}"
+              fi
               exit 1
           fi
 
@@ -195,3 +202,39 @@ jobs:
 
           echo ""
           echo "🎉 All processors deployed and smoke tested successfully"
+
+      - name: Post-deploy negative probe (mode=real -> ERR_MISSING_SECRET)
+        working-directory: code
+        env:
+          CI: "false"
+          DJANGO_SETTINGS_MODULE: backend.settings.unittest
+          MODAL_ENABLED: "true"
+          MODAL_ENVIRONMENT: ${{ env.MODAL_ENVIRONMENT }}
+        run: |
+          set -euo pipefail
+
+          echo '${{ steps.processors.outputs.list }}' | jq -c '.[]' | while read -r processor; do
+              ref=$(echo "$processor" | jq -r .ref)
+
+              echo ""
+              echo "🧪 Negative probe $ref (mode=real -> expect ERR_MISSING_SECRET)"
+
+              result=$(python manage.py run_processor \
+                  --ref "$ref" \
+                  --adapter modal \
+                  --mode real \
+                  --write-prefix "/artifacts/outputs/negprobe/{execution_id}/" \
+                  --inputs-json '{"schema":"v1","params":{},"mode":"real"}' \
+                  --json || true)
+
+              status=$(echo "$result" | jq -r .status)
+              code=$(echo "$result" | jq -r '.error.code // empty')
+
+              if [ "$status" != "error" ] || [ "$code" != "ERR_MISSING_SECRET" ]; then
+                  echo "❌ Expected ERR_MISSING_SECRET; got:"
+                  echo "$result" | jq .
+                  exit 1
+              fi
+
+              echo "✅ $ref returned ERR_MISSING_SECRET as expected"
+          done

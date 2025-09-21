@@ -2,7 +2,7 @@
 Tail recent logs for a Modal function.
 
 Usage:
-    python manage.py logs_modal --env dev --app-name xyz --fn run [options]
+    python manage.py logs_modal --env dev --ref llm/litellm@1 --fn run [options]
 """
 
 import json
@@ -17,14 +17,16 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--env", required=True, choices=["dev", "staging", "main"], help="Target environment")
-        parser.add_argument("--app-name", help="Modal app name (defaults to convention)")
+        parser.add_argument("--ref", help="Processor reference (e.g., llm/litellm@1)")
+        parser.add_argument("--app-name", help="Modal app name (defaults to canonical ref-based name)")
         parser.add_argument("--fn", required=True, choices=["run", "smoke"], help="Function name")
         parser.add_argument("--since-min", type=int, default=30, help="Minutes of history to fetch (default: 30)")
         parser.add_argument("--limit", type=int, default=200, help="Max number of log lines (default: 200)")
 
     def handle(self, *args, **options):
         env = options["env"]
-        app_name = resolve_app_name(env, preferred=options.get("app_name"))
+        processor_ref = options.get("ref")
+        app_name = resolve_app_name(env, preferred=options.get("app_name"), processor_ref=processor_ref)
         fn_name = options["fn"]
         since_min = options["since_min"]
         limit = options["limit"]
@@ -32,6 +34,8 @@ class Command(BaseCommand):
         # Log start
         self.stdout.write(f"📋 Fetching logs for: {app_name}::{fn_name}")
         self.stdout.write(f"📦 Environment: {env}")
+        if processor_ref:
+            self.stdout.write(f"🔧 Processor: {processor_ref}")
         self.stdout.write(f"⏰ Last {since_min} minutes, max {limit} lines")
         self.stdout.write("-" * 60)
 
