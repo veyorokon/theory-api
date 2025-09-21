@@ -315,7 +315,7 @@ def list_apps(env: str, prefix: str | None = None) -> Dict[str, Any]:
         apps = json.loads(result.stdout) if result.stdout.strip() else []
 
         if prefix:
-            apps = [app for app in apps if app.get("name", "").startswith(prefix)]
+            apps = [app for app in apps if app.get("Description", "").startswith(prefix)]
 
         return {"status": "success", "env": env, "apps": apps, "count": len(apps)}
 

@@ -1,41 +1,46 @@
 ## Summary
-<!-- One-liner: smallest correct change -->
+<!-- One-liner: smallest correct change that keeps CI green -->
+
+## Lane & Architecture
+- **Lane**: <!-- PR (test current source) OR Dev/Main (test pinned artifacts) -->
+- **Contract Impact**: <!-- Envelope/paths/error codes/fingerprints affected -->
+- **Processor Changes**: <!-- Django-free compliance if touching processors -->
 
 ## Traceability
-- Chat: <!-- 0005-dx-gh-sync (required for agent-coordinated work, or n/a) -->
-- Issue: <!-- #123 or link (required) -->
-- ADR: <!-- ADR-XXXX or n/a (explain why) -->
+- Issue: <!-- #123 or link (if applicable) -->
+- Follow-up: <!-- Issues this creates/blocks (if any) -->
 
-## Agent Coordination (if applicable)
-- [ ] Chat meta.yaml updated with outputs and acceptance criteria
-- [ ] Architect approved in chat thread
-- [ ] All acceptance criteria from meta.yaml verified
+## Engineering Checklist
+- [ ] **Smallest change**: ≤3 files, ≤150 LoC (unless justified)
+- [ ] **Tests first**: Positive test + negative test included
+- [ ] **No cross-layer leaks**: Processors Django-free, adapters return envelopes
+- [ ] **Lane correct**: PR lane uses `--build`, Dev/Main uses pinned artifacts
+- [ ] **CI green**: All tests pass before requesting review
 
-## Validation
-- [ ] Meta schema: `python agents/validate_chat_meta.py $(find agents/chats -name meta.yaml)`
-- [ ] Message validation: `python agents/validate_chat_msgs.py $(find agents/chats -maxdepth 1 -type d)`
-- [ ] PR title matches pattern: `XXXX [area] slug` (for agent-coordinated work)
-
-## Docs (required)
-- [ ] Guides updated
-- [ ] Concepts updated
-- [ ] API/autodoc updated (models/services)
-- Touched files:
-  - `docs/source/...`
+## Tests & Validation
+- [ ] Unit tests: `make test-unit` passes
+- [ ] Integration tests pass (if applicable)
+- [ ] PR lane acceptance: `make test-acceptance-pr` passes (if PR lane)
+- [ ] No dead code: `make deadcode` passes
 
 ## Risk & Rollout
 - Risk: <!-- low/med/high + why -->
 - Backout: <!-- exact steps -->
 
+## Contract Changes (if applicable)
+- **Envelope format**: <!-- Success/error envelope changes -->
+- **Error codes**: <!-- New ERR_* codes or changes to existing -->
+- **Fingerprint**: <!-- env_fingerprint component changes -->
+- **Receipts**: <!-- Receipt field additions/changes -->
+
 ## Local Verification
 ```bash
-cd code && python manage.py docs_export --out ../docs/_generated --erd --api --schemas
-sphinx-build -n -W -b html docs/source docs/_build/html
-sphinx-build -b linkcheck docs/source docs/_build/linkcheck
+# Run appropriate test suite for your lane
+make test-unit                    # Always run
+make test-acceptance-pr          # If PR lane (testing current source)
+make test-acceptance             # If Dev/Main lane (testing pinned artifacts)
+make deadcode                    # Dead code check
 ```
 
 ## Screenshots / Artifacts
-<!-- optional -->
-
-## Deployment (Sole Maintainer)
-- [ ] If this PR deploys to staging/production, I will self-approve pending deployments per ADR-0003 runbook
+<!-- Include any relevant outputs, logs, or artifacts -->

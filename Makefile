@@ -33,6 +33,14 @@ test-acceptance:
 	@echo "DB ENGINE:" && cd code && DJANGO_SETTINGS_MODULE=backend.settings.test python -c "from django.conf import settings; print(settings.DATABASES['default']['ENGINE'])"
 	cd code && DJANGO_SETTINGS_MODULE=backend.settings.test python -m pytest -q -m "ledger_acceptance or requires_postgres"
 
+# PR lane: same tests, but exercise current source by forcing local builds
+test-acceptance-pr:
+	$(MAKE) compose-up
+	$(MAKE) wait-db
+	cd code && DJANGO_SETTINGS_MODULE=backend.settings.test python manage.py migrate --noinput
+	@echo "DB ENGINE:" && cd code && DJANGO_SETTINGS_MODULE=backend.settings.test python -c "from django.conf import settings; print(settings.DATABASES['default']['ENGINE'])"
+	cd code && RUN_PROCESSOR_FORCE_BUILD=1 DJANGO_SETTINGS_MODULE=backend.settings.test python -m pytest -q -m "ledger_acceptance or requires_postgres"
+
 test-property:
 	@echo "DB ENGINE:" && cd code && DJANGO_SETTINGS_MODULE=backend.settings.unittest python -c "from django.conf import settings; print(settings.DATABASES['default']['ENGINE'])"
 	cd code && DJANGO_SETTINGS_MODULE=backend.settings.unittest python -m pytest -q ../tests/property

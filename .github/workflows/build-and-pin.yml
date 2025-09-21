@@ -14,6 +14,10 @@ on:
       - "code/apps/core/registry/processors/**"
       - ".github/workflows/build-and-pin.yml"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
   packages: write

@@ -247,6 +247,10 @@ class Command(BaseCommand):
 
             os.environ["GLOBAL_RECEIPT_BASE"] = options["global_receipt_base"]
 
+            # Lane toggle: allow CI to force build without changing tests
+            force_build = os.getenv("RUN_PROCESSOR_FORCE_BUILD") == "1"
+            build_flag = options.get("build", False) or (force_build and options["adapter"] == "local")
+
             # Call core function with pre-generated execution_id
             result = run_processor_core(
                 ref=options["ref"],
@@ -256,7 +260,7 @@ class Command(BaseCommand):
                 write_prefix=options["write_prefix"],
                 plan=options.get("plan"),
                 adapter_opts=adapter_opts,
-                build=options.get("build", False),
+                build=build_flag,
                 timeout=options.get("timeout"),
                 execution_id=execution_id,
             )

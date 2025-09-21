@@ -163,15 +163,16 @@ class ModalAdapter:
             required_secrets = []
             optional_secrets = []
 
-        # Validate required secrets are present (names only)
-        missing = [name for name in required_secrets if name not in secrets_present]
-        if missing:
-            return _err(
-                execution_id,
-                "ERR_MISSING_SECRET",
-                "Required secret(s) missing: " + ", ".join(missing),
-                meta={"adapter": "modal"},
-            )
+        # Validate required secrets are present (names only) - skip in mock mode for hermetic PR lane
+        if mode == "real":
+            missing = [name for name in required_secrets if name not in secrets_present]
+            if missing:
+                return _err(
+                    execution_id,
+                    "ERR_MISSING_SECRET",
+                    "Required secret(s) missing: " + ", ".join(missing),
+                    meta={"adapter": "modal"},
+                )
 
         # Resolve Modal environment / function configuration
         env_from_settings = getattr(settings, "MODAL_ENVIRONMENT", None)
