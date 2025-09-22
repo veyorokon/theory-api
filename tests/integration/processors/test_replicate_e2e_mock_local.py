@@ -1,15 +1,11 @@
 """Integration tests for replicate processor E2E with mock runner."""
 
 import json
-import subprocess
-import sys
-import tempfile
-from pathlib import Path
-
 import pytest
+from tests.tools.runner import run_cli, parse_stdout_json_or_fail
 
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.requires_docker]
 
 
 class TestReplicateE2EMockLocal:
@@ -28,9 +24,7 @@ class TestReplicateE2EMockLocal:
         env["PYTHONPATH"] = "."
 
         # Execute processor using run_processor command (like other tests)
-        cmd = [
-            sys.executable,
-            "manage.py",
+        args = [
             "run_processor",
             "--ref",
             "replicate/generic@1",
@@ -45,13 +39,10 @@ class TestReplicateE2EMockLocal:
             "--json",
         ]
 
-        result = subprocess.run(cmd, env=env, capture_output=True, text=True, cwd=".")
+        env = {"CI": "true", "LOG_STREAM": "stderr"}
 
-        # Verify success
-        assert result.returncode == 0, f"Command failed: {result.stderr}"
-
-        # Parse response
-        response = json.loads(result.stdout)
+        result = run_cli(args, env=env)
+        response = parse_stdout_json_or_fail(result)
         assert response["status"] == "success"
         assert "execution_id" in response
         assert "outputs" in response

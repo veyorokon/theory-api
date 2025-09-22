@@ -102,7 +102,7 @@ def guard_no_duplicates(canon_paths: List[str], execution_id: str) -> Dict[str, 
     Returns:
         Error envelope dict if duplicates found, None otherwise
     """
-    from .envelope import error_envelope
+    from libs.runtime_common.envelope import error_envelope
     from apps.core.errors import ERR_OUTPUT_DUPLICATE
 
     seen = set()

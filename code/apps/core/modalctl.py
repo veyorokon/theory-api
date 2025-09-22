@@ -8,55 +8,18 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
 from typing import Dict, Any, List, Set, Tuple
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FTimeout
 
 import yaml
 
 
-def _git_branch() -> str:
-    """Get current git branch, sanitized for app names."""
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True, check=True
-        )
-        return result.stdout.strip().replace("/", "-")
-    except subprocess.CalledProcessError:
-        return "unknown"
-
-
-def resolve_app_name(env: str, processor_ref: str | None = None, preferred: str | None = None) -> str:
-    """
-    Determine the Modal app name for CLI operations.
-
-    - If preferred: use exact name provided
-    - If processor_ref: return canonical registry-driven name (e.g., llm-litellm-v1)
-    - Else: fall back to user-branch sandbox naming
-
-    Args:
-        env: Environment (for validation only - scoping via --env flag)
-        processor_ref: Optional processor reference (e.g., "llm/litellm@1")
-        preferred: Optional exact name override
-
-    Returns:
-        App name for human/manual use
-    """
-    if preferred:
-        return preferred
-
-    user = (os.getenv("USER") or os.getenv("GITHUB_ACTOR") or "unknown").lower()
-    branch = _git_branch()
-
-    if processor_ref:
-        from apps.core.adapters.modal.naming import modal_app_name_from_ref
-
-        # Canonical naming for registry-driven deployments
-        return modal_app_name_from_ref(processor_ref)
-
-    # Generic sandbox fallback when no processor ref supplied
-    return f"{user}-{branch}"
+# Removed old resolve_app_name function - now handled by management commands
+# using apps.core.management.commands._modal_common.compute_modal_context()
 
 
 def validate_env(env: str) -> None:
@@ -245,9 +208,9 @@ def ensure_secrets(env: str, secrets_dict: Dict[str, str]) -> Dict[str, Any]:
     return {"status": "success" if not results["errors"] else "partial", "env": env, "secrets": results}
 
 
-def call(env: str, app_name: str, fn_name: str, payload: Dict[str, Any], timeout: int = 900) -> Dict[str, Any]:
+def call(env: str, app_name: str, fn_name: str, payload: Dict[str, Any], timeout: int = 30) -> Dict[str, Any]:
     """
-    Call a Modal function with payload.
+    Call a Modal function with payload using SDK.
 
     Args:
         env: Target environment
@@ -263,34 +226,68 @@ def call(env: str, app_name: str, fn_name: str, payload: Dict[str, Any], timeout
     ensure_modal_auth()
 
     try:
-        # Create temporary file for payload
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump(payload, f)
-            payload_file = f.name
+        import modal
+        import time
 
-        try:
-            cmd = ["modal", "run", "--env", env, f"{app_name}::{fn_name}", "--from-file", payload_file]
+        print(f"🔍 Looking up Modal function: {app_name}.{fn_name} in {env}", file=sys.stderr)
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=True)
+        # Use Modal SDK to invoke deployed function
+        fn = modal.Function.from_name(app_name, fn_name, environment_name=env)
 
+        print(f"📞 Calling Modal function with payload size: {len(str(payload))} chars", file=sys.stderr)
+        t0 = time.time()
+
+        # Use thread-based timeout for synchronous call
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            fut = ex.submit(fn.remote, payload)
+            try:
+                result = fut.result(timeout=timeout)
+                dur = int((time.time() - t0) * 1000)
+
+                print(f"✅ Modal call completed in {dur}ms", file=sys.stderr)
+
+                # Modal functions should return dict (canonical envelope)
+                if isinstance(result, bytes):
+                    response_text = result.decode("utf-8")
+                    try:
+                        envelope = json.loads(response_text)
+                        if isinstance(envelope, dict):
+                            return envelope
+                    except json.JSONDecodeError:
+                        pass
+                elif isinstance(result, dict):
+                    return result
+                else:
+                    response_text = str(result)
+
+                return {
+                    "status": "success",
+                    "app_name": app_name,
+                    "function": fn_name,
+                    "response": response_text,
+                    "stderr": "",
+                }
+            except FTimeout:
+                print(f"⏰ Modal call timed out after {timeout}s", file=sys.stderr)
+                return {
+                    "status": "error",
+                    "error": {"code": "ERR_TIMEOUT", "message": f"Function call timed out after {timeout}s"},
+                }
+
+    except Exception as e:
+        print(f"❌ Modal call failed: {type(e).__name__}: {e}", file=sys.stderr)
+        if "not found" in str(e).lower():
             return {
-                "status": "success",
-                "app_name": app_name,
-                "function": fn_name,
-                "response": result.stdout,
-                "stderr": result.stderr,
+                "status": "error",
+                "error": {
+                    "code": "ERR_MODAL_LOOKUP",
+                    "message": f"Modal function not found: {app_name}.{fn_name} ({env})",
+                },
             }
-
-        finally:
-            os.unlink(payload_file)
-
-    except subprocess.TimeoutExpired:
         return {
             "status": "error",
-            "error": {"code": "CALL_TIMEOUT", "message": f"Function call timed out after {timeout}s"},
+            "error": {"code": "ERR_MODAL_INVOCATION", "message": f"Function call failed: {type(e).__name__}: {e}"},
         }
-    except subprocess.CalledProcessError as e:
-        return {"status": "error", "error": {"code": "CALL_FAILED", "message": f"Function call failed: {e.stderr}"}}
 
 
 def list_apps(env: str, prefix: str | None = None) -> Dict[str, Any]:
@@ -327,13 +324,13 @@ def list_apps(env: str, prefix: str | None = None) -> Dict[str, Any]:
 
 def tail_logs(env: str, app_name: str, fn_name: str, since_min: int = 30, limit: int = 200) -> Dict[str, Any]:
     """
-    Tail recent logs for a Modal function.
+    Tail recent logs for a Modal app.
 
     Args:
         env: Target environment
         app_name: Modal app name
-        fn_name: Function name
-        since_min: Minutes of history to fetch
+        fn_name: Function name (used for filtering)
+        since_min: Minutes of history to fetch (approximate)
         limit: Max number of log lines
 
     Returns:
@@ -345,26 +342,78 @@ def tail_logs(env: str, app_name: str, fn_name: str, since_min: int = 30, limit:
     try:
         cmd = [
             "modal",
+            "app",
             "logs",
+            app_name,
             "--env",
             env,
-            f"{app_name}::{fn_name}",
-            "--since",
-            f"{since_min}m",
-            "--lines",
-            str(limit),
+            "--timestamps",
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        # Run with longer timeout since modal app logs streams continuously
+        # Need enough time to capture both historical and any new logs
+        timeout_seconds = min(30, max(15, since_min))  # At least 15s, up to requested time
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_seconds)
+
+        # Process the output
+        lines = result.stdout.splitlines() if result.stdout else []
+
+        # Always include error/crash logs regardless of function filter
+        error_keywords = ["error", "failed", "runner", "usage:", "traceback", "exception", "crash"]
+
+        if fn_name and fn_name.strip():
+            # Include function-specific logs AND any error logs
+            filtered_lines = [
+                line for line in lines if fn_name in line or any(keyword in line.lower() for keyword in error_keywords)
+            ]
+        else:
+            # No function filter - return all logs
+            filtered_lines = lines
+
+        # Apply limit
+        if limit and len(filtered_lines) > limit:
+            filtered_lines = filtered_lines[-limit:]  # Get most recent lines
 
         return {
             "status": "success",
             "app_name": app_name,
             "function": fn_name,
-            "logs": result.stdout.splitlines(),
+            "logs": filtered_lines,
             "stderr": result.stderr,
+            "total_lines": len(lines),
+            "filtered_lines": len(filtered_lines),
         }
 
+    except subprocess.TimeoutExpired as e:
+        # Timeout is expected for streaming logs - capture any partial output
+        partial_output = e.stdout.decode() if e.stdout else ""
+        partial_lines = partial_output.splitlines() if partial_output else []
+
+        # Apply same filtering to partial output
+        error_keywords = ["error", "failed", "runner", "usage:", "traceback", "exception", "crash"]
+        if fn_name and fn_name.strip():
+            filtered_partial = [
+                line
+                for line in partial_lines
+                if fn_name in line or any(keyword in line.lower() for keyword in error_keywords)
+            ]
+        else:
+            filtered_partial = partial_lines
+
+        if limit and len(filtered_partial) > limit:
+            filtered_partial = filtered_partial[-limit:]
+
+        return {
+            "status": "success",
+            "app_name": app_name,
+            "function": fn_name,
+            "logs": filtered_partial,
+            "stderr": "",
+            "total_lines": len(partial_lines),
+            "filtered_lines": len(filtered_partial),
+            "message": f"Log streaming timed out after {timeout_seconds}s (captured {len(filtered_partial)} relevant lines)",
+        }
     except subprocess.CalledProcessError as e:
         return {"status": "error", "error": {"code": "LOGS_FAILED", "message": f"Failed to fetch logs: {e.stderr}"}}
 

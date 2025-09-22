@@ -1,29 +1,29 @@
-"""Test that local adapter index_path is under write_prefix."""
-
-import uuid
+# tests/integration/adapters/test_local_index_path_contract.py
 import pytest
+from tests.tools.runner import run_cli, parse_stdout_json_or_fail
+from tests.tools.asserts import assert_success_envelope, assert_index_under_prefix
 
-pytestmark = pytest.mark.integration
 
-
-def test_local_index_path_is_under_write_prefix():
-    """Test that index_path in result envelope points under write_prefix, not execution artifacts."""
-    # This test exercises the core logic without requiring Docker or external dependencies
-
-    execution_id = str(uuid.uuid4())
-    write_prefix = f"/artifacts/outputs/test/{execution_id}/"
-
-    # Test the path computation logic that was fixed
-    # This is the core contract: index_path should be computed from write_prefix
-    expanded_write_prefix = write_prefix.format(execution_id=execution_id)
-    expected_index_path = f"{expanded_write_prefix.rstrip('/')}/outputs.json"
-
-    # Verify the expected behavior
-    assert expected_index_path.startswith(expanded_write_prefix.rstrip("/"))
-    assert expected_index_path.endswith("/outputs.json")
-
-    # Should NOT be under /artifacts/execution (old bug path)
-    assert not expected_index_path.startswith("/artifacts/execution/")
-
-    # Verify the path structure matches the write_prefix pattern
-    assert expected_index_path == f"/artifacts/outputs/test/{execution_id}/outputs.json"
+@pytest.mark.requires_docker
+def test_local_adapter_index_path_under_prefix(tmp_write_prefix):
+    # Run via manage.py with --build (PR lane behavior)
+    args = [
+        "run_processor",
+        "--ref",
+        "llm/litellm@1",
+        "--adapter",
+        "local",
+        "--mode",
+        "mock",
+        "--write-prefix",
+        tmp_write_prefix,
+        "--inputs-json",
+        '{"schema":"v1","params":{"messages":[{"role":"user","content":"hi"}]}}',
+        "--json",
+        "--build",
+    ]
+    proc = run_cli(args, env={"LOG_STREAM": "stderr"})
+    env = parse_stdout_json_or_fail(proc)
+    assert_success_envelope(env)
+    # Verify path relationship
+    assert_index_under_prefix(env["index_path"], tmp_write_prefix)

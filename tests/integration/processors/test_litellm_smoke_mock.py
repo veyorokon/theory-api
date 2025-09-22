@@ -1,16 +1,11 @@
 """Integration tests for llm_litellm mock mode testing."""
 
 import json
-import subprocess
-import sys
-import os
-import tempfile
-from pathlib import Path
-
 import pytest
+from tests.tools.runner import run_cli, parse_stdout_json_or_fail
 
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.requires_docker]
 
 
 class TestLiteLLMMock:
@@ -30,9 +25,7 @@ class TestLiteLLMMock:
         }
 
         # Execute processor
-        cmd = [
-            sys.executable,
-            "manage.py",
+        args = [
             "run_processor",
             "--ref",
             "llm/litellm@1",
@@ -47,16 +40,8 @@ class TestLiteLLMMock:
             "--json",
         ]
 
-        env = os.environ.copy()
-        env["PYTHONPATH"] = "."
-
-        result = subprocess.run(cmd, env=env, capture_output=True, text=True, cwd=".")
-
-        # Verify success
-        assert result.returncode == 0, f"Command failed: {result.stderr}"
-
-        # Parse response
-        response = json.loads(result.stdout)
+        result = run_cli(args, env={"LOG_STREAM": "stderr"})
+        response = parse_stdout_json_or_fail(result)
         assert response["status"] == "success"
         assert "execution_id" in response
         assert "outputs" in response
@@ -71,9 +56,7 @@ class TestLiteLLMMock:
         }
 
         # Execute processor
-        cmd = [
-            sys.executable,
-            "manage.py",
+        args = [
             "run_processor",
             "--ref",
             "llm/litellm@1",
@@ -88,12 +71,8 @@ class TestLiteLLMMock:
             "--json",
         ]
 
-        env = os.environ.copy()
-        env["PYTHONPATH"] = "."
-        env["CI"] = "true"
-        env["OPENAI_API_KEY"] = "fake-key-should-be-ignored"
+        env = {"LOG_STREAM": "stderr", "CI": "true", "OPENAI_API_KEY": "fake-key-should-be-ignored"}
 
-        result = subprocess.run(cmd, env=env, capture_output=True, text=True, cwd=".")
-
+        result = run_cli(args, env=env)
         # Should succeed without network access in mock mode
         assert result.returncode == 0, f"Mock mode should succeed without network: {result.stderr}"

@@ -73,21 +73,7 @@ def _canonical_app_name_from_ref(ref: str) -> str:
         return "manual-deploy"
 
 
-def _resolve_app_name(*, processor_ref: str, preferred: str | None) -> str:
-    """
-    Ordering:
-      1) explicit preferred app name (e.g., via CLI/ENV)
-      2) shared helper from adapters.modal.naming (if importable)
-      3) local canonical derivation
-    """
-    if preferred:
-        return preferred
-    try:
-        from apps.core.adapters.modal.naming import modal_app_name_from_ref  # type: ignore
-
-        return modal_app_name_from_ref(processor_ref)
-    except Exception:
-        return _canonical_app_name_from_ref(processor_ref)
+# _resolve_app_name removed - now using compute_modal_context directly for consistency
 
 
 # ---------------------------
@@ -101,12 +87,12 @@ class ModalInvoker:
     def __init__(self, fn_resolver):
         self._resolve = fn_resolver
 
-    def invoke(self, fn_fullname: str, payload: dict, timeout_s: int) -> bytes:
+    def invoke(self, app_name: str, fn_name: str, env_name: str, payload: dict, timeout_s: int) -> bytes:
         """Invoke Modal function synchronously with timeout."""
         try:
-            fn = self._resolve(fn_fullname)
+            fn = self._resolve(app_name, fn_name, env_name)
         except Exception as e:
-            error("modal.lookup.fail", fn_fullname=fn_fullname, error=str(e))
+            error("modal.lookup.fail", app_name=app_name, function=fn_name, env=env_name, error=str(e))
             raise
 
         # Synchronous call with thread-based timeout (no asyncio)
@@ -115,7 +101,7 @@ class ModalInvoker:
             try:
                 return fut.result(timeout=timeout_s)
             except FTimeout:
-                error("modal.remote.timeout", fn_fullname=fn_fullname, timeout_s=timeout_s)
+                error("modal.remote.timeout", app_name=app_name, function=fn_name, timeout_s=timeout_s)
                 raise FTimeout("Modal function call timed out")
 
 
@@ -144,12 +130,10 @@ class ModalAdapter:
         # Inject invoker for testing; default to real Modal resolver
         self._invoker = invoker or ModalInvoker(self._real_fn_resolver)
 
-    def _real_fn_resolver(self, fn_fullname: str):
+    def _real_fn_resolver(self, app_name: str, fn_name: str, env_name: str):
         """Real Modal function resolver for production use."""
         import modal  # type: ignore
 
-        app_name, fn_name = fn_fullname.rsplit(".", 1)
-        env_name = os.getenv("MODAL_ENVIRONMENT", "dev")
         return modal.Function.from_name(app_name, fn_name, environment_name=env_name)
 
     def invoke(
@@ -219,8 +203,15 @@ class ModalAdapter:
         function_name = adapter_opts.get("function", "run")
         app_name_override = adapter_opts.get("app_name_override")
 
-        # Resolve app name
-        app_name = _resolve_app_name(processor_ref=processor_ref, preferred=app_name_override)
+        # Resolve app name using same logic as deploy commands (single source of truth)
+        from apps.core.management.commands._modal_common import compute_modal_context
+
+        try:
+            ctx = compute_modal_context(processor_ref=processor_ref)
+            app_name = app_name_override or ctx.app_name
+        except Exception as e:
+            error("modal.naming.failed", error=str(e), processor_ref=processor_ref)
+            return _err(execution_id, "ERR_CONFIG", f"Failed to resolve Modal app name: {e}", meta={"adapter": "modal"})
 
         # Build payload the Modal function expects
         payload = {
@@ -231,7 +222,6 @@ class ModalAdapter:
         }
 
         # Function identity and payload summary for observability
-        fn_fullname = f"{app_name}.{function_name}"
         payload_size = len(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
         timeout_s = 120
 
@@ -241,7 +231,8 @@ class ModalAdapter:
         try:
             info(
                 "modal.invoke.start",
-                fn_fullname=fn_fullname,
+                app_name=app_name,
+                function=function_name,
                 timeout_s=timeout_s,
                 payload_keys=sorted(payload.keys()),
                 payload_size_bytes=payload_size,
@@ -250,13 +241,13 @@ class ModalAdapter:
 
             # Use injected invoker for synchronous call with timeout
             try:
-                raw: bytes = self._invoker.invoke(fn_fullname, payload, timeout_s)
+                raw: bytes = self._invoker.invoke(app_name, function_name, env_name, payload, timeout_s)
             except Exception as e:
                 if "not found" in str(e).lower() or "lookup" in str(e).lower():
                     return _err(
                         execution_id,
                         "ERR_MODAL_LOOKUP",
-                        f"Modal function not found: {fn_fullname} ({env_name})",
+                        f"Modal function not found: {app_name}.{function_name} ({env_name})",
                         meta={"adapter": "modal"},
                     )
                 elif isinstance(e, FTimeout):
@@ -287,8 +278,37 @@ class ModalAdapter:
                     meta={"adapter": "modal"},
                 )
 
-            # Validate envelope shape minimally and log completion
+            # Strict envelope validation - adapter is transport-only
+            if not isinstance(env, dict):
+                error("modal.invoke.error", reason="non_dict_response", type=type(env).__name__)
+                return _err(
+                    execution_id,
+                    "ERR_MODAL_INVOCATION",
+                    "Modal function returned non-dict response",
+                    meta={"adapter": "modal"},
+                )
+
             status = env.get("status")
+            if status not in ("success", "error"):
+                error("modal.invoke.error", reason="invalid_status", status=status, received_keys=list(env.keys())[:5])
+                return _err(
+                    execution_id,
+                    "ERR_MODAL_INVOCATION",
+                    "Modal function returned non-canonical envelope",
+                    meta={"adapter": "modal"},
+                )
+
+            # Validate execution_id presence in canonical envelopes
+            if not env.get("execution_id"):
+                error("modal.invoke.error", reason="missing_execution_id", status=status)
+                return _err(
+                    execution_id,
+                    "ERR_MODAL_INVOCATION",
+                    "Modal function returned envelope without execution_id",
+                    meta={"adapter": "modal"},
+                )
+
+            # Log completion based on status
             if status == "success":
                 info(
                     "modal.invoke.complete",
@@ -297,7 +317,7 @@ class ModalAdapter:
                     index_path=env.get("index_path"),
                 )
                 return env
-            elif status == "error":
+            else:  # status == "error"
                 error_code = (env.get("error") or {}).get("code")
                 error(
                     "modal.invoke.complete",
@@ -306,15 +326,6 @@ class ModalAdapter:
                     message=(env.get("error") or {}).get("message"),
                 )
                 return env
-            else:
-                # If backend returned something unexpected, wrap it
-                error("modal.complete.unexpected", received_keys=list(env.keys()))
-                return _err(
-                    execution_id,
-                    "ERR_MODAL_PAYLOAD",
-                    "Modal function returned an unexpected payload",
-                    meta={"adapter": "modal"},
-                )
         finally:
             # Clear logging context to prevent leakage
             clear()

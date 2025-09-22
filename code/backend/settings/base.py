@@ -52,6 +52,7 @@ LOCAL_APPS = [
 THIRD_PARTY_APPS = [
     "rest_framework",
     "channels",
+    "management_commands",
 ]
 DJANGO_APPS = [
     "django.contrib.admin",
@@ -170,3 +171,11 @@ MODAL_APP_NAME = os.environ.get("MODAL_APP_NAME", "theory-rt")
 
 # Lease management feature flag
 LEASES_ENABLED = False
+
+# Django Management Commands configuration
+# Enable discovery of commands in subdirectories
+MANAGEMENT_COMMANDS_SUBMODULES = [
+    "management.commands.processors",
+    "management.commands.modal",
+    "management.commands.docs",
+]

@@ -29,7 +29,7 @@ def clear():
 def _redact(s: str) -> str:
     """Apply redaction patterns to string using centralized redaction."""
     try:
-        from apps.core.adapters.redaction import redact_msg
+        from libs.runtime_common.redaction import redact_msg
 
         return redact_msg(s)
     except ImportError:

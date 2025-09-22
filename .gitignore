@@ -81,6 +81,9 @@ _build/
 .pybuilder/
 target/
 
+node_modules/
+package*.json
+
 # Jupyter Notebook
 .ipynb_checkpoints
 

@@ -1,12 +1,20 @@
 [run]
+source = code
 branch = True
-source = .
-[report]
+parallel = True
 omit =
-    */tests/*
     */migrations/*
-    */admin.py
-    */apps.py
-    */wsgi.py
-    */asgi.py
-    code/backend/settings/*
+    code/manage.py
+    code/**/wsgi.py
+    code/**/asgi.py
+    code/apps/core/adapters/modal/**/__main__.py
+    tests/*
+
+[report]
+show_missing = True
+skip_covered = True
+fail_under = 85
+exclude_lines =
+    pragma: no cover
+    if TYPE_CHECKING:
+    if __name__ == "__main__":

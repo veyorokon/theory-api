@@ -60,11 +60,19 @@ python manage.py deploy_modal --env dev --ref llm/litellm@1
 # App resolves to llm-litellm-v1 (override with --app-name if needed)
 ```
 
-To inspect logs or call functions manually:
+To inspect logs or execute processors manually:
 
 ```bash
 python manage.py logs_modal --env dev --ref llm/litellm@1
-python manage.py invoke_modal --env dev --ref llm/litellm@1 --payload-json '{"schema":"v1","mode":"mock","params":{...}}'
+
+# Execute processors (single execution surface)
+python manage.py run_processor --ref llm/litellm@1 --adapter modal --mode mock \
+  --inputs-json '{"schema":"v1","params":{"messages":[{"role":"user","content":"test"}]}}' \
+  --adapter-opt function=smoke
+
+python manage.py run_processor --ref llm/litellm@1 --adapter modal --mode real \
+  --inputs-json '{"schema":"v1","params":{"messages":[{"role":"user","content":"test"}]}}' \
+  --adapter-opt function=run
 ```
 
 ## Modes & Payloads

@@ -66,9 +66,12 @@ class FakeInvoker:
         self.received_fn_fullname = None
         self.was_called = False
 
-    def invoke(self, fn_fullname: str, payload: dict, timeout_s: int) -> bytes:
+    def invoke(self, app_name: str, fn_name: str, env_name: str, payload: dict, timeout_s: int) -> bytes:
         self.was_called = True
-        self.received_fn_fullname = fn_fullname
+        self.received_fn_fullname = f"{app_name}.{fn_name}"
+        self.received_app_name = app_name
+        self.received_fn_name = fn_name
+        self.received_env_name = env_name
         self.received_payload = payload
         if self._raise:
             raise self._raise
@@ -115,7 +118,7 @@ class TestModalAdapter:
         result = adapter.invoke(**_adapter_kwargs())
 
         assert result == envelope
-        assert fake_invoker.received_fn_fullname == "test-proc-v1.run"
+        assert fake_invoker.received_fn_fullname.endswith("test-proc-v1.run")
         assert fake_invoker.received_payload["execution_id"] == "exec-123"
 
     def test_missing_required_secret_raises_error(self):
@@ -190,3 +193,46 @@ class TestModalAdapter:
 
         assert result["status"] == "error"
         assert result["error"]["code"] == "ERR_MODAL_PAYLOAD"
+
+    def test_envelope_validation_non_dict_response(self):
+        """Test that non-dict responses are rejected with canonical error."""
+        fake_invoker = FakeInvoker(b'"not a dict"')  # JSON string, not dict
+        adapter = ModalAdapter(invoker=fake_invoker)
+
+        result = adapter.invoke(**_adapter_kwargs())
+
+        assert result["status"] == "error"
+        assert result["error"]["code"] == "ERR_MODAL_INVOCATION"
+        assert "non-dict response" in result["error"]["message"]
+
+    def test_envelope_validation_invalid_status(self):
+        """Test that invalid status fields are rejected with canonical error."""
+        invalid_envelope = {
+            "status": "pending",  # Invalid status
+            "execution_id": "exec-123",
+            "outputs": [],
+        }
+        fake_invoker = FakeInvoker(json.dumps(invalid_envelope).encode("utf-8"))
+        adapter = ModalAdapter(invoker=fake_invoker)
+
+        result = adapter.invoke(**_adapter_kwargs())
+
+        assert result["status"] == "error"
+        assert result["error"]["code"] == "ERR_MODAL_INVOCATION"
+        assert "non-canonical envelope" in result["error"]["message"]
+
+    def test_envelope_validation_missing_status(self):
+        """Test that missing status field is rejected with canonical error."""
+        invalid_envelope = {
+            "execution_id": "exec-123",
+            "outputs": [],
+            # Missing status field
+        }
+        fake_invoker = FakeInvoker(json.dumps(invalid_envelope).encode("utf-8"))
+        adapter = ModalAdapter(invoker=fake_invoker)
+
+        result = adapter.invoke(**_adapter_kwargs())
+
+        assert result["status"] == "error"
+        assert result["error"]["code"] == "ERR_MODAL_INVOCATION"
+        assert "non-canonical envelope" in result["error"]["message"]

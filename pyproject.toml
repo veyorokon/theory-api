@@ -67,7 +67,7 @@ unfixable = []
 "*/apps.py" = ["F401"]  # Allow unused imports in Django app config
 "conftest.py" = ["F401"]  # Allow unused imports in conftest
 "**/settings/*.py" = ["F403", "F405", "E402"]  # Allow wildcard imports and import order in settings
-"code/vulture_whitelist.py" = ["B018", "F821"]  # Vulture whitelist has intentional "useless" expressions
+"vulture_whitelist.py" = ["B018", "F821"]  # Vulture whitelist has intentional "useless" expressions
 
 [tool.ruff.format]
 quote-style = "double"
@@ -180,15 +180,32 @@ exclude_lines = [
 ]
 
 [tool.pytest.ini_options]
+addopts = "--strict-markers --maxfail=1 -q"
 markers = [
-    "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
-    "property: marks tests as property-based tests using Hypothesis",
-    "unit: marks tests as unit tests",
-    "requires_postgres: marks tests that require PostgreSQL database",
-    "requires_docker: marks tests that require Docker runtime",
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')"
+    "unit: hermetic fast tests (pure Python, SQLite)",
+    "contracts: docs-as-contracts invariants (no IO)",
+    "property: property-based tests (Hypothesis, hermetic)",
+    "integration: hermetic process-level tests (no external network)",
+    "modal: modal adapter/component tests using fakes only",
+    "acceptance: docker-compose acceptance suites",
+    "prlane: runs in PR hermetic lane (--build, mode=mock)",
+    "supplychain: runs in pinned supply-chain lane",
+    "deploy_smoke: post-deploy smoke verification (mock)",
+    "deploy_canary: post-deploy real provider canary",
+    "requires_postgres: spins up postgres via compose",
+    "requires_minio: spins up minio via compose",
+    "requires_docker: requires Docker runtime",
+    "requires_modal: calls Modal API",
+    "network: test performs network egress",
+    "slow: long running tests (staging/main lanes)",
 ]
-testpaths = ["tests", "code/tests"]
+testpaths = [
+    "tests/unit",
+    "tests/integration",
+    "tests/contracts",
+    "tests/acceptance",
+    "tests/property"
+]
 python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]

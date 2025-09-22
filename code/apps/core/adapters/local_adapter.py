@@ -17,11 +17,10 @@ from django.conf import settings
 
 from .base import RuntimeAdapter
 from .ensure_image import ensure_image
-from .envelope import success_envelope, error_envelope, write_outputs_index
+from libs.runtime_common.envelope import success_envelope, error_envelope, write_outputs_index
 from libs.runtime_common.fingerprint import compose_env_fingerprint
-from .redaction import redact_msg
+from libs.runtime_common.redaction import redact_msg
 from apps.core.utils.processor_ref import registry_path, local_processor_path
-from apps.core.adapters.modal.naming import modal_app_name_from_ref
 from apps.core.logging import bind, clear, info, error
 
 logger = logging.getLogger(__name__)

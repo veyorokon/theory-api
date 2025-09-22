@@ -18,7 +18,7 @@ from apps.runtime.services import settle_execution_success, settle_execution_fai
 from apps.core.adapters.local_adapter import LocalAdapter
 from apps.core.adapters.modal_adapter import ModalAdapter
 from apps.core.registry.loader import snapshot_for_ref, get_secrets_present_for_spec
-from apps.core.adapters.envelope import error_envelope
+from libs.runtime_common.envelope import error_envelope
 from apps.core.errors import ERR_PREFIX_TEMPLATE, ERR_ADAPTER_INVOCATION
 from libs.runtime_common.paths import validate_write_prefix, PrefixError
 from libs.runtime_common.receipts import build_receipt

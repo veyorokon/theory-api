@@ -106,31 +106,33 @@ def _modal_secrets_from_env(names_csv: str | None) -> List[modal.Secret]:
 
 def _app_name_from_env() -> str:
     """
-    CI path:
-      - If PROCESSOR_REF present -> canonical processor-based name (e.g., 'llm-litellm-v1').
-    Human/dev path:
-      - Allow override via $MODAL_APP_NAME, else fall back to processor-based name or 'manual-deploy'.
+    Compute Modal app name from environment variables.
+    Uses shared naming utility to ensure consistency with deploy/lookup.
     """
     ref = os.environ.get("PROCESSOR_REF", "").strip()
     preferred = os.environ.get("MODAL_APP_NAME", "").strip()
+
     if preferred:
         return preferred
 
     if ref:
-        # Try the shared naming helper if available; otherwise derive a simple canonical name.
         try:
-            from apps.core.adapters.modal.naming import modal_app_name_from_ref  # type: ignore
+            from libs.runtime_common.modal_naming import modal_app_name
 
-            return modal_app_name_from_ref(ref)  # e.g., 'llm-litellm-v1'
-        except Exception:
-            # Fallback: ns/name@ver -> ns-name-v<ver>
-            try:
-                ns, rest = ref.split("/", 1)
-                name, ver = rest.split("@", 1)
-                slug = f"{ns}-{name}".replace("_", "-")
-                return f"{slug}-v{ver}"
-            except Exception:
-                pass
+            env = os.environ.get("MODAL_ENVIRONMENT", "dev").strip().lower()
+            if env == "dev":
+                branch = os.environ.get("BRANCH_NAME", "").strip()
+                user = os.environ.get("DEPLOY_USER", "").strip() or os.environ.get("USER", "").strip()
+                if branch and user:
+                    return modal_app_name(ref, env=env, branch=branch, user=user)
+                else:
+                    _log("app.naming.dev_fallback", missing_branch=not branch, missing_user=not user)
+            else:
+                return modal_app_name(ref, env=env)
+        except Exception as e:
+            _log("app.naming.error", error=str(e), ref=ref)
+
+    # Final fallback for manual deploys or errors
     return "manual-deploy"
 
 

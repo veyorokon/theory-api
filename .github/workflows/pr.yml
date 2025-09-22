@@ -1,0 +1,62 @@
+name: PR Lane
+
+on:
+  pull_request:
+    branches: [ dev ]
+    paths:
+      - "code/**"
+      - "tests/**"
+      - ".github/workflows/pr.yml"
+      - "Makefile"
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    env:
+      DJANGO_SETTINGS_MODULE: backend.settings.unittest
+      TEST_LANE: pr
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -r code/requirements.txt
+      - name: Unit tests
+        run: make test-unit
+
+  integration:
+    runs-on: ubuntu-latest
+    needs: unit
+    env:
+      DJANGO_SETTINGS_MODULE: backend.settings.unittest
+      TEST_LANE: pr
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -r code/requirements.txt
+      - name: Integration tests
+        run: make test-integration
+
+  acceptance-pr:
+    runs-on: ubuntu-latest
+    needs: integration
+    timeout-minutes: 20
+    env:
+      DJANGO_SETTINGS_MODULE: backend.settings.unittest
+      TEST_LANE: pr
+      # PR lane invariants:
+      RUN_PROCESSOR_FORCE_BUILD: "1"   # build-from-source
+      LOG_STREAM: stderr               # keep stdout clean for --json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -r code/requirements.txt
+      - name: Acceptance (PR lane, mock, hermetic)
+        run: make test-acceptance-pr

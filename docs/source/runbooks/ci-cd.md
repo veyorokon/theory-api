@@ -1,161 +1,89 @@
 # CI/CD Pipeline
 
-This runbook documents the automated pipeline that builds processor images once, pins their digests, validates them locally, and then promotes the exact same artifacts through Modal **dev → staging → main**. Every section below maps directly to the workflows living in `.github/workflows/` (`pr-checks.yml`, `build-and-pin.yml`, `acceptance.yml`, `modal-deploy.yml`).
+This runbook captures the three-lane delivery system: PRs build directly from source, staging owns supply-chain promotion (build → pin → accept → deploy), and main redeploys the exact pinned artifacts to production. Local developers stay fast and hermetic; CI branches stay serialized and deterministic.
 
-## High-Level Flow
+## Order of Operations
 
-```{mermaid}
-graph TD
-    PR[Pull Request → dev] --> Fast[PR Checks (lint/unit/docs)]
-    Fast --> MergeDev[Merge to dev]
-    MergeDev --> BP[Build & Pin (bot PR)]
-    BP --> PinPR[Pin PR merged]
-    PinPR --> Accept[Acceptance (Docker, mock mode)]
-    Accept --> DeployDev[Modal Deploy → dev + smoke]
-    DeployDev --> PromoteStg[Promote → staging]
-    PromoteStg --> DeployStg[Modal Deploy → staging + smoke]
-    DeployStg --> PromoteMain[Promote → main]
-    PromoteMain --> DeployMain[Modal Deploy → main + smoke]
-```
+| Stage | Workflow(s) | What runs | Artifact under test |
+|-------|-------------|-----------|---------------------|
+| Local development | N/A | `make compose-up`, `make test-acceptance-pr` | Working tree (local Docker build, mock mode) |
+| Pull Request lane | `.github/workflows/pr-tests.yml` | `make test-unit`, `make test-integration`, `make test-acceptance-pr` | Source-built containers (hermetic, `--build`, `mode=mock`) |
+| `dev` branch | `.github/workflows/dev-tests.yml` | Sanity sweep (`test-unit`, `test-integration`, `test-acceptance-dev`) | Latest merge commit with pinned registry (no rebuild) |
+| `staging` pipeline | `.github/workflows/staging-pipeline.yml` | 1) Build & pin → 2) Acceptance (pinned) → 3) Deploy Modal staging → 4) Drift audit | Newly built multi-arch images; pins written to `staging` |
+| Release PR | Manual | Open `staging → main` PR referencing pinned commit | Pins + code from validated staging commit |
+| `main` pipeline | `.github/workflows/main-pipeline.yml` | Acceptance (pinned) → Deploy Modal production → Drift audit | Same digests promoted from staging |
 
-## Stage-by-Stage Summary
+### 1. Local Development
 
-| Stage | Workflow | Trigger | Key Actions |
-|-------|----------|---------|-------------|
-| PR Checks | `pr-checks.yml` | PRs, pushes to `dev`/`main` | Ruff lint & format, unit tests (`pytest -m "unit and not integration"`), coverage, docs drift, deptry/deadcode |
-| Build & Pin | `build-and-pin.yml` | Pushes to `dev`, manual dispatch | Build processor images once, push to GHCR, rewrite registry with digests, open bot PR if changes |
-| Acceptance | `acceptance.yml` | Pushes to `dev` | Docker-compose stack, run `make test-acceptance` (adapter=`local`, mode=`smoke`), skip if any digest pending |
-| Modal Deploy | `modal-deploy.yml` | Pushes to `dev`, `staging`, `main` | Sync secrets to Modal env, deploy pinned digests, smoke test each processor via Modal `smoke` function |
+- Goal: quick iteration with full docker-compose stack plus optional Modal **dev** sandboxing.
+- Run `make compose-up` to boot Postgres/Redis/MinIO, then `make test-acceptance-pr` for the PR lane suite (`--build`, `mode=mock`, no secrets).
+- Developers can deploy to Modal **dev** manually (`python code/manage.py deploy_modal --env dev`); CI never touches this environment.
 
-All downstream environments reuse the digests pinned on `dev`; **never rebuild** as part of staging/main promotion.
+### 2. Pull Request Lane (Hermetic Source Builds)
 
-## 1. Pull Request Checks (Fast Lane)
+- Trigger: PRs targeting `dev`, `staging`, or `main`.
+- Workflow: `pr-tests.yml`.
+- Jobs: unit + integration tests (SQLite, hermetic), then `make test-acceptance-pr` behind docker-compose services.
+- Secrets: explicitly unset; lane must succeed without external credentials.
+- Exit criteria: workflow must be green before merge.
 
-The `pr-checks.yml` workflow enforces the following before merging into `dev`:
+### 3. `dev` Branch (Post-Merge Sanity)
 
-- **Linting & formatting**: `ruff check` and `ruff format --check` on the `code/` tree.
-- **Unit tests**: executed inside `code/` using SQLite (`DJANGO_SETTINGS_MODULE=backend.settings.unittest`). Only tests marked `unit` run.
-- **Coverage**: `make test-coverage` produces `coverage.xml` & `coverage.json` and enforces a baseline threshold.
-- **Docs & drift**: `make docs` runs the docs export, drift check, and Sphinx build with `-W`.
-- **Static guards**: dead-code gate, deptry, import reachability.
+- Trigger: push to `dev`.
+- Workflow: `dev-tests.yml`.
+- Purpose: ensure the merged commit still passes unit/integration and the **supply-chain** acceptance suite (`make test-acceptance-dev`) using the currently pinned digests. No image builds or deploys occur here.
+- Modal deployments: skipped; `dev` is for code integration only.
 
-> Need Docker-based checks pre-merge? Label the PR with `run-acceptance` and manually run the acceptance workflow.
+### 4. `staging` Pipeline (Supply-Chain Owner)
 
-## 2. Build & Pin (Image Factory)
+- Trigger: push to `staging` (usually merge-up from `dev`).
+- Steps run serially via `needs`:
+  1. **Build & Pin** – Multi-arch (`amd64` + `arm64`) builds for each processor. Digests are written directly back to `staging` via commit `ci(staging): pin processor images`. No bot PRs against other branches.
+  2. **Acceptance (pinned)** – Executes `make test-acceptance-dev` with `TEST_LANE=staging`, verifying the registry digests in mock mode (no rebuilds).
+  3. **Deploy Modal (staging)** – Deploys using the pinned digests, runs smoke tests (`mode=mock`) and a negative probe (`mode=real` expecting `ERR_MISSING_SECRET`).
+  4. **Drift Audit** – `python code/scripts/drift_audit.py` fails closed if deployed digests mismatch the registry.
+- Outcome: staging now owns canonical pins plus a green deployment. Open a release PR from this commit to `main`.
 
-Workflow: `.github/workflows/build-and-pin.yml`
+### 5. Release PR (`staging → main`)
 
-### Permissions & Checkout
+- Manual step to promote staging’s validated commit into production history.
+- PR title convention: `Promote staging → main @ <sha>`.
+- Only contains code + registry changes already tested in staging.
 
-```yaml
-permissions:
-  contents: write
-  packages: write
-  pull-requests: write
+### 6. `main` Pipeline (Production Deploy)
 
-steps:
-  - uses: actions/checkout@v4
-    with:
-      fetch-depth: 0
-      persist-credentials: true
-```
+- Trigger: merge of the release PR.
+- Steps mirror staging minus builds: acceptance (pinned), Modal deploy (production secrets), smoke + negative probe, then drift audit.
+- Guarantees production runs exactly the bits that passed staging.
 
-### Processor Matrix Resolution
+## Test Lanes & Make Targets
 
-- Read `code/apps/core/registry/processors/*.yaml`.
-- For each entry capture: registry path, processor package (`code/apps/core/processors/<name>`), Dockerfile location.
-- Optional workflow input `processors` limits the build list.
+- `make test-unit` / `make test-integration` – hermetic SQLite/pytest flows for fast feedback.
+- `make test-acceptance-pr` – PR lane acceptance; composes services, forces `RUN_PROCESSOR_FORCE_BUILD=1`, requires docker, uses mock mode.
+- `make test-acceptance-dev` – Supply-chain acceptance; reuses pinned artifacts, still mock mode, hermetic.
+- `make test-smoke` – Post-deploy smoke markers (`deploy_smoke`).
+- Pytest markers live in `pytest.ini` and `tests/tools/markers.py`; strict markers enforce taxonomy (unit/integration/contracts/property/acceptance/prlane/supplychain/etc.).
 
-### Build & Push
+## Modal Environments & Naming
 
-- `docker setup-buildx-action` enables BuildKit.
-- Each processor is built with context `code/` (Dockerfile lives under the processor dir).
-- Images are tagged `ghcr.io/<repo>/<processor>:build-<run>` and pushed (multi-arch `linux/amd64,linux/arm64`).
-- After `docker buildx imagetools inspect`, the workflow asserts both platforms are present; missing either fails fast.
+- **dev (personal)** – `<branch>-<user>-<processor-slug>-vX`; never touched by CI.
+- **staging/main** – `<processor-slug>-vX`; CI deploys via `deploy_modal` management command using pinned digests.
+- Negative probes intentionally trigger `ERR_MISSING_SECRET` to confirm real-mode guardrails are intact.
 
-### Update Registry & Bot PR
+## Secrets & Registry Expectations
 
-- Registry YAMLs are rewritten so `image.oci` points to `<image>@sha256:<digest>`.
-- A change detector runs: `git diff --quiet -- code/apps/core/registry/processors`.
-- If differences exist, `peter-evans/create-pull-request@v6` opens `bot/pin-images` with commit message `ci: pin processor images (bot)`.
-
-**Important:** GHCR packages must exist and grant this repository **Actions: Write**.
-
-#### Onboarding a New Processor Package
-
-1. Build & push an initial tag locally to create the GHCR package:
-   ```bash
-   cd code/apps/core/processors/replicate_generic
-   docker build -t ghcr.io/<owner>/<repo>/replicate-generic:initial .
-   echo "$GH_PAT" | docker login ghcr.io -u <user> --password-stdin
-   docker push ghcr.io/<owner>/<repo>/replicate-generic:initial
-   ```
-2. GitHub → Packages → (package) → Settings → Repository access → add this repo with **Actions: Write**.
-3. Subsequent automated pushes from the workflow will succeed.
-
-## 3. Acceptance Tests (Docker, `mode=mock`)
-
-Workflow: `.github/workflows/acceptance.yml`
-
-- Runs on pushes to `dev` after the pin PR merges.
-- Early guard: exits if any registry YAML still contains `oci: sha256:pending`.
-- Starts Docker services via `docker compose up -d postgres redis minio`.
-- Runs `make test-acceptance` inside `code/` (adapter=`local`, `--mode mock`), exercising budgets, artifact writes, and receipts.
-- Ensure branch protection on `dev` requires this workflow before deploy.
-
-## 4. Modal Deploy & Smoke
-
-Workflow: `.github/workflows/modal-deploy.yml`
-
-### Trigger Strategy
-
-- Pushes to `dev`, `staging`, `main` (optionally manual `workflow_dispatch`).
-- Each branch deploys to its matching Modal environment (`MODAL_ENVIRONMENT` defaults to the branch name).
-
-### Steps
-
-1. **Checkout** repo (full history not required).
-2. **Collect processors**: parse registry YAML into JSON (ref, pinned digest, secret list).
-3. **Secret sync**: for every secret name listed, read matching GitHub secret. Command fails if any value is missing **or** a secret name is unknown (drift prevention).
-4. **Deploy**: invoke `modal deploy -m modal_app --env $ENV` for each processor with `PROCESSOR_REF`, `IMAGE_REF`, `TOOL_SECRETS`, `MODAL_APP_NAME` exported. `modal_app.py` reads these and registers the canonical app name.
-5. **Post-deploy smoke**: call `python manage.py run_processor ... --mode mock --adapter modal --json` for each processor to verify deployments without hitting providers.
-6. **Negative probe**: explicitly run `python manage.py run_processor ... --mode real --adapter modal --json` with `CI=false` to confirm Modal returns `ERR_MISSING_SECRET` when secrets are absent (ensures guard rails stay intact).
-
-### Promotion Philosophy
-
-- **Build once** on `dev` → reuse digests for `staging` and `main`.
-- Promotion is simply merging the same registry YAML commit across branches.
-- Optional: after staging deploy, run a single “real mode” canary invocation if quotas allow.
-
-## Secrets & Configuration
-
-- Processor registry YAMLs declare required/optional secrets. Example:
-  ```yaml
-  secrets:
-    required:
-      - OPENAI_API_KEY
-    optional:
-      - LITELLM_API_BASE
-  ```
-- GitHub is the source of truth. Store per-environment values as repository/environment secrets with consistent names (`OPENAI_API_KEY_DEV`, etc.). The deploy workflow reads them and pushes to Modal.
-- `REGISTRY_AUTH` must be present in each Modal env (credentials for pulling from GHCR).
-
-## Promotion Checklist
-
-1. Merge pin PR → `dev`. Confirm Acceptance (Docker) and Modal deploy (dev) are green.
-2. Promote to `staging` (merge or cherry-pick). Modal deploy (staging) runs automatically and smokes succeed.
-3. Promote to `main`. Modal deploy (main) runs, smoke succeed.
-4. Downstream Django releases can now assume the processors are deployed with the pinned digests.
-
-Rollback is mechanical: revert the pin commit on `dev`, merge through staging/main, and rerun deploy.
+- Processor specs (`code/apps/core/registry/processors/*.yaml`) declare `image.oci` and `secrets.required/optional`.
+- Staging build job must have package write access to GHCR; production pipelines only need read.
+- Modal secrets pull from branch-scoped GitHub secrets (`OPENAI_API_KEY_STAGING`, `OPENAI_API_KEY_PROD`, etc.).
+- Drift audits compare deployed app metadata with registry digests; treat failures as stop-the-line events.
 
 ## Workflow Reference
 
 | File | Purpose |
 |------|---------|
-| `.github/workflows/pr-checks.yml` | Fast lane: lint, unit, docs, coverage |
-| `.github/workflows/build-and-pin.yml` | Build processor images once, pin digests, open bot PR |
-| `.github/workflows/acceptance.yml` | Docker-based acceptance on `dev` using mock mode |
-| `.github/workflows/modal-deploy.yml` | Deploy & smoke processors on Modal dev/staging/main |
+| `.github/workflows/pr-tests.yml` | PR lane hermetic tests (unit, integration, acceptance-pr) |
+| `.github/workflows/dev-tests.yml` | Post-merge sanity suite on `dev` (no builds or deploys) |
+| `.github/workflows/staging-pipeline.yml` | Build → pin → acceptance → deploy (staging) → drift |
+| `.github/workflows/main-pipeline.yml` | Acceptance → deploy (prod) → drift using staging pins |
 
-Keep this runbook in sync with workflow changes—update both together whenever CI/CD behavior shifts.
+Keep this runbook aligned with workflow edits and the pytest taxonomy; when the lane model changes, update this document in the same PR.
