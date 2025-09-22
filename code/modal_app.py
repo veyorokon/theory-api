@@ -1,17 +1,24 @@
 # code/modal_app.py
-"""
-Modal app entry for processor containers.
+"""Modal app entry point for processor containers (single `run` function).
 
-- Two public functions:
-    * run(payload: dict)   -> bytes  # normal execution
-    * smoke(payload: dict) -> bytes  # always forces mode="mock", clears provider envs
+This module exposes exactly one Modal function:
 
-- Image: repo-scoped GHCR digest via $IMAGE_REF (required)
-- Secrets: optional, via $TOOL_SECRETS="OPENAI_API_KEY,REPLICATE_API_TOKEN"
-- Processor: via $PROCESSOR_REF, e.g. "llm/litellm@1"
-- App name: CI-friendly, derived from PROCESSOR_REF; can be overridden by $MODAL_APP_NAME
+* ``run(payload: dict) -> bytes`` — validates the payload, executes the
+  processor ``main`` module in a subprocess, and returns a canonical envelope
+  (success or error) as UTF-8 JSON bytes.
 
-All responses are bytes containing a canonical envelope JSON.
+Smoke or canary tests are simply invocations of ``run`` with ``mode="mock"`` or
+``mode="real"`` respectively. There are no alternate Modal functions for these
+test types; all execution happens through the same surface.
+
+Environment contract (injected at deploy time):
+
+* ``IMAGE_REF`` – required, GHCR manifest digest to use for the Modal image.
+* ``PROCESSOR_REF`` – required, e.g. ``llm/litellm@1``.
+* ``TOOL_SECRETS`` – optional CSV of Modal secret names to mount (consumed only
+  when ``mode="real"``).
+* ``MODAL_APP_NAME`` – optional override; otherwise derived from
+  ``libs.runtime_common.modal_naming.modal_app_name``.
 """
 
 from __future__ import annotations
@@ -26,7 +33,7 @@ import modal
 
 # ---------- Constants & helpers ----------
 
-# Provider env vars we intentionally clear in `smoke()`
+# Provider env vars we intentionally clear before mock executions
 _PROVIDER_ENV_VARS = (
     "OPENAI_API_KEY",
     "REPLICATE_API_TOKEN",
@@ -148,6 +155,7 @@ def _validate_payload(payload: Dict[str, Any]) -> Tuple[str, str, str, Dict[str,
     write_prefix = str(payload.get("write_prefix", "")).strip()
     mode = str(payload.get("mode", "") or "mock").strip().lower()
     inputs_json = payload.get("inputs_json")
+    inputs = payload.get("inputs")
 
     if not execution_id:
         raise ValueError("Missing 'execution_id'")
@@ -156,18 +164,24 @@ def _validate_payload(payload: Dict[str, Any]) -> Tuple[str, str, str, Dict[str,
     if mode not in ("mock", "real"):
         raise ValueError("Invalid 'mode' (allowed: 'mock','real')")
 
-    if inputs_json is None:
-        raise ValueError("Missing 'inputs_json'")
+    if inputs_json is None and inputs is None:
+        raise ValueError("Missing 'inputs' payload")
 
-    if isinstance(inputs_json, str):
-        try:
-            inputs_obj = json.loads(inputs_json)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"inputs_json is not valid JSON: {e}") from e
-    elif isinstance(inputs_json, dict):
-        inputs_obj = inputs_json
+    if inputs is not None:
+        if isinstance(inputs, dict):
+            inputs_obj = dict(inputs)
+        else:
+            raise ValueError("'inputs' must be a JSON object if provided")
     else:
-        raise ValueError("inputs_json must be an object or JSON string")
+        if isinstance(inputs_json, str):
+            try:
+                inputs_obj = json.loads(inputs_json)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"inputs_json is not valid JSON: {e}") from e
+        elif isinstance(inputs_json, dict):
+            inputs_obj = dict(inputs_json)
+        else:
+            raise ValueError("inputs_json must be an object or JSON string")
 
     # Normalize the schema/mode on the inputs itself (processors expect 'schema' and read 'mode')
     if "schema" not in inputs_obj:
@@ -254,6 +268,9 @@ def run(payload: Dict[str, Any] | None = None) -> bytes:
         module, _pkg = _module_path_from_ref(ref)
         eid, write_prefix, mode, inputs_obj = _validate_payload(payload)
 
+        if mode == "mock":
+            _clear_provider_envs()
+
         # In mock mode we should not require provider secrets.
         # In real mode: provider secrets must be present (processor will enforce).
         _log(
@@ -266,6 +283,47 @@ def run(payload: Dict[str, Any] | None = None) -> bytes:
 
         inputs_path = _write_tmp_json(inputs_obj)
         cmd = _build_subprocess_cmd(module, inputs_path=inputs_path, write_prefix=write_prefix, execution_id=eid)
+
+        # Debug instrumentation (controlled by payload flag or env var)
+        def _dbg(tag, **k):
+            try:
+                print(json.dumps({"event": tag, **k}), file=sys.stderr, flush=True)
+            except Exception:
+                pass
+
+        dbg_enabled = bool(payload.get("debug_exec") or os.environ.get("MODAL_DEBUG_EXEC"))
+
+        # Prove module importability and environment setup
+        if dbg_enabled:
+            import importlib.util
+
+            spec = importlib.util.find_spec(module)
+            _dbg(
+                "exec.debug.preflight",
+                module=module,
+                spec_found=bool(spec),
+                cwd=os.getcwd(),
+                sys_executable=sys.executable,
+                pythonpath=os.environ.get("PYTHONPATH"),
+                sys_path_head=sys.path[:3],
+            )
+
+        # Set up child environment with explicit PYTHONPATH
+        from libs.runtime_common.fingerprint import build_clean_env
+
+        child_env = build_clean_env()
+        proj_root = child_env.get("PROJECT_ROOT") or "/app"  # Match container layout
+        child_env["PYTHONPATH"] = f"{proj_root}/code:" + child_env.get("PYTHONPATH", "")
+
+        if dbg_enabled:
+            _dbg(
+                "exec.debug.argv",
+                module=module,
+                cwd=proj_root,
+                cmd=cmd,
+                child_env_pythonpath=child_env.get("PYTHONPATH"),
+                child_env_path=child_env.get("PATH", "")[:200],
+            )
 
         # Run the processor main with timeout; log start/duration + bounded IO breadcrumbs.
         def _digest(b: bytes) -> str:
@@ -291,29 +349,51 @@ def run(payload: Dict[str, Any] | None = None) -> bytes:
             execution_id=eid,
         )
         t0 = time.time()
+        timeout_s = 600
         try:
-            proc = subprocess.run(cmd, capture_output=True, text=False, timeout=600)
+            proc = subprocess.run(
+                cmd,
+                cwd=proj_root,
+                env=child_env,
+                capture_output=True,
+                text=True,  # Changed to text for easier debug
+                timeout=timeout_s,
+            )
         except subprocess.TimeoutExpired:
             dur = int((time.time() - t0) * 1000)
             _log(
                 "processor.exec.timeout",
-                timeout_s=600,
+                timeout_s=timeout_s,
                 duration_ms=dur,
                 module=module,
                 processor_ref=ref,
                 execution_id=eid,
             )
-            return _err(eid, "ERR_TIMEOUT", "Processor execution timed out")
+            return _err(eid, "ERR_MODAL_TIMEOUT", "Processor execution timed out")
 
         dur = int((time.time() - t0) * 1000)
-        stderr_b = proc.stderr or b""
-        stdout_b = proc.stdout or b""
+        stderr_text = proc.stderr or ""
+        stdout_text = proc.stdout or ""
+
+        # Convert back to bytes for existing digest/tail functions
+        stderr_b = stderr_text.encode("utf-8")
+        stdout_b = stdout_text.encode("utf-8")
         stderr_tail = _tail(stderr_b)
         stdout_tail = _tail(stdout_b)
         stderr_len = len(stderr_b)
         stdout_len = len(stdout_b)
         stderr_sha = _digest(stderr_b) if stderr_len else None
         stdout_sha = _digest(stdout_b) if stdout_len else None
+
+        # Post-execution debug logging
+        if dbg_enabled:
+            _dbg(
+                "exec.debug.post",
+                returncode=proc.returncode,
+                stdout_preview=stdout_text[:200],
+                stderr_preview=stderr_text[:200],
+                duration_ms=dur,
+            )
 
         # Non-zero exit → structured fail with bounded diagnostics.
         if proc.returncode != 0:
@@ -330,12 +410,35 @@ def run(payload: Dict[str, Any] | None = None) -> bytes:
                 processor_ref=ref,
                 execution_id=eid,
             )
-            return _err(
-                eid,
-                "ERR_ADAPTER_INVOCATION",
-                f"Processor failed (rc={proc.returncode})",
-                meta={"stderr_tail": stderr_tail},
-            )
+            # Exit code taxonomy for better error classification
+            if proc.returncode == 2 and "required" in stderr_text:
+                return _err(
+                    eid,
+                    "ERR_ADAPTER_INVOCATION",
+                    "missing_required_args",
+                    meta={"stderr_tail": stderr_tail, "returncode": proc.returncode},
+                )
+            elif proc.returncode == 137:
+                return _err(
+                    eid,
+                    "ERR_ADAPTER_INVOCATION",
+                    "terminated_by_oomkill",
+                    meta={"stderr_tail": stderr_tail, "returncode": proc.returncode},
+                )
+            elif proc.returncode == 143:
+                return _err(
+                    eid,
+                    "ERR_ADAPTER_INVOCATION",
+                    "terminated_by_sigterm",
+                    meta={"stderr_tail": stderr_tail, "returncode": proc.returncode},
+                )
+            else:
+                return _err(
+                    eid,
+                    "ERR_ADAPTER_INVOCATION",
+                    f"subprocess_failed_rc_{proc.returncode}",
+                    meta={"stderr_tail": stderr_tail, "returncode": proc.returncode},
+                )
 
         # Parse stdout as canonical envelope; log invalid JSON with breadcrumbs.
         try:
@@ -367,34 +470,4 @@ def run(payload: Dict[str, Any] | None = None) -> bytes:
         return _err(None, "ERR_PAYLOAD", str(ve))
     except Exception as e:
         _log("invoke.unhandled", error=str(e))
-        return _err(None, "ERR_APP", f"{type(e).__name__}: {e}")
-
-
-@app.function(
-    name="smoke",  # custom name => must set serialized=True
-    image=image,
-    serialized=True,
-    secrets=[],  # never pass provider secrets to smoke
-    timeout=60 * 5,
-)
-def smoke(payload: Dict[str, Any] | None = None) -> bytes:
-    """
-    Post-deploy health probe:
-      - Clears provider envs
-      - Forces mode="mock"
-      - Returns canonical envelope
-    """
-    try:
-        _clear_provider_envs()
-
-        payload = payload or {}
-        if not isinstance(payload, dict):
-            payload = {"mode": "mock"}
-        else:
-            payload = {**payload, "mode": "mock"}
-
-        _log("mock.exec", forced_mode="mock")
-        return run(payload)
-    except Exception as e:
-        _log("smoke.unhandled", error=str(e))
         return _err(None, "ERR_APP", f"{type(e).__name__}: {e}")

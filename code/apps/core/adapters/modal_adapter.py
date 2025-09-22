@@ -3,16 +3,15 @@
 ModalAdapter: thin, explicit orchestrator for remote processor execution on Modal.
 
 Design goals:
-- Keyword-only public surface: invoke(*, ...)
-- Single responsibility: call the deployed Modal function with a validated payload
+- Keyword-only public surface: ``invoke(*, ...)``
+- Single responsibility: call the deployed Modal ``run`` function with a validated payload
 - Return canonical envelopes (success/error); never leak stack traces upstream
 - Respect two-mode system: mode ∈ {"mock", "real"}; adapter never reinterprets mode
-- Naming: resolve app name from PROCESSOR_REF or override; CI vs. human consistency
-- Minimal dependency footprint: if modal is missing or lookup fails, return error envelope
+- Naming: resolve app name from ``PROCESSOR_REF`` or override; CI vs. human consistency
+- Minimal dependency footprint: if Modal is missing or lookup fails, return error envelope
 
-Expected deployed Modal functions (see code/modal_app.py):
-- app.function(name="run",    serialized=True): accepts payload dict and returns canonical envelope (bytes)
-- app.function(name="smoke",  serialized=True): optional; forced mock, used by CI post-deploy smoke step
+Expected deployed Modal function (see ``code/modal_app.py``):
+- ``app.function(name="run", serialized=True)`` — accepts payload dict and returns canonical envelope (bytes)
 """
 
 from __future__ import annotations
@@ -200,7 +199,21 @@ class ModalAdapter:
         env_from_settings = getattr(settings, "MODAL_ENVIRONMENT", None)
         env_from_env = os.getenv("MODAL_ENVIRONMENT")
         env_name = adapter_opts.get("env_name") or env_from_settings or env_from_env or "dev"
-        function_name = adapter_opts.get("function", "run")
+        function_override = adapter_opts.get("function")
+        if function_override and function_override != "run":
+            error(
+                "modal.function.unsupported",
+                requested=function_override,
+                processor_ref=processor_ref,
+                adapter="modal",
+            )
+            return _err(
+                execution_id,
+                "ERR_FUNCTION_NOT_FOUND",
+                f"Unsupported Modal function '{function_override}'. Only 'run' is available.",
+                meta={"adapter": "modal"},
+            )
+        function_name = "run"
         app_name_override = adapter_opts.get("app_name_override")
 
         # Resolve app name using same logic as deploy commands (single source of truth)
@@ -223,7 +236,8 @@ class ModalAdapter:
 
         # Function identity and payload summary for observability
         payload_size = len(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
-        timeout_s = 120
+        modal_timeout_s = 600  # Modal function timeout from modal_app.py
+        timeout_s = int(modal_timeout_s * 1.2)  # Adapter timeout = Modal timeout + 20% buffer
 
         # Bind context for this modal execution
         bind(trace_id=execution_id, adapter="modal", processor_ref=processor_ref, mode=mode)
@@ -253,9 +267,14 @@ class ModalAdapter:
                 elif isinstance(e, FTimeout):
                     return _err(
                         execution_id,
-                        "ERR_TIMEOUT",
+                        "ERR_MODAL_TIMEOUT",
                         "Modal function call timed out",
-                        meta={"adapter": "modal"},
+                        meta={
+                            "adapter": "modal",
+                            "modal_timeout_s": modal_timeout_s,
+                            "adapter_timeout_s": timeout_s,
+                            "timeout_buffer_pct": 20,
+                        },
                     )
                 else:
                     return _err(
@@ -307,6 +326,18 @@ class ModalAdapter:
                     "Modal function returned envelope without execution_id",
                     meta={"adapter": "modal"},
                 )
+
+            # Validate index_path under write_prefix
+            wp = env.get("index_path")
+            if not (isinstance(wp, str) and wp.startswith(write_prefix)):
+                error("modal.invoke.error", reason="bad_index_path", index_path=wp, write_prefix=write_prefix)
+                return _err(execution_id, "ERR_ADAPTER_INVOCATION", "index_path must lie under write_prefix")
+
+            # Validate outputs is a list
+            outs = env.get("outputs")
+            if not (isinstance(outs, list)):
+                error("modal.invoke.error", reason="outputs_not_list", type=type(outs).__name__)
+                return _err(execution_id, "ERR_ADAPTER_INVOCATION", "outputs must be a list")
 
             # Log completion based on status
             if status == "success":

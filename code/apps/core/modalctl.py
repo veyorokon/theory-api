@@ -215,7 +215,7 @@ def call(env: str, app_name: str, fn_name: str, payload: Dict[str, Any], timeout
     Args:
         env: Target environment
         app_name: Modal app name
-        fn_name: Function name (run, smoke, etc.)
+        fn_name: Modal function name (typically "run")
         payload: JSON payload to send
         timeout: Call timeout in seconds
 

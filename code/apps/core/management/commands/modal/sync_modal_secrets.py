@@ -66,7 +66,8 @@ class Command(BaseCommand):
 
             if missing_secrets:
                 self.stderr.write(f"⚠️ Missing secrets in environment: {missing_secrets}")
-                if fail_on_missing:
+                # Auto-enforce fail-on-missing for staging/main environments
+                if fail_on_missing or env in ["staging", "main"]:
                     raise CommandError(f"Required secrets missing from environment: {missing_secrets}")
 
             if not available_secrets:

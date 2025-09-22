@@ -105,17 +105,18 @@ class TestModalAdapter:
         return ModalAdapter()
 
     def test_successful_invoke_returns_remote_envelope(self):
+        write_prefix = "/artifacts/outputs/test/exec-123/"  # Match the execution_id
         envelope = {
             "status": "success",
             "execution_id": "exec-123",
-            "outputs": [{"path": "/artifacts/outputs/test/file.txt", "cid": "b3:123"}],
-            "index_path": "/artifacts/outputs/test/index.json",
+            "outputs": [{"path": f"{write_prefix}outputs/response.json", "cid": "b3:123"}],
+            "index_path": f"{write_prefix}index.json",
             "meta": {"env_fingerprint": "image:test"},
         }
         fake_invoker = FakeInvoker(json.dumps(envelope).encode("utf-8"))
         adapter = ModalAdapter(invoker=fake_invoker)
 
-        result = adapter.invoke(**_adapter_kwargs())
+        result = adapter.invoke(**_adapter_kwargs(write_prefix=write_prefix))
 
         assert result == envelope
         assert fake_invoker.received_fn_fullname.endswith("test-proc-v1.run")

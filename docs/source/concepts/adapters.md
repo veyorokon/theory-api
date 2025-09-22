@@ -68,7 +68,7 @@ def invoke(
 
 - Uses `modal deploy -m modal_app.py` and `ModalAdapter` runtime.
 - Relies on Modal secrets (`REGISTRY_AUTH`, etc.) for image pulls.
-- Assumes inputs already specify `mode`; Modal functions typically force `mode="mock"` in smoke tests.
+- Honours the same two modes (`mock`, `real`) based on the payload passed to `run_processor`.
 
 ## Adapter Selection
 
@@ -81,8 +81,8 @@ python manage.py run_processor --adapter local --mode mock --ref llm/litellm@1 .
 # Local real run (Docker)
 python manage.py run_processor --adapter local --mode real --ref llm/litellm@1 ...
 
-# Modal run (always real mode after deploy)
-python manage.py run_processor --adapter modal --mode real --ref llm/litellm@1 ...
+# Modal run (smoke = mock mode, production = real mode)
+python manage.py run_processor --adapter modal --mode mock --ref llm/litellm@1 ...
 ```
 
 ## Error Handling

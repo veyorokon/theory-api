@@ -48,7 +48,7 @@ modal deploy -m modal_app --env "$MODAL_ENVIRONMENT"
 
 `PROCESSOR_REF`, `IMAGE_REF`, and `TOOL_SECRETS` are exported in the job environment. `modal_app.py` reads them, names the app (`llm-litellm-v1`), and registers the function.
 
-After deploy, a smoke test calls the `smoke` function with `mode="mock"`.
+After deploy, a smoke test calls `run_processor … --mode mock` against the Modal adapter. There is a single Modal function (`run`); smoke and canary tests simply choose which mode to pass.
 
 ### Local / manual usage
 
@@ -67,12 +67,10 @@ python manage.py logs_modal --env dev --ref llm/litellm@1
 
 # Execute processors (single execution surface)
 python manage.py run_processor --ref llm/litellm@1 --adapter modal --mode mock \
-  --inputs-json '{"schema":"v1","params":{"messages":[{"role":"user","content":"test"}]}}' \
-  --adapter-opt function=smoke
+  --inputs-json '{"schema":"v1","params":{"messages":[{"role":"user","content":"test"}]}}'
 
 python manage.py run_processor --ref llm/litellm@1 --adapter modal --mode real \
-  --inputs-json '{"schema":"v1","params":{"messages":[{"role":"user","content":"test"}]}}' \
-  --adapter-opt function=run
+  --inputs-json '{"schema":"v1","params":{"messages":[{"role":"user","content":"test"}]}}'
 ```
 
 ## Modes & Payloads
@@ -81,8 +79,6 @@ Processors look at `inputs["mode"]`:
 
 - `mode="mock"`: deterministic responses; used by CI smoke tests and local quick checks.
 - `mode="real"`: hits external providers; secrets must exist (e.g., `OPENAI_API_KEY`).
-
-Modal smoke functions force `mode="mock"`; real production jobs pass `mode="real"`.
 
 ## Troubleshooting
 

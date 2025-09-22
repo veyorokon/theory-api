@@ -5,6 +5,7 @@ Tests the command's behavior for secret syncing from environment variables to Mo
 """
 
 import json
+import os
 import subprocess
 from pathlib import Path
 from unittest import mock
@@ -58,13 +59,16 @@ def test_sync_modal_secrets_dry_run_with_secrets(monkeypatch):
 @pytest.mark.unit
 def test_sync_modal_secrets_missing_required_secret_staging(monkeypatch):
     """Test sync_modal_secrets fails in staging when required secrets are missing."""
-    # Set up environment
-    monkeypatch.setenv("DJANGO_SETTINGS_MODULE", "backend.settings.unittest")
-    monkeypatch.setenv("MODAL_ENVIRONMENT", "staging")
-
-    # Only provide one secret, missing another
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test123")
-    # REPLICATE_API_TOKEN is missing
+    # Create clean environment with only required plumbing vars
+    clean_env = {
+        "DJANGO_SETTINGS_MODULE": "backend.settings.unittest",
+        "MODAL_ENVIRONMENT": "staging",
+        "PYTHONPATH": ".",
+        "PATH": os.environ.get("PATH", ""),
+        # Only provide one secret, missing another
+        "OPENAI_API_KEY": "sk-test123",
+        # REPLICATE_API_TOKEN intentionally missing
+    }
 
     # Mock the registry scanning to return both secrets as required
     with mock.patch("apps.core.modalctl.find_required_secrets_from_registry") as mock_find:
@@ -75,6 +79,7 @@ def test_sync_modal_secrets_missing_required_secret_staging(monkeypatch):
             cwd=str(Path(__file__).resolve().parents[3] / "code"),
             capture_output=True,
             text=True,
+            env=clean_env,
         )
 
     # Should fail with exit code 1 in staging/main when secrets missing
@@ -87,9 +92,14 @@ def test_sync_modal_secrets_missing_required_secret_staging(monkeypatch):
 @pytest.mark.unit
 def test_sync_modal_secrets_no_registry_secrets(monkeypatch):
     """Test sync_modal_secrets when no secrets are found in registry."""
-    # Set up environment
-    monkeypatch.setenv("DJANGO_SETTINGS_MODULE", "backend.settings.unittest")
-    monkeypatch.setenv("MODAL_ENVIRONMENT", "dev")
+    # Create clean environment with no secrets
+    clean_env = {
+        "DJANGO_SETTINGS_MODULE": "backend.settings.unittest",
+        "MODAL_ENVIRONMENT": "dev",
+        "PYTHONPATH": ".",
+        "PATH": os.environ.get("PATH", ""),
+        # No secrets in environment
+    }
 
     # Mock registry scanning to return no secrets
     with mock.patch("apps.core.modalctl.find_required_secrets_from_registry") as mock_find:
@@ -100,6 +110,7 @@ def test_sync_modal_secrets_no_registry_secrets(monkeypatch):
             cwd=str(Path(__file__).resolve().parents[3] / "code"),
             capture_output=True,
             text=True,
+            env=clean_env,
         )
 
     assert proc.returncode == 0, f"Command failed: {proc.stderr}"

@@ -47,8 +47,7 @@ def modal_app_name(ref: str, *, env: str, branch: str | None = None, user: str |
     env = (env or "").strip().lower()
 
     if env == "dev":
-        if not branch or not user:
-            raise ValueError("dev naming requires branch and user")
-        return f"{_slug(branch)}-{_slug(user)}-{base}"
-
+        if branch and user:
+            return f"{_slug(branch)}-{_slug(user)}-{base}"
+        raise ValueError("dev naming requires branch and user")
     return base  # staging/main

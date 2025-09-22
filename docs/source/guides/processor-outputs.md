@@ -39,6 +39,6 @@ python manage.py run_processor \
 
 ## Implementation Notes
 
-- Local adapter supports `mode=mock` and `mode=real`; Modal adapter always runs real mode but smoke tests force the inputs to `mode=mock`.
+- Both adapters honour `mode=mock` and `mode=real`; smoke tests simply pass `mode=mock` through the same execution surface.
 - Envelopes remain the same regardless of mode; only the meta fields differ (e.g., `mode` or resource usage).
 - Output paths are canonicalized, deduplicated, and sorted.

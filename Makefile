@@ -54,8 +54,13 @@ help:
 	@echo "  make test-acceptance-pr  - PR lane (build-from-source, mock, no secrets)"
 	@echo "  make test-acceptance-dev - supply-chain lane (pinned-only, mock)"
 	@echo "  make test-smoke          - post-deploy smoke (CI staging/main)"
-	@echo "  make compose-up          - start docker stack for acceptance"
+	@echo "  make compose-up          - start base stack (postgres+redis)"
+	@echo "  make compose-up-full     - start full stack (postgres+redis+minio)"
 	@echo "  make compose-down        - stop docker stack"
+	@echo "  make tools-check         - verify required tools (jq, yq)"
+	@echo "  make package-evidence    - create evidence archive (privacy filtered)"
+	@echo "  make validate-modal REF=<ref> - run complete validation suite"
+	@echo "  make verify-digest DIGEST=<digest> - verify image digest format/availability"
 	@echo ""
 	@echo "Modal dev workflow:"
 	@echo "  make build-processor REF=llm/litellm@1     - build processor locally"
@@ -64,6 +69,30 @@ help:
 	@echo "  make real-modal-dev REF=llm/litellm@1      - real test Modal dev (needs secrets)"
 	@echo "  make modal-dev-workflow REF=llm/litellm@1  - full workflow (build→deploy→smoke)"
 	@echo ""
+
+# ---- Tools preflight check ---------------------------------------------
+.PHONY: tools-check
+tools-check:
+	@command -v jq >/dev/null || { echo "❌ jq missing - install with: brew install jq"; exit 1; }
+	@command -v yq >/dev/null || { echo "❌ yq missing - install with: brew install yq"; exit 1; }
+	@echo "✅ Required tools available (jq, yq)"
+
+# ---- Evidence packaging ------------------------------------------------
+.PHONY: package-evidence
+package-evidence:
+	@./scripts/package_evidence.sh
+
+# ---- Validation suite --------------------------------------------------
+.PHONY: validate-modal
+validate-modal:
+	@./scripts/validate_modal.sh $(REF)
+
+.PHONY: verify-digest
+verify-digest:
+ifndef DIGEST
+	$(error DIGEST is required. Usage: make verify-digest DIGEST=ghcr.io/user/image@sha256:...)
+endif
+	@./scripts/verify_digest.sh $(DIGEST)
 
 # ---- Linters (optional wire-up) ---------------------------------------------
 .PHONY: lint
@@ -110,11 +139,15 @@ test-property:
 # ---- Acceptance (compose-backed) --------------------------------------------
 .PHONY: compose-up
 compose-up:
-	@$(COMPOSE) $(COMPOSE_FILES) -p $(COMPOSE_PROJECT_NAME) up -d --wait
+	@$(COMPOSE) $(COMPOSE_FILES) -p $(COMPOSE_PROJECT_NAME) --profile base up -d --wait
+
+.PHONY: compose-up-full
+compose-up-full:
+	@$(COMPOSE) $(COMPOSE_FILES) -p $(COMPOSE_PROJECT_NAME) --profile full up -d --wait
 
 .PHONY: compose-down
 compose-down:
-	@$(COMPOSE) $(COMPOSE_FILES) -p $(COMPOSE_PROJECT_NAME) down -v || true
+	@$(COMPOSE) $(COMPOSE_FILES) -p $(COMPOSE_PROJECT_NAME) down -v --remove-orphans || true
 
 .PHONY: _wait-db
 _wait-db:
@@ -143,7 +176,7 @@ test-acceptance-pr: compose-up _wait-db
 
 # Supply-chain acceptance: pinned-only, mock, still hermetic by default.
 .PHONY: test-acceptance-dev
-test-acceptance-dev: compose-up _wait-db
+test-acceptance-dev: compose-up-full _wait-db
 	$(call guard_collect,$(MARK_EXPR_ACCEPT_SUPPLY))
 	@cd $(CODE_DIR); DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) $(PY) manage.py migrate --noinput
 	@cd $(CODE_DIR); \
@@ -203,10 +236,16 @@ ifndef REF
 endif
 	@echo "Building, pushing, and deploying $(REF) to Modal dev..."
 	@cd $(CODE_DIR) && set -euo pipefail; \
-	DIGEST=$$(DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) python manage.py build_processor --ref $(REF)); \
-	echo "Built digest: $$DIGEST"; \
-	OCI=$$(DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) python manage.py push_processor --digest $$DIGEST --repo ghcr.io/$(USER)/theory-api); \
-	echo "Pushed OCI: $$OCI"; \
+	BUILD_JSON=$$(DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) python manage.py build_processor --ref $(REF) --json); \
+	IMAGE_TAG=$$(echo "$$BUILD_JSON" | jq -r '.image_tag'); \
+	IMAGE_ID=$$(echo "$$BUILD_JSON" | jq -r '.image_id'); \
+	IMAGE_DIGEST=$$(echo "$$BUILD_JSON" | jq -r '.image_digest'); \
+	REF_SLUG=$$(echo $(REF) | tr '/@' '-'); \
+	TARGET=ghcr.io/$(USER)/theory-api/$$REF_SLUG:dev-$$(date +%s); \
+	echo "Built $(REF) -> $$IMAGE_TAG (id=$$IMAGE_ID digest=$$IMAGE_DIGEST)"; \
+	PUSH_JSON=$$(DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) python manage.py push_processor --image $$IMAGE_TAG --target $$TARGET --json); \
+	OCI=$$(echo "$$PUSH_JSON" | jq -r '.digest_ref'); \
+	echo "Pushed $$OCI"; \
 	DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) MODAL_ENVIRONMENT=dev \
 	python manage.py deploy_modal --ref $(REF) --env dev --image-override $$OCI --app-rev $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 	@echo "✅ Dev build-push-deploy completed for $(REF)"
@@ -227,7 +266,6 @@ endif
 	  --write-prefix "/artifacts/outputs/smoke/{execution_id}/" \
 	  --inputs-json '{"schema":"v1","params":{"messages":[{"role":"user","content":"smoke test"}]}}' \
 	  --json \
-	  --adapter-opt function=smoke \
 	  1>/tmp/modal_$(SAFE_REF)_mock.json \
 	  2>/tmp/modal_$(SAFE_REF)_mock.ndjson
 	@echo "Results saved to /tmp/modal_$(SAFE_REF)_mock.json"
@@ -249,7 +287,6 @@ endif
 	  --write-prefix "/artifacts/outputs/dev/{execution_id}/" \
 	  --inputs-json '{"schema":"v1","params":{"messages":[{"role":"user","content":"real test"}]}}' \
 	  --json \
-	  --adapter-opt function=run \
 	  1>/tmp/modal_$(SAFE_REF)_real.json \
 	  2>/tmp/modal_$(SAFE_REF)_real.ndjson
 	@echo "Results saved to /tmp/modal_$(SAFE_REF)_real.json"

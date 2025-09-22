@@ -171,7 +171,7 @@ secrets:
 - Reads registry specification for processor configuration
 - Creates isolated workdir under `settings.BASE_DIR/tmp/plan_id/execution_id`
 - Default mode executes containers with resource constraints and uploads via `ArtifactStore`
-- `mode="smoke"` fabricates outputs locally (no Docker/MinIO) for unit-style tests
+- `mode="mock"` fabricates deterministic outputs locally (no Docker/MinIO) for unit-style tests and smoke checks
 
 **Modal Adapter:**
 - Uses registry `image.oci` reference for Modal execution

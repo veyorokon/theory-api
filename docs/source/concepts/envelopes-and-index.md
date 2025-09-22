@@ -69,7 +69,7 @@ Both adapters (local and modal) emit the same envelope format. The local adapter
 - **mode="mock"** – Hermetic; writes outputs locally without Docker/ArtifactStore.
 - **mode="real"** – Uses Docker and ArtifactStore (or Modal runtime) to persist artifacts.
 
-Modal deploy workflows force `mode="mock"` for their smoke tests, but the resulting envelope is identical.
+Modal deploy workflows run `run_processor … --mode mock` for smoke tests; the resulting envelope is identical.
 
 ## Index Artifacts
 

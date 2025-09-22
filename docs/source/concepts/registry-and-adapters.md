@@ -82,7 +82,7 @@ Adapters provide runtime placement for processors, mapping `processor_ref` to co
 - **local**: Docker-backed execution on the same host (inputs carry `mode: "mock"` for hermetic runs).
 - **modal**: Cloud execution via the Modal platform.
 
-> “mock adapter” no longer exists; instead processors honour `mode` in the inputs JSON. CI smoke tests, local quick checks, and the `modal_app.smoke` function simply force `mode="mock"`.
+> “mock adapter” no longer exists; instead processors honour `mode` in the inputs JSON. CI smoke tests and local quick checks simply call `run_processor … --mode mock`, regardless of adapter.
 
 ### Local Adapter (Docker + Mock mode)
 

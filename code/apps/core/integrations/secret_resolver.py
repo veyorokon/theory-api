@@ -6,7 +6,18 @@ Direct os.getenv() calls are forbidden outside this module.
 """
 
 import os
+from typing import Mapping
 from apps.core.errors import ERR_SECRET_MISSING
+
+
+def get_secret(name: str, *, mode: str, env: Mapping[str, str]) -> str:
+    if mode == "mock":
+        raise RuntimeError("ERR_MISSING_SECRET: mock disallows secrets")
+    # ... real resolution here ...
+    value = env.get(name) or env.get(name.upper())
+    if not value:
+        raise RuntimeError(f"ERR_MISSING_SECRET: Required secret '{name}' not found")
+    return value.strip()
 
 
 def resolve_secret(name: str) -> str | None:

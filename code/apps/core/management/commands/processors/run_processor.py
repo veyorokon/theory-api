@@ -207,7 +207,7 @@ class Command(BaseCommand):
 
             # CI guardrail: validate mode before proceeding
             try:
-                resolve_mode(inputs_json)  # This will raise if CI=true and mode=real
+                resolve_mode(options.get("mode"))  # This will raise if CI=true and mode=real
             except ModeSafetyError as e:
                 # Explicit non-zero exit for guardrail violation; no adapter invoked
                 # Note: No execution_id available yet for early failures
@@ -279,7 +279,7 @@ class Command(BaseCommand):
                     self._download_first_output(result["outputs"], options["save_first"], options)
 
             # Always output JSON (for both success and error)
-            self.stdout.write(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
+            self.stdout.write(json.dumps(result, ensure_ascii=False, separators=(",", ":")) + "\n")
 
             # Return None to satisfy Django management command contract
             return None

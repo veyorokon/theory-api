@@ -93,7 +93,7 @@ class LocalAdapter(RuntimeAdapter):
         """
         Keyword-only invoke that adapts to legacy implementation.
         """
-        from .envelope import error_envelope
+        from libs.runtime_common.envelope import error_envelope
         from apps.core.errors import ERR_ADAPTER_INVOCATION
 
         # Bind adapter context and log invoke

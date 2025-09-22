@@ -2,7 +2,7 @@
 Tail recent logs for a Modal function.
 
 Usage:
-    python manage.py logs_modal --ref llm/litellm@1 --fn run [options]
+    python manage.py logs_modal --ref llm/litellm@1 [--fn run] [options]
 """
 
 import json
@@ -16,7 +16,7 @@ class Command(ModalCommand):
     help = "Tail recent logs for Modal function"
 
     def add_modal_arguments(self, parser):
-        parser.add_argument("--fn", required=True, choices=["run", "smoke"], help="Function name")
+        parser.add_argument("--fn", default="run", help="Function name (default: run)")
         parser.add_argument("--since-min", type=int, default=30, help="Minutes of history to fetch (default: 30)")
         parser.add_argument("--limit", type=int, default=200, help="Max number of log lines (default: 200)")
 
