@@ -263,7 +263,7 @@ def artifact_jmespath_ok(path: str, expr: str, mode: str = "truthy", expected: A
             # Truthy check: non-null, non-false, non-empty
             if result is None or result is False:
                 return False
-            if isinstance(result, (list, dict, str)) and len(result) == 0:
+            if isinstance(result, list | dict | str) and len(result) == 0:
                 return False
             return True
         elif mode == "equals":

@@ -1,372 +1,475 @@
-# code/apps/core/management/commands/scaffold_processor.py
+# code/apps/core/management/commands/processors/scaffold_processor.py
 from __future__ import annotations
-
 import os
 import re
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Iterable, List, Tuple
-
+import sys
+import json
+import textwrap
+import pathlib
 from django.core.management.base import BaseCommand, CommandError
-from django.conf import settings
 
-
-# -------------------------
-# Utilities & Conventions
-# -------------------------
-
-REF_RE = re.compile(r"^(?P<ns>[a-z0-9][a-z0-9_-]*)/(?P<name>[a-z0-9][a-z0-9_-]*)@(?P<ver>[0-9]+)$")
-
-
-@dataclass(frozen=True)
-class ProcessorRef:
-    ns: str
-    name: str
-    ver: str
-
-    @property
-    def pkg(self) -> str:
-        """Processor package folder name (Python-safe)."""
-        return f"{self.ns}_{self.name}"
-
-    @property
-    def image_repo(self) -> str:
-        """Container image repo naming (dash-separated for GHCR)."""
-        return f"{self.ns.replace('_', '-')}-{self.name.replace('_', '-')}"
-
-    @property
-    def display(self) -> str:
-        return f"{self.ns}/{self.name}@{self.ver}"
-
-
-def parse_ref(ref: str) -> ProcessorRef:
-    m = REF_RE.match(ref.strip())
-    if not m:
-        raise CommandError(f"Invalid --ref '{ref}'. Expected format 'ns/name@ver' (e.g., 'llm/litellm@1').")
-    return ProcessorRef(ns=m.group("ns"), name=m.group("name"), ver=m.group("ver"))
-
-
-def ensure_dir(path: Path) -> None:
-    path.mkdir(parents=True, exist_ok=True)
-
-
-def write_file(path: Path, content: str, *, force: bool) -> None:
-    if path.exists() and not force:
-        raise CommandError(f"Refusing to overwrite existing file without --force: {path}")
-    path.write_text(content, encoding="utf-8")
-
-
-def repo_and_owner() -> Tuple[str, str]:
-    """
-    Derive 'owner/repo' for GHCR repo-scoped images.
-    Priority:
-      1) GITHUB_REPOSITORY env (CI)
-      2) settings.GITHUB_REPOSITORY (if you set it)
-      3) Fallback: directory name as 'owner/repo' => '<user>/<basename>'
-    """
-    env_val = os.getenv("GITHUB_REPOSITORY") or getattr(settings, "GITHUB_REPOSITORY", None)
-    if env_val:
-        return tuple(env_val.split("/", 1))  # type: ignore[return-value]
-    # Fallback: repo name from BASE_DIR
-    base = Path(settings.BASE_DIR).resolve()
-    owner = os.getenv("GITHUB_ACTOR", "owner")
-    return owner, base.name
-
-
-def normalize_secret_names(secrets_csv: str | None) -> List[str]:
-    if not secrets_csv:
-        return []
-    raw = [s.strip() for s in secrets_csv.split(",")]
-    return [s for s in raw if s]
-
-
-# -------------------------
-# Templates
-# -------------------------
-
-T_MAIN = """\
-\"\"\"Thin processor entrypoint for {ref.display}.
-
-Responsibilities:
-- Parse args (delegated to libs.runtime_common.processor)
-- Load inputs (delegated)
-- Resolve mode (libs.runtime_common.mode)
-- Call provider runner (make_runner(config)(inputs))
-- Write outputs + dual receipts (libs.runtime_common.*)
-- No Django imports beyond this file; safe for container execution.
-\"\"\"
-from __future__ import annotations
-import os, sys, time, json
-from pathlib import Path
-from typing import Any, Dict
-
-from libs.runtime_common.processor import parse_args, load_inputs, ensure_write_prefix
-from libs.runtime_common.mode import resolve_mode
-from libs.runtime_common.hashing import inputs_hash
-from libs.runtime_common.outputs import write_outputs, write_outputs_index
-from libs.runtime_common.receipts import write_dual_receipts
-
-from apps.core.processors.{ref.pkg}.provider import make_runner
-
-PROCESSOR_REF = "{ref.display}"
-
-def main() -> int:
-    args = parse_args()  # --inputs, --write-prefix, --execution-id, --mode (optional)
-    write_prefix = ensure_write_prefix(args.write_prefix)
-    inputs: Dict[str, Any] = load_inputs(args.inputs)
-
-    # Harmonize mode into inputs (CLI --mode wins if present)
-    if args.mode:
-        inputs = dict(inputs)
-        inputs["mode"] = args.mode
-
-    # Resolve mode early (for receipts/meta if desired)
-    mode = resolve_mode(inputs).value
-
-    # Prepare runner and execute
-    runner = make_runner(config={})
-    t0 = time.time()
-    result: Dict[str, Any] = runner(inputs)
-    duration_ms = int((time.time() - t0) * 1000)
-
-    # Normalize outputs: expect list of {"relpath": "...", "bytes": b"...", "mime": "..."} in result.get("outputs", [])
-    outputs = result.get("outputs", [])
-    abs_paths = write_outputs(write_prefix, outputs)
-    idx_path = write_outputs_index(
-        execution_id=args.execution_id,
-        write_prefix=write_prefix,
-        paths=abs_paths,
-    )
-
-    # Build receipt
-    ih = inputs_hash(inputs)
-    receipt = {{
-        "execution_id": args.execution_id,
-        "processor_ref": PROCESSOR_REF,
-        "image_digest": os.getenv("IMAGE_REF", "unknown"),
-        "env_fingerprint": os.getenv("ENV_FINGERPRINT", ""),
-        "inputs_hash": ih["value"],
-        "hash_schema": ih["hash_schema"],
-        "outputs_index": str(idx_path),
-        "processor_info": result.get("processor_info", PROCESSOR_REF),
-        "usage": result.get("usage", {{}}),
-        "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "duration_ms": duration_ms,
-        "mode": mode,
-    }}
-    write_dual_receipts(args.execution_id, write_prefix, receipt)
-
-    # Print success envelope to stdout for adapters
-    payload = {{
-        "status": "success",
-        "execution_id": args.execution_id,
-        "outputs": [p.as_posix() for p in abs_paths],
-        "index_path": str(idx_path),
-        "meta": {{"env_fingerprint": os.getenv("ENV_FINGERPRINT", "")}},
-    }}
-    sys.stdout.write(json.dumps(payload))
-    sys.stdout.flush()
-    return 0
-
-if __name__ == "__main__":
-    sys.exit(main())
-"""
-
-T_PROVIDER = """\
-\"\"\"Provider facade for {ref.display}.
-
-Expose a single uniform callable runner:
-
-    runner = make_runner(config={{{}}})
-    result = runner(inputs: dict) -> dict
-
-Contract for `result`:
-- processor_info: str (e.g., "{ref.display}")
-- usage: dict (timings, tokens, costs, optional)
-- outputs: list of artifacts to write (optional)
-- result: provider-specific payload (optional)
-
-In MOCK mode, no secrets should be required and results are deterministic.
-\"\"\"
-from __future__ import annotations
-import os
-from typing import Any, Dict
-from libs.runtime_common.mode import resolve_mode, is_mock
-
-def make_runner(config: Dict[str, Any]):
-    def run(inputs: Dict[str, Any]) -> Dict[str, Any]:
-        m = resolve_mode(inputs)
-        if is_mock(m):
-            text = "MOCK: hello world"
-            out_bytes = text.encode("utf-8")
-            return {{
-                "processor_info": "{ref.display}",
-                "usage": {{}},
-                "outputs": [
-                    {{"relpath": "outputs/response.json", "bytes": out_bytes, "mime": "application/json"}}
-                ],
-                "result": {{"text": text}},
-            }}
-
-        # REAL path: example shows a trivial echo; replace with actual provider logic.
-        # Require secrets explicitly if needed:
-        # api_key = os.getenv("OPENAI_API_KEY")
-        # if not api_key:
-        #     raise RuntimeError("ERR_MISSING_SECRET: OPENAI_API_KEY")
-
-        text = "REAL: hello world"
-        out_bytes = text.encode("utf-8")
-        return {{
-            "processor_info": "{ref.display}",
-            "usage": {{}},
-            "outputs": [
-                {{"relpath": "outputs/response.json", "bytes": out_bytes, "mime": "application/json"}}
-            ],
-            "result": {{"text": text}},
-        }}
-    return run
-"""
-
-T_DOCKERFILE = """\
-# syntax=docker/dockerfile:1
-FROM python:3.11-slim
-
-ENV PYTHONDONTWRITEBYTECODE=1 \\
-    PYTHONUNBUFFERED=1
-
-WORKDIR /work
-
-# System deps (add as needed)
-RUN apt-get update -y && apt-get install -y --no-install-recommends \\
-    ca-certificates curl && \\
-    rm -rf /var/lib/apt/lists/*
-
-# App deps
-# IMPORTANT: Build context assumed at repo root.
-COPY code/apps/core/processors/{pkg}/requirements.txt /work/requirements.txt
-RUN pip install --no-cache-dir -r /work/requirements.txt
-
-# App code
-COPY code /work
-
-# Entrypoint executes the processor main in the container
-ENTRYPOINT ["python", "-m", "apps.core.processors.{pkg}.main"]
-"""
-
-T_REQUIREMENTS = """\
-# Add processor-specific Python deps here.
-# Keep minimal; prefer using libs/runtime_common from repo code mount.
-"""
-
-
-def _yaml_block_list(key: str, items: Iterable[str], indent: int = 2) -> str:
-    pad = " " * indent
-    if not items:
-        return ""
-    lines = [f"{pad}{key}:"]
-    for s in items:
-        lines.append(f"{pad}- {s}")
-    return "\n".join(lines) + "\n"
-
-
-T_REGISTRY = """\
-# Registry spec for {ref.display}
-image:
-  oci: ghcr.io/{owner_repo}/{image_repo}@sha256:pending
-runtime:
-  cpu: 1
-  memory: 2gb
-  gpu: none
-{secrets_block}"""
-
-
-# -------------------------
-# Management Command
-# -------------------------
+REF_RE = re.compile(r"^(?P<ns>[a-z0-9_\-]+)/(?P<name>[a-z0-9_\-]+)@(?P<ver>[0-9]+)$")
 
 
 class Command(BaseCommand):
-    help = "Scaffold a new processor (code files + registry spec) using the thin, shared-runtime pattern."
+    help = "Scaffold a container-first HTTP processor (FastAPI /run)."
 
     def add_arguments(self, parser):
-        parser.add_argument(
-            "--ref",
-            required=True,
-            help="Processor reference in form 'ns/name@ver' (e.g., 'llm/litellm@1').",
-        )
-        parser.add_argument(
-            "--secrets",
-            default="",
-            help="Comma-separated secret names required by this processor (e.g., 'OPENAI_API_KEY,FOO').",
-        )
-        parser.add_argument(
-            "--force",
-            action="store_true",
-            help="Allow overwriting existing files (use with care).",
-        )
+        parser.add_argument("--ref", required=True, help="ns/name@ver (e.g., llm/litellm@1)")
+        parser.add_argument("--template", choices=["generic", "llm"], default="generic")
+        parser.add_argument("--state", choices=["stateless", "stateful"], default="stateless")
+        parser.add_argument("--secrets", default="", help="comma-separated secret names (e.g., OPENAI_API_KEY,FOO)")
+        parser.add_argument("--cpu", default="1", help='CPU (string, e.g. "1")')
+        parser.add_argument("--memory", type=int, default=2, help="Memory (GiB)")
+        parser.add_argument("--timeout", type=int, default=600, help="Timeout seconds")
+        parser.add_argument("--gpu", default="", help="GPU type (e.g., a10g) or empty")
+        parser.add_argument("--port", type=int, default=8000, help="Container HTTP port")
+        parser.add_argument("--with-stream", action="store_true", help="Also scaffold /run-stream SSE")
+        parser.add_argument("--force", action="store_true", help="Overwrite existing files")
 
     def handle(self, *args, **opts):
-        ref = parse_ref(opts["ref"])
-        secrets = normalize_secret_names(opts.get("secrets"))
-        force: bool = bool(opts.get("force"))
+        ref = opts["ref"]
+        m = REF_RE.match(ref)
+        if not m:
+            raise CommandError("ref must match ns/name@ver (e.g., llm/litellm@1)")
 
-        # Resolve repo structure
-        repo_root = Path(settings.BASE_DIR).resolve()  # repo root
-        code_dir = repo_root / "code"
-        if not code_dir.exists():
-            raise CommandError(f"Expected 'code/' at repo root but not found: {code_dir}")
+        ns, name, ver = m.group("ns"), m.group("name"), int(m.group("ver"))
+        slug = f"{ns}_{name}"
+        proc_dir = pathlib.Path(f"apps/core/processors/{slug}")
+        app_dir = proc_dir / "app"
+        force = opts["force"]
+        template = opts["template"]
+        state = opts["state"]
+        secrets = [s.strip() for s in (opts["secrets"] or "").split(",") if s.strip()]
+        cpu, memory_gb, timeout_s, gpu = opts["cpu"], int(opts["memory"]), int(opts["timeout"]), (opts["gpu"] or None)
+        port = int(opts["port"])
+        with_stream = bool(opts["with_stream"])
 
-        processors_dir = code_dir / "apps" / "core" / "processors" / ref.pkg
-        registry_dir = code_dir / "apps" / "core" / "registry" / "processors"
+        if proc_dir.exists() and not force:
+            raise CommandError(f"{proc_dir} already exists (use --force to overwrite).")
 
-        ensure_dir(processors_dir)
-        ensure_dir(registry_dir)
-
-        # Compute files
-        main_py = processors_dir / "main.py"
-        provider_py = processors_dir / "provider.py"
-        reqs_txt = processors_dir / "requirements.txt"
-        dockerfile = processors_dir / "Dockerfile"
-        registry_yaml = registry_dir / f"{ref.pkg}.yaml"
-
-        # Owner/repo for GHCR
-        owner, repo = repo_and_owner()
-        owner_repo = f"{owner}/{repo}"
-
-        # Render content
-        main_src = T_MAIN.format(ref=ref)
-        provider_src = T_PROVIDER.format(ref=ref)
-        docker_src = T_DOCKERFILE.format(pkg=ref.pkg)
-        reqs_src = T_REQUIREMENTS
-        secrets_blk = _yaml_block_list("secrets", secrets, indent=0)
-        registry_src = T_REGISTRY.format(
-            ref=ref,
-            owner_repo=owner_repo,
-            image_repo=ref.image_repo,
-            secrets_block=secrets_blk,
-        )
+        proc_dir.mkdir(parents=True, exist_ok=True)
+        app_dir.mkdir(parents=True, exist_ok=True)
 
         # Write files
-        write_file(main_py, main_src, force=force)
-        write_file(provider_py, provider_src, force=force)
-        write_file(reqs_txt, reqs_src, force=force)
-        write_file(dockerfile, docker_src, force=force)
-        write_file(registry_yaml, registry_src, force=force)
-
-        # Summary
-        created = [main_py, provider_py, reqs_txt, dockerfile, registry_yaml]
-        rels = [p.relative_to(repo_root).as_posix() for p in created]
-        self.stdout.write(self.style.SUCCESS("✓ Processor scaffold created"))
-        for r in rels:
-            self.stdout.write(f"  - {r}")
-
-        # Next steps (explicit, concise)
-        self.stdout.write("\nNext steps:")
-        self.stdout.write("  1) Commit & push these files.")
-        self.stdout.write(
-            "  2) Run Build & Pin workflow to build & publish GHCR image (pinned digest will update registry)."
+        self._write(proc_dir / "Dockerfile", self._render_dockerfile(port, template))
+        self._write(
+            proc_dir / "registry.yaml",
+            self._render_registry_yaml(ns, name, ver, cpu, memory_gb, timeout_s, gpu, secrets, template),
         )
-        if secrets:
-            pretty = ", ".join(secrets)
-            self.stdout.write(f"  3) Ensure Modal has secrets: {pretty} in your target environment(s).")
-        self.stdout.write("  4) Run acceptance tests and modal deploy smoke (mock).")
+
+        self._write(app_dir / "__init__.py", "")
+        self._write(app_dir / "logging.py", LOGGING_PY)
+        self._write(app_dir / "receipts.py", RECEIPTS_PY)
+        self._write(app_dir / "handler.py", self._render_handler_py(template))
+        self._write(app_dir / "http.py", self._render_http_py(port, with_stream))
+
+        if state == "stateful":
+            self._write(app_dir / "state.py", self._render_state_py(template))
+        else:
+            # Empty placeholder to keep imports safe if someone flips later
+            self._write(app_dir / "state.py", "STATE = {}\n")
+
+        self.stdout.write(self.style.SUCCESS(f"Scaffolded processor at {proc_dir}"))
+
+    def _write(self, path: pathlib.Path, content: str):
+        path.write_text(textwrap.dedent(content).lstrip(), encoding="utf-8")
+
+    # ------------------ Templates ------------------
+
+    def _render_dockerfile(self, port: int, template: str) -> str:
+        extra_pip = ""
+        if template == "llm":
+            extra_pip = ' \\\n    "litellm>=1.43.0"'
+
+        return f"""
+        FROM python:3.11-slim
+
+        ENV PYTHONDONTWRITEBYTECODE=1 \\
+            PYTHONUNBUFFERED=1
+
+        RUN apt-get update && apt-get install -y --no-install-recommends \\
+            curl \\
+            ca-certificates \\
+            build-essential \\
+            gcc \\
+            g++ \\
+            && rm -rf /var/lib/apt/lists/*
+
+        WORKDIR /work
+        COPY app/ /work/app/
+
+        RUN pip install --no-cache-dir \\
+            "fastapi>=0.114" \\
+            "uvicorn[standard]>=0.30" \\
+            "pydantic>=2.8" \\
+            "jsonschema>=4.22"{extra_pip}
+
+        EXPOSE {port}
+        # NOTE: We do NOT run uvicorn when used with Modal @asgi_app(); but for local docker run, this CMD is handy.
+        CMD ["uvicorn", "app.http:app", "--host", "0.0.0.0", "--port", "{port}"]
+
+        HEALTHCHECK --interval=10s --timeout=3s --retries=5 \\
+          CMD curl -sf http://localhost:{port}/healthz || exit 1
+        """
+
+    def _render_registry_yaml(
+        self,
+        ns: str,
+        name: str,
+        ver: int,
+        cpu: str,
+        memory_gb: int,
+        timeout_s: int,
+        gpu: str | None,
+        secrets: list[str],
+        template: str,
+    ) -> str:
+        # Minimal JSON Schema tailored per template (can extend later)
+        if template == "llm":
+            inputs_schema = {
+                "$schema": "https://json-schema.org/draft-07/schema#",
+                "title": f"{ns}/{name} inputs v1",
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["schema", "params"],
+                "properties": {
+                    "schema": {"const": "v1"},
+                    "params": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["messages"],
+                        "properties": {
+                            "model": {"type": "string"},
+                            "messages": {
+                                "type": "array",
+                                "minItems": 1,
+                                "items": {
+                                    "type": "object",
+                                    "required": ["role", "content"],
+                                    "properties": {
+                                        "role": {"enum": ["user", "system", "assistant"]},
+                                        "content": {"type": "string", "minLength": 1},
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            }
+        else:
+            inputs_schema = {
+                "$schema": "https://json-schema.org/draft-07/schema#",
+                "title": f"{ns}/{name} inputs v1",
+                "type": "object",
+                "additionalProperties": True,
+            }
+
+        outputs = [{"path": "metadata.json", "mime": "application/json", "description": "Execution metadata"}]
+        if template == "llm":
+            outputs.insert(0, {"path": "text/response.txt", "mime": "text/plain", "description": "LLM response"})
+
+        yaml = {
+            "ref": f"{ns}/{name}@{ver}",
+            "build": {"context": ".", "dockerfile": "Dockerfile", "port": 8000},
+            "image": {
+                "platforms": {
+                    "amd64": f"ghcr.io/owner/repo/{ns}-{name}@sha256:REPLACE_AMD64",
+                    "arm64": f"ghcr.io/owner/repo/{ns}-{name}@sha256:REPLACE_ARM64",
+                },
+                "default_platform": "amd64",
+            },
+            "runtime": {
+                "cpu": str(cpu),
+                "memory_gb": int(memory_gb),
+                "timeout_s": int(timeout_s),
+                "gpu": (gpu or None),
+            },
+            "secrets": {"required": secrets},
+            "inputs": inputs_schema,
+            "outputs": outputs,
+        }
+        import yaml as _yaml  # pyyaml is already in your project; if not, change to json.dumps
+
+        return _yaml.dump(yaml, sort_keys=False)
+
+    def _render_handler_py(self, template: str) -> str:
+        # LLM template mock/real; generic just echoes inputs
+        if template == "llm":
+            body = """
+            import os
+            from typing import Any, Dict, List
+            from .receipts import write_outputs_and_receipts
+            from .logging import info
+
+            def entry(payload: Dict[str, Any]) -> Dict[str, Any]:
+                # Basic shape checks (envelope-level)
+                execution_id = str(payload.get("execution_id", "")).strip()
+                mode = str(payload.get("mode", "mock")).strip()
+                write_prefix = str(payload.get("write_prefix", "")).strip()
+                inputs = payload.get("inputs") or {}
+
+                if not execution_id:
+                    return {"status":"error","execution_id":"","error":{"code":"ERR_INPUTS","message":"missing execution_id"},"meta":{}}
+                if "{execution_id}" in write_prefix:
+                    write_prefix = write_prefix.replace("{execution_id}", execution_id)
+
+                params = (inputs or {}).get("params") or {}
+                messages: List[Dict[str, str]] = params.get("messages") or []
+                model = params.get("model") or "gpt-4o-mini"
+
+                # Mock path is hermetic (no secrets)
+                if mode == "mock":
+                    text = f"Mock response: {messages[-1]['content'][:64] if messages else ''}"
+                else:
+                    # Real path: secrets required
+                    api_key = os.environ.get("OPENAI_API_KEY")
+                    if not api_key:
+                        return {"status":"error","execution_id":execution_id,"error":{"code":"ERR_MISSING_SECRET","message":"OPENAI_API_KEY missing"},"meta":{}}
+
+                    # Lazy import with defensive fallback
+                    try:
+                        import litellm
+                        resp = litellm.completion(model=model, messages=messages)
+                        text = resp.choices[0].message.get("content") if hasattr(resp, "choices") else str(resp)
+                    except ImportError:
+                        return {"status":"error","execution_id":execution_id,"error":{"code":"ERR_RUNTIME","message":"litellm not installed in image"},"meta":{}}
+                    except Exception as e:
+                        return {"status":"error","execution_id":execution_id,"error":{"code":"ERR_PROVIDER","message":f"{type(e).__name__}: {e}"},"meta":{}}
+
+                # Strict digest validation
+                image_digest = os.environ.get("IMAGE_DIGEST")
+                if not image_digest:
+                    return {"status":"error","execution_id":execution_id,"error":{"code":"ERR_IMAGE_DIGEST_MISSING","message":"IMAGE_DIGEST env var not set"},"meta":{}}
+
+                meta = {
+                    "env_fingerprint": f"cpu:1;memory:2Gi",
+                    "model": model,
+                    "image_digest": image_digest
+                }
+
+                info("handler.llm.ok", execution_id=execution_id, write_prefix=write_prefix)
+                return write_outputs_and_receipts(
+                    execution_id=execution_id,
+                    write_prefix=write_prefix,
+                    meta=meta,
+                    outputs=[("text/response.txt", text)]
+                )
+            """
+        else:
+            body = """
+            from typing import Any, Dict
+            from .receipts import write_outputs_and_receipts
+            from .logging import info
+
+            def entry(payload: Dict[str, Any]) -> Dict[str, Any]:
+                execution_id = str(payload.get("execution_id", "")).strip()
+                mode = str(payload.get("mode", "mock")).strip()
+                write_prefix = str(payload.get("write_prefix", "")).strip()
+                inputs = payload.get("inputs") or {}
+
+                if not execution_id:
+                    return {"status":"error","execution_id":"","error":{"code":"ERR_INPUTS","message":"missing execution_id"},"meta":{}}
+                if "{execution_id}" in write_prefix:
+                    write_prefix = write_prefix.replace("{execution_id}", execution_id)
+
+                # Strict digest validation
+                image_digest = os.environ.get("IMAGE_DIGEST")
+                if not image_digest:
+                    return {"status":"error","execution_id":execution_id,"error":{"code":"ERR_IMAGE_DIGEST_MISSING","message":"IMAGE_DIGEST env var not set"},"meta":{}}
+
+                # Echo implementation (mock/real both allowed, no secrets)
+                meta = {
+                    "env_fingerprint": "cpu:1;memory:2Gi",
+                    "image_digest": image_digest
+                }
+                text = f"ok mode={mode} inputs={inputs!r}"
+
+                info("handler.generic.ok", execution_id=execution_id, write_prefix=write_prefix)
+                return write_outputs_and_receipts(
+                    execution_id=execution_id,
+                    write_prefix=write_prefix,
+                    meta=meta,
+                    outputs=[("metadata.json", text)]
+                )
+            """
+        return f"""
+        {body}
+        """
+
+    def _render_http_py(self, port: int, with_stream: bool) -> str:
+        stream_block = ""
+        if with_stream:
+            stream_block = """
+            from fastapi import BackgroundTasks
+            from fastapi.responses import StreamingResponse
+
+            @app.post("/run-stream")
+            async def run_stream(req: Request, background: BackgroundTasks):
+                # Same guards as /run for content-type and JSON
+                ct = (req.headers.get("content-type") or "").lower().split(";")[0]
+                if ct != "application/json":
+                    info("http.run.error", reason="unsupported_media_type")
+                    return JSONResponse(_err("", "ERR_INPUTS", "Content-Type must be application/json"), status_code=415)
+                try:
+                    payload = await req.json()
+                except Exception:
+                    info("http.run.error", reason="invalid_json")
+                    return JSONResponse(_err("", "ERR_INPUTS", "Invalid JSON body"), status_code=400)
+
+                eid = str(payload.get("execution_id","")).strip()
+                if not eid:
+                    return JSONResponse(_err("", "ERR_INPUTS", "missing execution_id"), status_code=400)
+
+                info("http.stream.start", execution_id=eid)
+
+                def gen():
+                    import time, json as _json
+                    for i in range(3):
+                        time.sleep(0.25)
+                        yield f"data: " + _json.dumps({"event":"tick","i":i,"execution_id":eid}) + "\\n\\n"
+                    # Final envelope
+                    env = entry(payload)
+                    yield "data: " + json.dumps(env) + "\\n\\n"
+
+                return StreamingResponse(gen(), media_type="text/event-stream")
+            """
+
+        return f"""
+        import json, time
+        from json import JSONDecodeError
+        from fastapi import FastAPI, Request
+        from fastapi.responses import JSONResponse
+        from .handler import entry
+        from .logging import info
+
+        app = FastAPI()
+
+        @app.get("/healthz")
+        def healthz():
+            return {{"ok": True}}
+
+        def _err(eid: str, code: str, msg: str):
+            return {{"status":"error","execution_id":eid,"error":{{"code":code,"message":msg}},"meta":{{}}}}
+
+        @app.post("/run")
+        async def run(req: Request) -> JSONResponse:
+            start = time.monotonic()
+            ct = (req.headers.get("content-type") or "").lower().split(";")[0]
+            if ct != "application/json":
+                info("http.run.error", reason="unsupported_media_type")
+                return JSONResponse(_err("", "ERR_INPUTS", "Content-Type must be application/json"), status_code=415)
+            try:
+                payload = await req.json()
+            except JSONDecodeError:
+                info("http.run.error", reason="invalid_json")
+                return JSONResponse(_err("", "ERR_INPUTS", "Invalid JSON body"), status_code=400)
+
+            eid = str(payload.get("execution_id","")).strip()
+            if not eid:
+                return JSONResponse(_err("", "ERR_INPUTS", "missing execution_id"), status_code=400)
+
+            info("http.run.start", execution_id=eid)
+            env = entry(payload)
+            info("http.run.settle", execution_id=eid, status=env.get("status"), elapsed_ms=int((time.monotonic()-start)*1000))
+            return JSONResponse(env)
+
+        {stream_block}
+        """
+
+    def _render_state_py(self, template: str) -> str:
+        # A tiny, safe place to hold/prepare heavy state (import-once).
+        # Works locally and under Modal snapshots (Modal config is on the deployment side).
+        return """
+        # Optional stateful module for heavy resources (models, tokenizers, etc.).
+        # Keep imports local inside functions to avoid forcing deps at build time.
+        # Expose a single get_state() so handler can use it when mode="real".
+        import threading
+        _lock = threading.Lock()
+        STATE = { "ready": False, "data": None }
+
+        def warm():
+            # Put heavy init here (e.g., HF model load). Called lazily.
+            # Keep this fast; rely on Modal snapshots to preserve loaded state between runs.
+            STATE["ready"] = True
+            STATE["data"] = {"note": "warmed"}
+
+        def get_state():
+            if not STATE["ready"]:
+                with _lock:
+                    if not STATE["ready"]:
+                        warm()
+            return STATE
+        """
+
+
+# ---------------- Common tiny libs (no external deps) ----------------
+
+LOGGING_PY = r"""
+import json, os, sys, time
+def _ts(): return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+def _stream(): return sys.stderr if (os.getenv("LOG_STREAM","stderr").lower()=="stderr") else sys.stdout
+def info(event: str, **fields):
+    rec = {"ts":_ts(),"level":"info","event":event,"service":"processor","env":os.getenv("APP_ENV", os.getenv("MODAL_ENVIRONMENT","dev"))}
+    rec.update(fields)
+    json.dump(rec, _stream(), separators=(",",":"), sort_keys=False); _stream().write("\n"); _stream().flush()
+"""
+
+RECEIPTS_PY = r"""
+import json, os, pathlib
+from typing import Dict, List, Tuple
+
+def _ensure_dir(p: str): pathlib.Path(p).mkdir(parents=True, exist_ok=True)
+
+def write_outputs_and_receipts(
+    execution_id: str,
+    write_prefix: str,
+    meta: Dict,
+    outputs: List[Tuple[str, str]],   # [(relpath, text_content)]
+) -> Dict:
+    # Normalize write_prefix
+    if "{execution_id}" in write_prefix:
+        write_prefix = write_prefix.replace("{execution_id}", execution_id)
+    if not write_prefix.endswith("/"):
+        write_prefix += "/"
+
+    out_dir = os.path.join(write_prefix, "outputs")
+    _ensure_dir(out_dir)
+
+    # Write payload outputs
+    rel_paths = []
+    for rel, content in outputs:
+        abs_path = os.path.join(out_dir, rel)
+        pathlib.Path(os.path.dirname(abs_path)).mkdir(parents=True, exist_ok=True)
+        with open(abs_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        rel_paths.append(os.path.join(write_prefix, "outputs", rel))
+
+    # Write outputs index
+    index_path = os.path.join(write_prefix, "outputs.json")
+    with open(index_path, "w", encoding="utf-8") as f:
+        json.dump({"outputs":[{"path": p} for p in rel_paths]}, f, indent=2)
+
+    # Dual receipts (identical)
+    receipt = {
+        "execution_id": execution_id,
+        "index_path": index_path,
+        "meta": meta,
+    }
+    # Local receipt
+    with open(os.path.join(write_prefix, "receipt.json"), "w", encoding="utf-8") as f:
+        json.dump(receipt, f, indent=2)
+    # Global determinism receipt
+    global_det = os.path.join("/artifacts/execution", execution_id, "determinism.json")
+    pathlib.Path(os.path.dirname(global_det)).mkdir(parents=True, exist_ok=True)
+    with open(global_det, "w", encoding="utf-8") as f:
+        json.dump(receipt, f, indent=2)
+
+    return {
+        "status": "success",
+        "execution_id": execution_id,
+        "outputs": [{"path": p} for p in rel_paths],
+        "index_path": index_path,
+        "meta": meta,
+    }
+"""

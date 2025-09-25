@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import patch
 
-from libs.runtime_common.mode import resolve_mode, ModeSafetyError
+from libs.runtime_common.envelope import resolve_mode, ModeSafetyError
 
 
 class TestResolveModeInterface:

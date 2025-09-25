@@ -11,9 +11,8 @@ from typing import Any, Dict, Optional
 import yaml
 from django.core.management.base import BaseCommand, CommandError
 
-from apps.core.registry import loader
+from apps.core.registry.loader import get_registry_dir
 
-REGISTRY_DIR = Path(loader.get_registry_dir())
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
@@ -28,7 +27,14 @@ def _err(code: str, message: str, *, json_mode: bool) -> None:
 
 
 def _resolve_yaml_path(ref: str) -> Path:
-    path = REGISTRY_DIR / loader.ref_to_yaml_filename(ref)
+    # New layout: code/apps/core/processors/<ns>_<name>/registry.yaml
+    try:
+        ns, rest = ref.split("/", 1)
+        name, _ver = rest.split("@", 1)
+    except ValueError as exc:
+        raise FileNotFoundError(f"invalid ref '{ref}', expected ns/name@ver") from exc
+    base = Path(get_registry_dir())  # returns processors root
+    path = base / f"{ns}_{name}" / "registry.yaml"
     if not path.exists():
         raise FileNotFoundError(f"registry spec not found for {ref} at {path}")
     return path
@@ -92,7 +98,16 @@ class Command(BaseCommand):
             return
 
         image_section = data.setdefault("image", {})
-        image_section["oci"] = oci
+        # New schema supports platform digests; we still update a generic 'oci' if present
+        # or set default_platform digest when only one digest is provided.
+        if "platforms" in image_section:
+            # update the default platform digest if it matches repo
+            default_plat = image_section.get("default_platform", "amd64")
+            platforms = image_section.get("platforms") or {}
+            platforms[default_plat] = oci
+            image_section["platforms"] = platforms
+        else:
+            image_section["oci"] = oci
 
         try:
             yaml_path.write_text(yaml.safe_dump(data, sort_keys=True, allow_unicode=True))

@@ -23,20 +23,20 @@ def ref_to_slug_ver(ref: str) -> tuple[str, str]:
     return slug, ver
 
 
-def expected_apps(registry_dir: Path, env: str) -> list[tuple[str, str, str]]:
-    """Return list of (ref, app_name, func_name) for processors in registry."""
-    out: list[tuple[str, str]] = []
-    for yml in sorted(registry_dir.glob("*.yaml")):
+def expected_apps(processors_root: Path, env: str) -> list[tuple[str, str, str]]:
+    """Return list of (ref, app_name, func_name) by scanning per-processor registry.yaml."""
+    out: list[tuple[str, str, str]] = []
+    for yml in sorted(processors_root.glob("**/registry.yaml")):
         try:
             data = yaml.safe_load(yml.read_text())
         except Exception:
             continue
-        ref = data.get("name") or data.get("ref")
+        ref = data.get("ref") or data.get("name")
         if not isinstance(ref, str) or "@" not in ref:
             continue
         slug, ver = ref_to_slug_ver(ref)
         app = f"{slug}-v{ver}-{env}"
-        out.append((ref, app, "run"))
+        out.append((ref, app, "fastapi_app"))
     return out
 
 
@@ -44,7 +44,7 @@ def main() -> int:
     env = os.environ.get("MODAL_ENVIRONMENT") or "dev"
     app = os.environ.get("MODAL_APP_NAME", "theory-rt")
     base = Path(__file__).resolve().parents[1]
-    reg_dir = base / "apps/core/registry/processors"
+    processors_root = base / "apps/core/processors"
 
     try:
         import modal
@@ -53,7 +53,7 @@ def main() -> int:
         return 2
 
     # Build checks
-    checks = expected_apps(reg_dir, env)
+    checks = expected_apps(processors_root, env)
     if not checks:
         print("[drift] WARNING: no registry processors found", file=sys.stderr)
         return 0

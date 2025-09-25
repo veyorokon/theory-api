@@ -11,7 +11,7 @@ This runbook captures the three-lane delivery system: PRs build directly from so
 | `dev` branch | `.github/workflows/dev-tests.yml` | Sanity sweep (`test-unit`, `test-integration`, `test-acceptance-dev`) | Latest merge commit with pinned registry (no rebuild) |
 | `staging` pipeline | `.github/workflows/staging-pipeline.yml` | 1) Build & pin → 2) Acceptance (pinned) → 3) Deploy Modal staging → 4) Drift audit | Newly built multi-arch images; pins written to `staging` |
 | Release PR | Manual | Open `staging → main` PR referencing pinned commit | Pins + code from validated staging commit |
-| `main` pipeline | `.github/workflows/main-pipeline.yml` | Acceptance (pinned) → Deploy Modal production → Drift audit | Same digests promoted from staging |
+| `main` pipeline | `.github/workflows/main-pipeline.yml` | Acceptance (pinned) → Deploy Modal (digest) → Drift audit | Same digests promoted from staging |
 
 ### 1. Local Development
 
@@ -39,9 +39,9 @@ This runbook captures the three-lane delivery system: PRs build directly from so
 - Trigger: push to `staging` (usually merge-up from `dev`).
 - Steps run serially via `needs`:
   1. **Build & Pin** – Multi-arch (`amd64` + `arm64`) builds for each processor. Digests are written directly back to `staging` via commit `ci(staging): pin processor images`. No bot PRs against other branches.
-  2. **Acceptance (pinned)** – Executes `make test-acceptance-dev` with `TEST_LANE=staging`, verifying the registry digests in mock mode (no rebuilds).
-  3. **Deploy Modal (staging)** – Deploys using the pinned digests, runs smoke tests (`mode=mock`) and a negative probe (`mode=real` expecting `ERR_MISSING_SECRET`).
-  4. **Drift Audit** – `python code/scripts/drift_audit.py` fails closed if deployed digests mismatch the registry.
+  2. **Acceptance (pinned)** – Executes `make test-acceptance-dev` with `TEST_LANE=staging`, verifying per-processor registry digests in mock mode (no rebuilds).
+  3. **Deploy Modal (staging)** – Deploys by digest (`modalctl deploy`), runs smoke (`mode=mock`) and a negative probe (`mode=real` expecting `ERR_MISSING_SECRET`).
+  4. **Drift Audit** – `python code/scripts/drift_audit.py` fails if deployed digests mismatch the registry.
 - Outcome: staging now owns canonical pins plus a green deployment. Open a release PR from this commit to `main`.
 
 ### 5. Release PR (`staging → main`)
@@ -67,12 +67,12 @@ This runbook captures the three-lane delivery system: PRs build directly from so
 ## Modal Environments & Naming
 
 - **dev (personal)** – `<branch>-<user>-<processor-slug>-vX`; never touched by CI.
-- **staging/main** – `<processor-slug>-vX`; CI deploys via `deploy_modal` management command using pinned digests.
+- **staging/main** – `<processor-slug>-vX`; CI deploys via `modalctl deploy` using pinned digests.
 - Negative probes intentionally trigger `ERR_MISSING_SECRET` to confirm real-mode guardrails are intact.
 
 ## Secrets & Registry Expectations
 
-- Processor specs (`code/apps/core/registry/processors/*.yaml`) declare `image.oci` and `secrets.required/optional`.
+- Processor specs (`code/apps/core/processors/**/registry.yaml`) declare platform digests and `secrets.required`.
 - Staging build job must have package write access to GHCR; production pipelines only need read.
 - Modal secrets pull from branch-scoped GitHub secrets (`OPENAI_API_KEY_STAGING`, `OPENAI_API_KEY_PROD`, etc.).
 - Drift audits compare deployed app metadata with registry digests; treat failures as stop-the-line events.

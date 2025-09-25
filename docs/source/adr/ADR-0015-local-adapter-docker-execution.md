@@ -1,6 +1,6 @@
 ---
 title: ADR-0015 — Local Adapter Docker Execution
-status: Accepted
+status: Superseded
 date: 2025-09-09
 deciders: architect, engineer
 ---
@@ -9,7 +9,7 @@ deciders: architect, engineer
 
 ## Status
 
-Accepted
+Superseded by HTTP-first processors and transport-only adapters (see Concepts → Adapters and Registry). Containers now expose FastAPI (`/healthz`, `/run`, `/run-stream`), and adapters POST payloads over HTTP. The file-based `/work/inputs.json`/`/work/out/**` contract in this ADR reflects the legacy model.
 
 ## Context
 

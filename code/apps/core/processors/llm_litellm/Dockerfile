@@ -1,27 +1,29 @@
 FROM python:3.11-slim
 
-# Minimal OS deps with build tools for Python packages
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    build-essential \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
+    ENV PYTHONDONTWRITEBYTECODE=1 \
+        PYTHONUNBUFFERED=1
 
-WORKDIR /work
+    RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        ca-certificates \
+        build-essential \
+        gcc \
+        g++ \
+        && rm -rf /var/lib/apt/lists/*
 
-# 1) Install Python deps for this processor only
-COPY apps/core/processors/llm_litellm/requirements.txt /work/requirements.txt
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -r /work/requirements.txt
+    WORKDIR /work
+    COPY app/ /work/app/
 
-# 2) Copy shared runtime libs (no Django)
-COPY libs/runtime_common /work/libs/runtime_common
+    RUN pip install --no-cache-dir \
+        "fastapi>=0.114" \
+        "uvicorn[standard]>=0.30" \
+        "pydantic>=2.8" \
+        "jsonschema>=4.22" \
+"litellm>=1.43.0"
 
-# 3) Copy JUST the processor package
-COPY apps/core/processors/llm_litellm /work/apps/core/processors/llm_litellm
+    EXPOSE 8000
+    # NOTE: We do NOT run uvicorn when used with Modal @asgi_app(); but for local docker run, this CMD is handy.
+    CMD ["uvicorn", "app.http:app", "--host", "0.0.0.0", "--port", "8000"]
 
-# 4) For module import resolution
-ENV PYTHONPATH=/work
-
-# 5) Standard entrypoint: module form (fixes relative import issues)
-ENTRYPOINT ["python", "-m", "apps.core.processors.llm_litellm.main"]
+    HEALTHCHECK --interval=10s --timeout=3s --retries=5 \
+      CMD curl -sf http://localhost:8000/healthz || exit 1

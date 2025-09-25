@@ -1,7 +1,11 @@
 """Test Modal app naming contract."""
 
 import pytest
-from libs.runtime_common.modal_naming import modal_app_name, processor_slug, parse_ref
+from apps.core.management.commands._modal_common import (
+    modal_app_name,
+    processor_slug,
+    parse_ref,
+)
 
 
 class TestProcessorSlug:

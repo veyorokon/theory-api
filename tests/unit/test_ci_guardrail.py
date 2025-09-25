@@ -5,7 +5,7 @@ from unittest import mock
 
 import pytest
 
-from libs.runtime_common.mode import resolve_mode, is_mock, is_real, ModeSafetyError
+from libs.runtime_common.envelope import resolve_mode, is_mock, is_real, ModeSafetyError
 
 
 class TestModeSystem:

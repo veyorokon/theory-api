@@ -1,6 +1,6 @@
-# Modal Deployment & Secrets
+# Modal Deployment & Secrets (Digest-only)
 
-Modal provides serverless execution for processors using a committed module (`code/modal_app.py`). This guide reflects the updated naming and control flow: **modes are explicit** and **app names are deterministic**.
+Modal runs your processor containers as FastAPI web apps. Deployments are pinned to image digests.
 
 ## Secrets Policy
 
@@ -31,62 +31,47 @@ modal secret create OPENAI_API_KEY \
 
 ## Processor App Naming
 
-`modal_app_name_from_ref()` is the single source of truth. `llm/litellm@1` → **`llm-litellm-v1`**.
-
-- **CI/CD** (`modal deploy -m modal_app` with `PROCESSOR_REF` set): app name is exactly the processor slug (`llm-litellm-v1`, `replicate-generic-v1`). The Modal environment (`--env dev|staging|main`) scopes deployments; no human prefixes.
-- **Human management commands** (e.g., `deploy_modal`, `logs_modal`): by default we reuse the same canonical slug. Pass `--app-name` if you truly need a custom sandbox name, or set `MODAL_APP_NAME` before calling `modal deploy`.
+Canonical slug: `llm/litellm@1` → `llm-litellm-v1`. Dev env may prefix with `branch-user-`.
 
 ## Deploying Processors
 
 ### CI/CD pipeline
 
-The deploy workflow simply runs:
+1) Build & push image; capture amd64 digest
+2) Pin digest into per-processor `registry.yaml`
+3) Deploy by digest; verify deployment digest
+
+CLI:
 
 ```bash
-modal deploy -m modal_app --env "$MODAL_ENVIRONMENT"
-```
+# Deploy by digest
+python manage.py modalctl deploy --ref llm/litellm@1 --env dev --oci ghcr.io/...@sha256:...
 
-`PROCESSOR_REF`, `IMAGE_REF`, and `TOOL_SECRETS` are exported in the job environment. `modal_app.py` reads them, names the app (`llm-litellm-v1`), and registers the function.
+# Verify pinned digest bound to app
+python manage.py modalctl verify-digest --ref llm/litellm@1 --env dev --oci ghcr.io/...@sha256:...
 
-After deploy, a smoke test calls `run_processor … --mode mock` against the Modal adapter. There is a single Modal function (`run`); smoke and canary tests simply choose which mode to pass.
+# Status / logs
+python manage.py modalctl status --ref llm/litellm@1 --env dev
+python manage.py modalctl logs --ref llm/litellm@1 --env dev
 
-### Local / manual usage
-
-Developer-friendly Django commands take only the processor ref; registry metadata is resolved automatically.
-
-```bash
-python manage.py deploy_modal --env dev --ref llm/litellm@1
-
-# App resolves to llm-litellm-v1 (override with --app-name if needed)
-```
-
-To inspect logs or execute processors manually:
-
-```bash
-python manage.py logs_modal --env dev --ref llm/litellm@1
-
-# Execute processors (single execution surface)
-python manage.py run_processor --ref llm/litellm@1 --adapter modal --mode mock \
-  --inputs-json '{"schema":"v1","params":{"messages":[{"role":"user","content":"test"}]}}'
-
-python manage.py run_processor --ref llm/litellm@1 --adapter modal --mode real \
-  --inputs-json '{"schema":"v1","params":{"messages":[{"role":"user","content":"test"}]}}'
+# Sync required secrets (names from registry.yaml)
+python manage.py modalctl sync-secrets --ref llm/litellm@1 --env staging --fail-on-missing
 ```
 
 ## Modes & Payloads
 
-Processors look at `inputs["mode"]`:
+Processors receive `payload.mode`:
 
-- `mode="mock"`: deterministic responses; used by CI smoke tests and local quick checks.
-- `mode="real"`: hits external providers; secrets must exist (e.g., `OPENAI_API_KEY`).
+- `mock`: deterministic responses; used by PR smoke and local acceptance
+- `real`: external calls; required secrets must be present
 
 ## Troubleshooting
 
 | Issue | Fix |
 |-------|-----|
 | `ERR_MISSING_SECRET` | Ensure required secret exists in the target Modal environment. |
-| `Image pull failed` | Verify `REGISTRY_AUTH` values and the pinned `image.oci` digest. |
-| Function not found | Confirm the processor ref was deployed for that Modal env (`modal app list --env dev`). |
+| `Image pull failed` | Verify registry auth and pinned digest. |
+| Function not found | Confirm the app exists in the target env and is named correctly. |
 
 Example checks:
 
@@ -98,6 +83,6 @@ modal logs --app llm-litellm-v1 --env dev
 
 ## Cross-References
 
-- {doc}`cli` – `run_processor` (`--mode mock|real`) and Modal management commands
-- {doc}`../concepts/adapters` – Adapter behaviour for mock vs real mode
-- {doc}`../runbooks/ci-cd` – Pipeline stages for build, acceptance, and deploy
+- {doc}`cli` – `run_processor` and `modalctl` commands
+- {doc}`../concepts/adapters` – Adapter HTTP transport behaviour
+- {doc}`../runbooks/ci-cd` – Pipeline stages for build, pin, deploy-by-digest

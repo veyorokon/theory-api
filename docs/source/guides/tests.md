@@ -1,6 +1,6 @@
 # Testing Guidebook — Local, Modal (dev), and CI/CD (mock & real)
 
-This guide is the single source of truth for exercising processors and adapters across both `local` and `modal` adapters, both execution modes (`mock`, `real`), and both artifact sources (build-from-source vs pinned digests). Follow these lanes and what passes locally will pass in CI/CD, because every workflow reuses the same knobs.
+This guide is the single source of truth for exercising processors and adapters across both `local` and `modal` adapters, both execution modes (`mock`, `real`), and pinned digests. Follow these lanes and what passes locally will pass in CI/CD.
 
 ---
 
@@ -8,7 +8,7 @@ This guide is the single source of truth for exercising processors and adapters 
 
 - **Supported modes**: only `mock` and `real`.
 - **CI guard**: when `CI=true`, `mode=real` is blocked. Real-mode runs are local-only (or out-of-band jobs with explicit approvals).
-- **Logging**: when emitting JSON (`--json`), redirect logs to stderr (`LOG_STREAM=stderr`) so stdout stays machine-parsable.
+- **Logging**: processors emit structured logs and support `/run-stream` (SSE). Envelopes are returned as JSON from `/run` or as the final `settle` event from `/run-stream`.
 - **Secrets discipline**:
   - `mock`: providers must not read secrets; unset them.
   - `real`: secrets must be present in your shell, and (for modal) in the target Modal environment.
@@ -20,14 +20,14 @@ This guide is the single source of truth for exercising processors and adapters 
 | Where you run             | Adapter                          | Artifacts                                                          | Mode                    | Allowed in CI? | Purpose                                              |
 | ------------------------- | -------------------------------- | ------------------------------------------------------------------ | ----------------------- | -------------- | ---------------------------------------------------- |
 | Local PR-parity           | `local`                          | **Build-from-source** (`--build` or `RUN_PROCESSOR_FORCE_BUILD=1`) | `mock`                  | ✅              | Dev loop, PR lane parity                             |
-| Local supply-chain parity | `local`                          | **Pinned** (`RUN_PROCESSOR_FORCE_BUILD=0`)                         | `mock`                  | ✅              | Validate against pinned digests                      |
+| Local supply-chain parity | `local`                          | **Pinned** digests                                               | `mock`                  | ✅              | Validate against pinned digests                      |
 | Local “real”              | `local`                          | Build or pinned                                                    | `real`                  | ❌ (local only) | Exercise actual provider calls                       |
 | Modal dev mock            | `modal` ( `MODAL_ENVIRONMENT=dev` ) | n/a                                                              | `mock`                  | ✅              | Adapter + app routing, hermetic                      |
 | Modal dev real            | `modal` ( `MODAL_ENVIRONMENT=dev` ) | n/a                                                              | `real`                  | ❌ (local only) | End-to-end provider calls via Modal                  |
 | CI PR lane                | `local`                          | Build-from-source                                                  | `mock`                  | ✅              | Fast, hermetic verification of current source        |
 | CI staging/main           | `local` → `modal`                | **Pinned** → Deploy                                                | `mock` (+ gated probes) | ✅              | Supply-chain: pins, acceptance, deploy, smoke/canary |
 
-> **Pinned** means the digest recorded in `code/apps/core/registry/processors/*.yaml`. Build-from-source uses your working tree and references the image by ID to avoid tag collisions.
+> **Pinned** means the digest recorded in `code/apps/core/processors/**/registry.yaml`.
 
 ---
 
@@ -67,7 +67,7 @@ Common boilerplate:
 ```bash
 cd code
 export DJANGO_SETTINGS_MODULE=backend.settings.unittest
-export LOG_STREAM=stderr           # keep stdout clean when using --json
+export LOG_STREAM=stderr           # processors log to stderr; envelopes come from HTTP responses
 ```
 
 > The Make targets set `LOG_STREAM` for you; only export it manually when running ad-hoc commands.
@@ -194,10 +194,9 @@ python manage.py run_processor \
   ],
   "index_path": "/artifacts/outputs/dev/<id>/outputs.json",
   "meta": {
-    "image_digest": "sha256:... or ghcr.io/...@sha256:... or theory-local/slug:dev",
+    "image_digest": "ghcr.io/...@sha256:...",
     "env_fingerprint": "cpu:1;image:...;memory:2gb;secrets:OPENAI_API_KEY",
-    "duration_ms": 123,
-    "io_bytes": 114
+    "duration_ms": 123
   }
 }
 ```
@@ -213,7 +212,7 @@ python manage.py run_processor \
 }
 ```
 
-**Receipts** live at `<write_prefix>/receipt.json` (plus the global determinism location) and capture digest, inputs hash, fingerprint, and output index references.
+**Receipts** live at `<write_prefix>/receipt.json` and `/artifacts/execution/<execution_id>/determinism.json`, and capture digest, inputs hash, fingerprint, and output index references.
 
 ---
 
@@ -272,7 +271,7 @@ python manage.py run_processor --ref llm/litellm@1 --adapter local --mode real \
 - **PR acceptance fails but unit passes** → verify `RUN_PROCESSOR_FORCE_BUILD=1` or use the Make target.
 - **Pinned acceptance fails locally** → your registry pins are stale; rebase or wait for staging’s Build & Pin commit.
 - **Modal dev errors** → ensure app naming matches `<branch>-<user>-<slug>-vX`, inputs satisfy payload validation, and secrets exist in Modal.
-- **JSON parse issues** → confirm `LOG_STREAM=stderr` and `--json` usage; stdout must remain pure JSON.
+- **Streaming issues** → consume `/run-stream` SSE events (`log|progress|settle`); final `settle` contains the envelope.
 
 ---
 

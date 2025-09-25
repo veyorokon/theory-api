@@ -26,7 +26,7 @@ All adapters return consistent envelope structures regardless of execution envir
       "mime": "application/json"
     }
   ],
-  "index_path": "/artifacts/execution/E123/outputs.json",
+  "index_path": "/artifacts/outputs/.../E123/outputs.json",
   "meta": {
     "image_digest": "ghcr.io/owner/llm_litellm@sha256:...",
     "env_fingerprint": "adapter=local,mode=mock,present_env_keys=[OPENAI_API_KEY]",
@@ -79,7 +79,7 @@ The `index_path` points to a JSON artifact containing the outputs array. Structu
 {
   "outputs": [
     {
-      "path": "/artifacts/outputs/text/response.txt",
+      "path": "/artifacts/outputs/.../E123/outputs/text/response.txt",
       "cid": "b3:abc123...",
       "size_bytes": 42,
       "mime": "text/plain"

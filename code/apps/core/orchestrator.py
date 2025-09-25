@@ -50,6 +50,7 @@ def run_processor_core(
     timeout: int | None = None,
     started_at: datetime.datetime | None = None,
     execution_id: str | None = None,
+    env: str | None = None,
 ) -> Dict[str, Any]:
     """
     Pure function: orchestrates one processor run and returns the envelope dict.
@@ -57,6 +58,12 @@ def run_processor_core(
     """
     if started_at is None:
         started_at = datetime.datetime.now(datetime.UTC)
+
+    # Single source of truth for environment
+    if env is None:
+        import os
+
+        env = os.getenv("APP_ENV") or os.getenv("MODAL_ENVIRONMENT") or "dev"
 
     adapter_opts = adapter_opts or {}
 
@@ -128,17 +135,34 @@ def run_processor_core(
                 meta_extra={"write_prefix_template": write_prefix},
             )
 
-        # Invoke processor with new keyword-only signature
+        # Build payload for transport-only adapter
+        payload = {
+            "schema": "v1",
+            "execution_id": execution_id,
+            "ref": ref,
+            "mode": mode,
+            "inputs": inputs_json,
+            "write_prefix": write_prefix,
+        }
+
+        # Get OCI digest from adapter opts or registry
+        oci = adapter_opts.get("expected_oci")
+        if not oci and adapter == "modal":
+            # Modal requires AMD64 digest
+            try:
+                platforms = spec.get("image", {}).get("platforms", {})
+                oci = platforms.get("amd64")
+            except (KeyError, TypeError):
+                pass
+
+        # Invoke adapter with HTTP transport-only signature
         try:
             result = adapter_instance.invoke(
-                processor_ref=ref,
-                mode=mode,
-                inputs_json=inputs_json,
-                write_prefix=write_prefix,
-                execution_id=execution_id,
-                registry_snapshot=registry_snapshot,
-                adapter_opts=adapter_opts,
-                secrets_present=secrets_present,
+                ref=ref,
+                payload=payload,
+                timeout_s=timeout or 600,
+                oci=oci,
+                stream=False,  # TODO: Add streaming support
             )
         except TypeError as te:
             # Adapter doesn't implement new signature

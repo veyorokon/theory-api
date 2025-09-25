@@ -55,9 +55,19 @@ def _build_image(
         stamp = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S")
         image_tag = f"theory-local/{slug}:build-{stamp}"
 
+    # Resolve context relative to processor directory
+    try:
+        ns, rest = ref.split("/", 1)
+        name, _ver = rest.split("@", 1)
+    except ValueError:
+        raise RuntimeError(f"invalid ref '{ref}', expected ns/name@ver")
+
+    processor_dir = f"{ns}_{name}"
+    processor_path = Path(settings.BASE_DIR) / "apps" / "core" / "processors" / processor_dir
+
     context_path = Path(context)
     if not context_path.is_absolute():
-        context_path = Path(settings.BASE_DIR) / context_path
+        context_path = processor_path / context_path
 
     if not context_path.exists():
         raise RuntimeError(f"Build context does not exist: {context_path}")

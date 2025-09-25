@@ -16,9 +16,9 @@ Processor execution generates canonical outputs in a standardized envelope forma
       "mime": "text/plain"
     }
   ],
-  "index_path": "/artifacts/execution/exec_abc123/outputs.json",
+  "index_path": "/artifacts/outputs/.../exec_abc123/outputs.json",
   "meta": {
-    "image_digest": "sha256:abc123...",
+    "image_digest": "ghcr.io/...@sha256:abc123...",
     "mode": "mock",
     "duration_ms": 2341
   }

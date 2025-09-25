@@ -1,4 +1,4 @@
-"""Determinism receipt generation utilities."""
+"""Determinism receipt generation utilities and outputs helpers."""
 
 from __future__ import annotations
 import json
@@ -6,7 +6,48 @@ import os
 from dataclasses import dataclass, asdict
 from datetime import datetime, UTC
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Mapping, List, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .envelope import OutputItem
+
+
+# ---- Output helpers (moved from outputs.py) ----
+
+
+def write_blob(prefix: str, relpath: str, data: bytes) -> Dict[str, Any]:
+    """Write bytes to '<prefix>/<relpath>' and return basic metadata."""
+    if not prefix.endswith("/"):
+        prefix += "/"
+    full_path = prefix + relpath
+    Path(full_path).parent.mkdir(parents=True, exist_ok=True)
+    Path(full_path).write_bytes(data)
+
+    # light metadata; callers can enrich
+    import mimetypes
+
+    mime, _ = mimetypes.guess_type(relpath)
+    mime = mime or "application/octet-stream"
+    return {"path": full_path, "size_bytes": len(data), "mime": mime}
+
+
+def write_outputs(write_prefix: str, output_items: List[OutputItem]) -> List[Path]:
+    """Write output items under write_prefix and return absolute Paths."""
+    from .envelope import OutputItem  # Import at runtime to avoid circular import
+
+    abs_paths: List[Path] = []
+    for item in output_items:
+        if not isinstance(item, OutputItem):
+            raise TypeError(f"Expected OutputItem, got {type(item)}")
+        if not item.relpath.startswith("outputs/"):
+            raise ValueError(f"OutputItem relpath must start with 'outputs/', got: {item.relpath}")
+
+        prefix = write_prefix if write_prefix.endswith("/") else write_prefix + "/"
+        fp = Path(prefix) / item.relpath
+        fp.parent.mkdir(parents=True, exist_ok=True)
+        fp.write_bytes(item.bytes_)
+        abs_paths.append(fp.resolve())
+    return abs_paths
 
 
 def _jsonify(obj):
@@ -14,18 +55,18 @@ def _jsonify(obj):
     from pathlib import Path
 
     try:
-        # Optional import to avoid hard dep in import graph
-        from libs.runtime_common.mode import ResolvedMode  # type: ignore
-    except Exception:
+        # Optional import to avoid hard dep in import graph (now from envelope)
+        from libs.runtime_common.envelope import ResolvedMode  # type: ignore
+    except Exception:  # pragma: no cover
 
         class ResolvedMode:  # sentinel if not importable
             pass
 
-    if obj is None or isinstance(obj, (str, int, float, bool)):
+    if obj is None or isinstance(obj, str | int | float | bool):
         return obj
     if isinstance(obj, dict):
         return {str(k): _jsonify(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
+    if isinstance(obj, list | tuple):
         return [_jsonify(v) for v in obj]
     if isinstance(obj, Path):
         return obj.as_posix()
