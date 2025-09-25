@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass, asdict
 from datetime import datetime, UTC
 from pathlib import Path
-from typing import Dict, Any, Mapping, List, TYPE_CHECKING
+from typing import Dict, Any, List, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .envelope import OutputItem

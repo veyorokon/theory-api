@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Protocol
 
 # Import canonical types from runtime_common
-from libs.runtime_common.envelope import OutputItem, ProcessorResult
+from libs.runtime_common.envelope import ProcessorResult
 
 
 class ProviderRunner(Protocol):

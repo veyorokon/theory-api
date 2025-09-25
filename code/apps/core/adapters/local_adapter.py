@@ -14,7 +14,7 @@ import time
 import requests
 import subprocess
 import platform
-from typing import Any, Dict, Iterator, Optional
+from typing import Any, Dict, Iterator
 from libs.runtime_common.envelope import is_valid_envelope, error_envelope
 from libs.runtime_common.logging import log
 

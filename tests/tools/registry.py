@@ -5,18 +5,35 @@ from typing import Iterator, Tuple, Dict, Iterable
 import yaml
 
 
-def each_processor_spec() -> Iterator[Tuple[pathlib.Path, dict]]:
-    """Yield (path, spec) for each registry YAML file."""
+def each_processor_spec() -> Iterator[Dict]:
+    """Yield processor spec dicts from embedded registry.yaml files."""
     root = pathlib.Path(__file__).resolve().parents[2]  # repo/
-    reg = root / "code" / "apps" / "core" / "registry" / "processors"
-    for f in sorted(reg.glob("*.yaml")):
-        spec = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
-        yield f, spec
+    processors_dir = root / "code" / "apps" / "core" / "processors"
+
+    for processor_dir in sorted(processors_dir.iterdir()):
+        if not processor_dir.is_dir():
+            continue
+
+        registry_file = processor_dir / "registry.yaml"
+        if not registry_file.exists():
+            continue
+
+        try:
+            spec = yaml.safe_load(registry_file.read_text(encoding="utf-8")) or {}
+            # Add ref from directory name (ns_name -> ns/name@1)
+            dir_name = processor_dir.name
+            if "_" in dir_name:
+                ns, name = dir_name.split("_", 1)
+                spec["ref"] = f"{ns}/{name}@1"
+            yield spec
+        except Exception:
+            # Skip invalid YAML files
+            continue
 
 
 def required_secrets() -> set[str]:
     s: set[str] = set()
-    for _, spec in each_processor_spec():
+    for spec in each_processor_spec():
         for name in (spec.get("secrets") or {}).get("required", []) or []:
             if isinstance(name, str) and name:
                 s.add(name)
@@ -27,22 +44,13 @@ def required_secrets() -> set[str]:
 # Existing exports remain; add normalizers so callers don't care about tuple-vs-dict forms.
 
 
-def _spec_from_entry(entry) -> Dict:
-    """Accept dict or (path, dict) and return dict."""
-    if isinstance(entry, tuple) and len(entry) == 2 and isinstance(entry[1], dict):
-        return entry[1]
-    if isinstance(entry, dict):
-        return entry
-    raise TypeError(f"unsupported registry entry type: {type(entry)}")
-
-
 def iter_specs() -> Iterable[Dict]:
     """
-    Yield processor spec dicts regardless of the underlying each_processor_spec() return shape.
+    Yield processor spec dicts from embedded registries.
     """
     try:
-        for entry in each_processor_spec():
-            yield _spec_from_entry(entry)
+        for spec in each_processor_spec():
+            yield spec
     except Exception:
         # If registry loading fails, yield nothing (tests can handle empty iteration)
         return

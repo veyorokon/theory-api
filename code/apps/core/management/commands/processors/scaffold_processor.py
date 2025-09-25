@@ -1,9 +1,6 @@
 # code/apps/core/management/commands/processors/scaffold_processor.py
 from __future__ import annotations
-import os
 import re
-import sys
-import json
 import textwrap
 import pathlib
 from django.core.management.base import BaseCommand, CommandError
@@ -459,9 +456,8 @@ def write_outputs_and_receipts(
     # Local receipt
     with open(os.path.join(write_prefix, "receipt.json"), "w", encoding="utf-8") as f:
         json.dump(receipt, f, indent=2)
-    # Global determinism receipt
-    global_det = os.path.join("/artifacts/execution", execution_id, "determinism.json")
-    pathlib.Path(os.path.dirname(global_det)).mkdir(parents=True, exist_ok=True)
+    # Global determinism receipt (use write_prefix, not hardcoded /artifacts)
+    global_det = os.path.join(write_prefix, "determinism.json")
     with open(global_det, "w", encoding="utf-8") as f:
         json.dump(receipt, f, indent=2)
 

@@ -18,6 +18,13 @@ def entry(payload: Dict[str, Any]) -> Dict[str, Any]:
             "error": {"code": "ERR_INPUTS", "message": "missing execution_id"},
             "meta": {},
         }
+    if not write_prefix:
+        return {
+            "status": "error",
+            "execution_id": execution_id,
+            "error": {"code": "ERR_INPUTS", "message": "missing write_prefix"},
+            "meta": {},
+        }
     if "{execution_id}" in write_prefix:
         write_prefix = write_prefix.replace("{execution_id}", execution_id)
 

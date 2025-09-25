@@ -95,24 +95,29 @@ def _stable_env(monkeypatch: pytest.MonkeyPatch):
 # ---------- Registry-driven secret discovery ----------
 @pytest.fixture(scope="session")
 def registry_required_secrets() -> set[str]:
-    """Walk processor registry and collect `secrets.required` names."""
+    """Walk embedded processor registry.yaml files and collect `secrets.required` names."""
     import yaml
 
     repo_root = pathlib.Path(__file__).resolve().parents[1]
-    reg_dir = repo_root / "code" / "apps" / "core" / "registry" / "processors"
+    processors_dir = repo_root / "code" / "apps" / "core" / "processors"
     secrets: set[str] = set()
-    if reg_dir.exists():
-        for f in sorted(reg_dir.glob("*.yaml")):
-            try:
-                doc = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
-                req = (doc.get("secrets") or {}).get("required") or []
-                for name in req:
-                    if isinstance(name, str) and name:
-                        secrets.add(name)
-            except Exception:
-                # Registry parse errors should fail the suite loudly where used,
-                # not here — we keep discovery tolerant.
-                pass
+
+    if processors_dir.exists():
+        # Look for embedded registry.yaml in each processor directory
+        for processor_dir in processors_dir.iterdir():
+            if processor_dir.is_dir():
+                registry_file = processor_dir / "registry.yaml"
+                if registry_file.exists():
+                    try:
+                        doc = yaml.safe_load(registry_file.read_text(encoding="utf-8")) or {}
+                        req = (doc.get("secrets") or {}).get("required") or []
+                        for name in req:
+                            if isinstance(name, str) and name:
+                                secrets.add(name)
+                    except Exception:
+                        # Registry parse errors should fail the suite loudly where used,
+                        # not here — we keep discovery tolerant.
+                        pass
     return secrets
 
 
@@ -157,11 +162,13 @@ def supplychain_env(monkeypatch: pytest.MonkeyPatch, registry_required_secrets: 
 
 
 # ---------- Auto-apply lane fixtures ----------
-def pytest_runtest_setup(item: pytest.Item) -> None:
-    if any(item.iter_markers(name="prlane")):
-        item._request.getfixturevalue("pr_lane_env")
-    if any(item.iter_markers(name="supplychain")):
-        item._request.getfixturevalue("supplychain_env")
+@pytest.fixture(autouse=True)
+def _auto_apply_lane_fixtures(request):
+    """Automatically apply lane fixtures based on test markers."""
+    if request.node.get_closest_marker("prlane"):
+        request.getfixturevalue("pr_lane_env")
+    if request.node.get_closest_marker("supplychain"):
+        request.getfixturevalue("supplychain_env")
 
 
 # ---------- Tiny helpers ----------

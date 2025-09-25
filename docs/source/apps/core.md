@@ -124,7 +124,7 @@ Processors are stateless containers exposing a FastAPI service with one contract
 
 - `GET /healthz` → `{ "ok": true }`
 - `POST /run` → synchronous execution, returns canonical envelope JSON
-- `POST /run-stream` → SSE stream of events ending with a final `settle` envelope
+- `POST /run-stream` (optional) → SSE stream of events; the final event carries the envelope (event name may be `done` or `settle` depending on processor)
 
 ### Payload (control plane → processor)
 
@@ -201,8 +201,9 @@ inputs:
               content: { type: string }
 
 outputs:
-  - { path: outputs/response.txt, mime: text/plain }
-  - { path: outputs/metadata.json, mime: application/json }
+  # Paths are relative to the outputs/ directory
+  - { path: text/response.txt, mime: text/plain }
+  - { path: metadata.json, mime: application/json }
 ```
 
 ### Adapter Implementation (transport-only)

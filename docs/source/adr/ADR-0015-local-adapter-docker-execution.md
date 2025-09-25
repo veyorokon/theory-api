@@ -27,7 +27,7 @@ The architectural decision establishes that processors should be stateless, cont
 Local adapter will execute processors as Docker/Podman containers, not as direct Python subprocesses.
 
 **Container Execution Model:**
-- Read processor specifications from registry YAML files (`image.oci`, `runtime.*`)
+- Read processor specifications from registry YAML files (runtime, secrets, image digests)
 - Create isolated workdir under `settings.BASE_DIR/tmp/plan.key/execution.id`
 - Mount workdir as `/work` inside container with read-write access
 - Standardized I/O: processor reads `/work/inputs.json`, writes outputs to `/work/out/**`

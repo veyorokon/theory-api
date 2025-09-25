@@ -5,7 +5,7 @@ on:
     branches: [ main ]
     paths:
       - "code/**"
-      - "registry/**"
+      - "code/apps/core/processors/**"  # NEW source of truth for pins
       - ".github/workflows/main.yml"
       - "Makefile"
   workflow_dispatch: {}
@@ -67,13 +67,15 @@ jobs:
       DJANGO_SETTINGS_MODULE: backend.settings.unittest
       MODAL_ENABLED: "true"
       MODAL_ENVIRONMENT: prod
+      BRANCH: ${{ github.ref_name }}
+      USER: ${{ github.actor }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install -r code/requirements.txt
-      - name: Deploy functions
-        run: make deploy-prod
+      - name: Deploy functions (digest-only via modalctl)
+        run: make deploy-prod   # wraps: python manage.py modalctl deploy --ref … --env prod --oci <pinned>
 
   post_deploy_checks:
     name: Smoke/Canary + Drift (prod)

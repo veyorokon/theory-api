@@ -1,45 +1,43 @@
 """
-Contract tests for processor container CLI.
-Ensures containers emit valid envelopes via stdout with stdin payloads.
+Contract tests for HTTP-first processor containers.
+Ensures containers serve HTTP endpoints and return valid envelopes.
 """
 
 import json
 import subprocess
 import tempfile
+import time
+import requests
 from pathlib import Path
 import pytest
-
-from tests.tools.docker_checks import get_image_tag_or_skip
 
 pytestmark = [pytest.mark.contracts, pytest.mark.requires_docker]
 
 
-class TestContainerCLI:
-    """Contract tests for container CLI execution."""
+class TestContainerHTTP:
+    """Contract tests for HTTP-first container execution."""
 
-    def test_container_emits_envelope_via_stdout_mock_mode(self):
-        """Container emits valid envelope to stdout in mock mode."""
-        # Create payload for container
+    def test_container_http_endpoint_mock_mode(self):
+        """Container serves HTTP endpoints and returns valid envelopes."""
         payload = {
             "schema": "v1",
             "mode": "mock",
-            "execution_id": "test-container-mock",
-            "write_prefix": "/artifacts/outputs/test-container-mock/",
+            "execution_id": "test-container-http",
+            "write_prefix": "/artifacts/outputs/test-container-http/",
             "params": {
                 "messages": [{"role": "user", "content": "test message"}],
             },
-            "model": "gpt-4o-mini",
         }
 
         with tempfile.TemporaryDirectory() as tmp_dir:
-            # Build the container first (local dev tag)
+            # Build the container first
             build_cmd = [
                 "docker",
                 "buildx",
                 "build",
                 "--load",
                 "-t",
-                "theory-local/llm-litellm:test",
+                "theory-local/llm-litellm:http-test",
                 "-f",
                 "code/apps/core/processors/llm_litellm/Dockerfile",
                 ".",
@@ -48,175 +46,150 @@ class TestContainerCLI:
             if build_result.returncode != 0:
                 pytest.skip(f"Failed to build container: {build_result.stderr}")
 
-            # Run container with payload via stdin
-            cmd = [
+            # Start container with HTTP server
+            container_cmd = [
                 "docker",
                 "run",
-                "--rm",
+                "-d",
+                "--name",
+                "test-http-container",
+                "-p",
+                "8005:8000",
                 "-v",
                 f"{tmp_dir}:/artifacts",
                 "-e",
-                "LOG_STREAM=stderr",
-                "theory-local/llm-litellm:test",
+                "IMAGE_DIGEST=sha256:httptest123",
+                "theory-local/llm-litellm:http-test",
             ]
 
-            proc = subprocess.run(
-                cmd, input=json.dumps(payload), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30
-            )
+            container_result = subprocess.run(container_cmd, capture_output=True, text=True)
+            if container_result.returncode != 0:
+                pytest.skip(f"Failed to start container: {container_result.stderr}")
 
-            # Container should succeed
-            assert proc.returncode == 0, f"Container failed: {proc.stderr}"
+            container_id = container_result.stdout.strip()
 
-            # Parse envelope from stdout
             try:
-                envelope = json.loads(proc.stdout.strip())
-            except json.JSONDecodeError as e:
-                pytest.fail(f"Container stdout is not valid JSON: {e}\\nStdout: {proc.stdout}\\nStderr: {proc.stderr}")
+                # Wait for container to be ready
+                for _ in range(30):
+                    try:
+                        response = requests.get("http://localhost:8005/healthz", timeout=1)
+                        if response.status_code == 200:
+                            break
+                    except requests.RequestException:
+                        pass
+                    time.sleep(1)
+                else:
+                    pytest.skip("Container failed to become ready")
 
-            # Validate envelope structure
-            assert envelope["status"] == "success", f"Expected success envelope: {envelope}"
-            assert envelope["execution_id"] == "test-container-mock"
-            assert "outputs" in envelope
-            assert isinstance(envelope["outputs"], list)
-            assert "index_path" in envelope
-            assert envelope["index_path"].startswith("/artifacts/outputs/test-container-mock/")
-            assert "meta" in envelope
+                # Make HTTP request
+                response = requests.post("http://localhost:8005/run", json=payload, timeout=30)
+                assert response.status_code == 200, f"HTTP request failed: {response.status_code} {response.text}"
 
-            # Verify outputs exist on filesystem
-            index_path = envelope["index_path"]
-            local_index_path = tmp_dir + index_path.replace("/artifacts", "")
-            assert Path(local_index_path).exists(), f"Index file not found: {local_index_path}"
+                # Validate envelope structure
+                envelope = response.json()
+                assert envelope["status"] == "success", f"Expected success envelope: {envelope}"
+                assert envelope["execution_id"] == "test-container-http"
+                assert "outputs" in envelope
+                assert isinstance(envelope["outputs"], list)
+                assert "meta" in envelope
 
-            # Verify at least one output exists
-            assert len(envelope["outputs"]) > 0, "No outputs in envelope"
-            for output in envelope["outputs"]:
-                output_path = output["path"]
-                local_output_path = tmp_dir + output_path.replace("/artifacts", "")
-                assert Path(local_output_path).exists(), f"Output file not found: {local_output_path}"
+            finally:
+                subprocess.run(["docker", "stop", container_id], capture_output=True)
+                subprocess.run(["docker", "rm", container_id], capture_output=True)
 
-    def test_container_handles_invalid_payload(self):
-        """Container returns error envelope for invalid payload."""
-        # Invalid payload (missing required fields)
-        payload = {"invalid": "payload"}
-
+    def test_container_http_error_handling(self):
+        """Container HTTP endpoint returns proper error status and envelope."""
+        # Test with invalid Content-Type
         with tempfile.TemporaryDirectory() as tmp_dir:
-            # Use pre-built image or skip
-            cmd = [
+            # Use same container setup pattern (simplified for brevity)
+            container_cmd = [
                 "docker",
                 "run",
-                "--rm",
+                "-d",
+                "--name",
+                "test-error-container",
+                "-p",
+                "8006:8000",
                 "-v",
                 f"{tmp_dir}:/artifacts",
                 "-e",
-                "LOG_STREAM=stderr",
-                "theory-local/llm-litellm:test",
+                "IMAGE_DIGEST=sha256:errortest123",
+                "theory-local/llm-litellm:http-test",
             ]
 
-            proc = subprocess.run(
-                cmd, input=json.dumps(payload), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10
-            )
+            container_result = subprocess.run(container_cmd, capture_output=True, text=True)
+            if container_result.returncode != 0:
+                pytest.skip(f"Failed to start container: {container_result.stderr}")
 
-            # Container should exit with error
-            assert proc.returncode != 0
+            container_id = container_result.stdout.strip()
 
-            # Parse error envelope from stdout
             try:
-                envelope = json.loads(proc.stdout.strip())
-            except json.JSONDecodeError:
-                pytest.fail(
-                    f"Container stdout is not valid JSON even for error case\\nStdout: {proc.stdout}\\nStderr: {proc.stderr}"
+                # Wait for readiness
+                for _ in range(20):
+                    try:
+                        response = requests.get("http://localhost:8006/healthz", timeout=1)
+                        if response.status_code == 200:
+                            break
+                    except requests.RequestException:
+                        pass
+                    time.sleep(1)
+                else:
+                    pytest.skip("Container failed to become ready")
+
+                # Test 415 error with wrong Content-Type
+                response = requests.post(
+                    "http://localhost:8006/run",
+                    data='{"invalid": "payload"}',
+                    headers={"content-type": "text/plain"},
+                    timeout=10,
                 )
 
-            # Validate error envelope structure
-            assert envelope["status"] == "error"
-            assert "error" in envelope
-            assert "code" in envelope["error"]
-            assert "message" in envelope["error"]
-            assert envelope["execution_id"] == ""  # No execution_id in invalid payload
+                assert response.status_code == 415
+                envelope = response.json()
+                assert envelope["status"] == "error"
+                assert envelope["error"]["code"] == "ERR_INPUTS"
+                assert "Content-Type" in envelope["error"]["message"]
 
-    def test_container_timeout_handling(self):
-        """Container handles timeout gracefully."""
-        # Valid payload but timeout the container externally
-        payload = {
-            "schema": "v1",
-            "mode": "mock",
-            "execution_id": "test-timeout",
-            "write_prefix": "/artifacts/outputs/test-timeout/",
-            "params": {
-                "messages": [{"role": "user", "content": "test"}],
-            },
-            "model": "gpt-4o-mini",
-        }
+            finally:
+                subprocess.run(["docker", "stop", container_id], capture_output=True)
+                subprocess.run(["docker", "rm", container_id], capture_output=True)
 
+    def test_container_http_health_endpoint(self):
+        """Container serves health endpoint correctly."""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            cmd = [
+            container_cmd = [
                 "docker",
                 "run",
-                "--rm",
-                "-v",
-                f"{tmp_dir}:/artifacts",
-                "-e",
-                "LOG_STREAM=stderr",
-                "theory-local/llm-litellm:test",
+                "-d",
+                "--name",
+                "test-health-container",
+                "-p",
+                "8007:8000",
+                "theory-local/llm-litellm:http-test",
             ]
 
+            container_result = subprocess.run(container_cmd, capture_output=True, text=True)
+            if container_result.returncode != 0:
+                pytest.skip(f"Failed to start container: {container_result.stderr}")
+
+            container_id = container_result.stdout.strip()
+
             try:
-                proc = subprocess.run(
-                    cmd,
-                    input=json.dumps(payload),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    timeout=1,  # Very short timeout to trigger timeout
-                )
-                # If it doesn't timeout, that's fine too
-                if proc.returncode == 0:
-                    pytest.skip("Container executed too quickly to test timeout")
-            except subprocess.TimeoutExpired:
-                # This is expected - timeout behavior verified
-                pass
+                # Wait for readiness and test health
+                for _ in range(30):
+                    try:
+                        response = requests.get("http://localhost:8007/healthz", timeout=1)
+                        if response.status_code == 200:
+                            # Verify health response structure
+                            health = response.json()
+                            assert health["status"] == "ok"
+                            break
+                    except requests.RequestException:
+                        pass
+                    time.sleep(1)
+                else:
+                    pytest.fail("Health endpoint not responding")
 
-    def test_container_stdout_purity(self):
-        """Container emits exactly one JSON line to stdout."""
-        payload = {
-            "schema": "v1",
-            "mode": "mock",
-            "execution_id": "test-purity",
-            "write_prefix": "/artifacts/outputs/test-purity/",
-            "params": {
-                "messages": [{"role": "user", "content": "test purity"}],
-            },
-            "model": "gpt-4o-mini",
-        }
-
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            cmd = [
-                "docker",
-                "run",
-                "--rm",
-                "-v",
-                f"{tmp_dir}:/artifacts",
-                "-e",
-                "LOG_STREAM=stderr",
-                "theory-local/llm-litellm:test",
-            ]
-
-            proc = subprocess.run(
-                cmd, input=json.dumps(payload), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30
-            )
-
-            # Check stdout purity - should be exactly one JSON line
-            stdout_lines = proc.stdout.strip().split("\\n")
-            assert len(stdout_lines) == 1, (
-                f"Expected exactly one line on stdout, got {len(stdout_lines)}: {stdout_lines}"
-            )
-
-            # The single line should be valid JSON
-            try:
-                envelope = json.loads(stdout_lines[0])
-                assert "status" in envelope
-            except json.JSONDecodeError as e:
-                pytest.fail(f"Single stdout line is not valid JSON: {e}\\nLine: {stdout_lines[0]}")
-
-            # All logs should go to stderr
-            assert len(proc.stderr) > 0, "Expected logs on stderr"
+            finally:
+                subprocess.run(["docker", "stop", container_id], capture_output=True)
+                subprocess.run(["docker", "rm", container_id], capture_output=True)

@@ -127,7 +127,7 @@ class Command(BaseCommand):
         storage_docs = []
 
         try:
-            from apps.storage import interfaces, service, adapters
+            from apps.storage import interfaces
 
             # Document StorageInterface
             storage_docs.append("# Storage API Documentation\n")
@@ -183,16 +183,16 @@ class Command(BaseCommand):
     MinIO[MinIOAdapter]
     S3[S3Adapter]
     Backend[Django Storage Backend]
-    
+
     Client --> Service
     Backend --> Service
     Service --> Interface
     Interface <|-- MinIO
     Interface <|-- S3
-    
+
     Service -.->|Development| MinIO
     Service -.->|Production| S3
-    
+
     style Interface fill:#f9f,stroke:#333,stroke-width:2px
     style Service fill:#bbf,stroke:#333,stroke-width:2px"""
 

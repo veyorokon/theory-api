@@ -4,9 +4,8 @@ from __future__ import annotations
 import datetime
 import json
 import logging
-import sys
 import uuid
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from django.db import transaction
 

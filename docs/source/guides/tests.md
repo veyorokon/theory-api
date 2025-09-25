@@ -8,7 +8,7 @@ This guide is the single source of truth for exercising processors and adapters 
 
 - **Supported modes**: only `mock` and `real`.
 - **CI guard**: when `CI=true`, `mode=real` is blocked. Real-mode runs are local-only (or out-of-band jobs with explicit approvals).
-- **Logging**: processors emit structured logs and support `/run-stream` (SSE). Envelopes are returned as JSON from `/run` or as the final `settle` event from `/run-stream`.
+- **Logging**: processors emit structured logs; some support `/run-stream` (SSE). Envelopes are returned as JSON from `/run` or as the final event from `/run-stream`.
 - **Secrets discipline**:
   - `mock`: providers must not read secrets; unset them.
   - `real`: secrets must be present in your shell, and (for modal) in the target Modal environment.
@@ -271,7 +271,7 @@ python manage.py run_processor --ref llm/litellm@1 --adapter local --mode real \
 - **PR acceptance fails but unit passes** → verify `RUN_PROCESSOR_FORCE_BUILD=1` or use the Make target.
 - **Pinned acceptance fails locally** → your registry pins are stale; rebase or wait for staging’s Build & Pin commit.
 - **Modal dev errors** → ensure app naming matches `<branch>-<user>-<slug>-vX`, inputs satisfy payload validation, and secrets exist in Modal.
-- **Streaming issues** → consume `/run-stream` SSE events (`log|progress|settle`); final `settle` contains the envelope.
+- **Streaming issues** → consume `/run-stream` SSE events if available; the final event contains the envelope.
 
 ---
 

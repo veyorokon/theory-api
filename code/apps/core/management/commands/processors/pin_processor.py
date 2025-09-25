@@ -6,7 +6,7 @@ import json
 import re
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import yaml
 from django.core.management.base import BaseCommand, CommandError

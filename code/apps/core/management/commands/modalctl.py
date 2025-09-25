@@ -10,7 +10,6 @@ import sys
 import tempfile
 import textwrap
 from pathlib import Path
-from typing import Optional
 
 from django.core.management.base import BaseCommand, CommandError
 

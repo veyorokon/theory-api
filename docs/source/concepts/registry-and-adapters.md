@@ -54,8 +54,9 @@ inputs:
               content: { type: string }
 
 outputs:
-  - { path: outputs/response.txt, mime: text/plain }
-  - { path: outputs/metadata.json, mime: application/json }
+  # Paths are relative to the outputs/ directory
+  - { path: text/response.txt, mime: text/plain }
+  - { path: metadata.json, mime: application/json }
 ```
 
 ### Schema Definitions

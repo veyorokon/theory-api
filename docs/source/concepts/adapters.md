@@ -7,7 +7,7 @@ Adapters move payloads to processors over HTTP and validate envelopes. They do n
 ### LocalAdapter (Docker → HTTP)
 
 - Start container by pinned digest (select platform by host arch)
-- Poll `GET /healthz`, then `POST /run` (or `/run-stream` for SSE)
+- Poll `GET /healthz`, then `POST /run` (optional: `/run-stream` for SSE if the processor implements streaming)
 - Validate envelope; enforce index discipline; optional digest drift check
 
 ### ModalAdapter (Web endpoint → HTTP)

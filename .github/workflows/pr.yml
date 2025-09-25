@@ -5,6 +5,7 @@ on:
     branches: [ dev ]
     paths:
       - "code/**"
+      - "code/apps/core/processors/**"     # NEW: explicit processors
       - "tests/**"
       - ".github/workflows/pr.yml"
       - "Makefile"
@@ -52,6 +53,7 @@ jobs:
       # PR lane invariants:
       RUN_PROCESSOR_FORCE_BUILD: "1"   # build-from-source
       LOG_STREAM: stderr               # keep stdout clean for --json
+      RUN_TRANSPORT: "http"            # NEW: drive HTTP processors locally
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3

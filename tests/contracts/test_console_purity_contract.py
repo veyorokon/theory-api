@@ -1,4 +1,4 @@
-"""Contract test: stdout purity when --json flag is set."""
+"""Contract test: console purity for HTTP-first processors."""
 
 import json
 import subprocess
@@ -7,8 +7,8 @@ from pathlib import Path
 
 
 @pytest.mark.contracts
-def test_stdout_purity_with_json_flag():
-    """Contract: No stdout logs when --json flag is set - only envelope."""
+def test_console_purity_with_json_flag():
+    """Contract: HTTP-first processors write clean JSON to stdout, structured logs to stderr."""
 
     # Run run_processor with --json flag
     result = subprocess.run(
