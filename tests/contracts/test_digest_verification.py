@@ -59,19 +59,19 @@ class TestDigestVerification:
 
     def test_digest_normalization_helper(self):
         """Test helper function for normalizing digest comparisons."""
-        from apps.core.adapters.modal_adapter import _extract_sha256
+        from apps.core.adapters.base_http_adapter import _normalize_digest
 
         # Test various input formats
         test_cases = [
             ("ghcr.io/org/repo@sha256:abc123def456", "sha256:abc123def456"),
             ("sha256:abc123def456", "sha256:abc123def456"),
-            ("abc123def456", ""),  # No sha256 prefix
-            ("", ""),
-            ("ghcr.io/org/repo:latest", ""),  # No digest
+            ("abc123def456", None),  # No sha256 prefix
+            ("", None),
+            ("ghcr.io/org/repo:latest", None),  # No digest
         ]
 
         for input_ref, expected in test_cases:
-            result = _extract_sha256(input_ref)
+            result = _normalize_digest(input_ref)
             assert result == expected, f"Failed for input {input_ref}: got {result}, expected {expected}"
 
     @pytest.mark.staging
@@ -94,21 +94,21 @@ class TestDigestVerification:
         assert "@sha256:" in expected_oci, f"Expected digest format not found: {expected_oci}"
 
         # Extract expected digest
-        from apps.core.adapters.modal_adapter import _extract_sha256
+        from apps.core.adapters.base_http_adapter import _normalize_digest
 
-        expected_digest = _extract_sha256(expected_oci)
+        expected_digest = _normalize_digest(expected_oci)
         assert expected_digest, f"Could not extract digest from {expected_oci}"
 
         # Mock envelope response (in real test, this would come from adapter)
         mock_envelope = {"status": "success", "meta": {"image_digest": expected_digest}}
 
         # Verify digests match
-        envelope_digest = _extract_sha256(mock_envelope["meta"]["image_digest"])
+        envelope_digest = _normalize_digest(mock_envelope["meta"]["image_digest"])
         assert envelope_digest == expected_digest, "Envelope digest doesn't match pinned registry digest"
 
     def test_drift_detection_logic(self):
         """Test logic for detecting digest drift between registry and deployment."""
-        from apps.core.adapters.modal_adapter import _extract_sha256
+        from apps.core.adapters.base_http_adapter import _normalize_digest
 
         # Test cases for drift detection
         registry_digest = "sha256:abc123def456"
@@ -120,8 +120,8 @@ class TestDigestVerification:
         ]
 
         for envelope_digest in matching_cases:
-            normalized_registry = _extract_sha256(registry_digest)
-            normalized_envelope = _extract_sha256(envelope_digest)
+            normalized_registry = _normalize_digest(registry_digest)
+            normalized_envelope = _normalize_digest(envelope_digest)
             assert normalized_registry == normalized_envelope, f"Should match: {envelope_digest}"
 
         # Non-matching cases (drift detected)
@@ -133,6 +133,6 @@ class TestDigestVerification:
         ]
 
         for envelope_digest in drift_cases:
-            normalized_registry = _extract_sha256(registry_digest)
-            normalized_envelope = _extract_sha256(envelope_digest)
+            normalized_registry = _normalize_digest(registry_digest)
+            normalized_envelope = _normalize_digest(envelope_digest)
             assert normalized_registry != normalized_envelope, f"Should detect drift: {envelope_digest}"

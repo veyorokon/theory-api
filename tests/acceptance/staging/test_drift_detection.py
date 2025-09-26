@@ -1,5 +1,8 @@
 """Supply-chain drift detection tests for staging deployment."""
 
+import subprocess
+import sys
+
 import pytest
 
 
@@ -13,7 +16,7 @@ class TestDriftDetection:
         """Test envelope digest equals pinned registry digest."""
         from apps.core.registry.loader import load_processor_spec
         from apps.core.adapters.modal_adapter import _extract_sha256
-        import subprocess
+        import sys
         import json
 
         # Load registry spec for processor
@@ -38,7 +41,7 @@ class TestDriftDetection:
         # Get actual digest from deployment
         result = subprocess.run(
             [
-                "python",
+                sys.executable,
                 "manage.py",
                 "run_processor",
                 "--ref",
@@ -125,7 +128,7 @@ class TestDriftDetection:
 
             os.environ.update({"MODAL_ENVIRONMENT": "staging", "BRANCH": "staging", "USER": "staging"})
 
-            result = adapter.invoke(processor_ref="llm/litellm@1", payload=payload, timeout_s=60)
+            result = adapter.invoke_by_ref(ref="llm/litellm@1", payload=payload, timeout_s=60)
 
             # Should detect drift and return error
             assert result["status"] == "error"
@@ -158,11 +161,10 @@ class TestDriftDetection:
     def test_drift_audit_command_integration(self):
         """Test drift audit command detects mismatches."""
         # This would integrate with the drift_audit.py script
-        import subprocess
 
         # Run drift audit (should pass in staging if properly deployed)
         result = subprocess.run(
-            ["python", "-c", "from scripts.drift_audit import main; main()"],
+            [sys.executable, "-c", "from scripts.drift_audit import main; main()"],
             cwd="code",
             capture_output=True,
             text=True,
@@ -207,7 +209,6 @@ class TestDriftDetection:
         """Test complete supply-chain integrity from registry to execution."""
         from apps.core.registry.loader import load_processor_spec
         from apps.core.adapters.modal_adapter import _extract_sha256
-        import subprocess
         import json
 
         # 1. Verify registry has pinned digest
@@ -229,7 +230,7 @@ class TestDriftDetection:
         # 2. Execute via adapter and verify digest matches
         result = subprocess.run(
             [
-                "python",
+                sys.executable,
                 "manage.py",
                 "run_processor",
                 "--ref",

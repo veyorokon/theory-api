@@ -2,6 +2,7 @@
 
 import json
 import subprocess
+import sys
 import pytest
 from pathlib import Path
 
@@ -13,7 +14,7 @@ def test_console_purity_with_json_flag():
     # Run run_processor with --json flag
     result = subprocess.run(
         [
-            "python",
+            sys.executable,
             "manage.py",
             "run_processor",
             "--ref",
@@ -71,7 +72,7 @@ def test_no_json_flag_allows_mixed_output():
     # Run run_processor WITHOUT --json flag
     result = subprocess.run(
         [
-            "python",
+            sys.executable,
             "manage.py",
             "run_processor",
             "--ref",

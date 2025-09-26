@@ -33,6 +33,20 @@ Key points:
 - In PR lane, use `mode=mock` (hermetic; no secrets)
 - Envelopes identical across adapters; only transport differs
 
+## Image Selection Behavior
+
+The adapter chooses which image to run or call based on adapter type and the `--build` flag passed to `run_processor`:
+
+| Adapter | `--build` | Behavior |
+|---------|-----------|----------|
+| local   | true      | Uses the newest locally built, timestamped tag (build-from-source loop) |
+| local   | false     | Uses the pinned registry digest from the processor's `registry.yaml` |
+| modal   | any       | Ignores `--build`; performs SDK lookup of the deployed app/function bound to the pinned digest |
+
+Notes:
+- “Pinned digest” comes from `code/apps/core/processors/<ns>_<name>/registry.yaml` (`image.platforms.{amd64,arm64}` and `default_platform`).
+- Modal deployments must be created by digest; the adapter then looks up the deployed app and can perform a digest drift check.
+
 ## Selection examples
 
 ```bash

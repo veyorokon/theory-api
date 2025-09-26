@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -10,7 +11,10 @@ import sys
 import tempfile
 import textwrap
 from pathlib import Path
+from typing import Dict, List, Tuple
 
+import yaml
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 # --- Helpers ---------------------------------------------------------------
@@ -89,6 +93,30 @@ def _load_registry_for_ref(ref: str) -> dict:
         return yaml.safe_load(f) or {}
 
 
+# --- Sync-secrets helpers --------------------------------------------------
+
+
+def _processor_dir(ref: str) -> Path:
+    """Map ns/name@ver -> apps/core/processors/ns_name"""
+    try:
+        ns_name, _ver = ref.split("@", 1)
+        ns, name = ns_name.split("/", 1)
+    except ValueError:
+        raise CommandError("Invalid --ref. Expected format: ns/name@ver")
+
+    root = Path(__file__).resolve().parents[3]  # /code
+    pdir = root / "apps" / "core" / "processors" / f"{ns}_{name}"
+    if not pdir.exists():
+        raise CommandError(f"Processor directory not found: {pdir}")
+    return pdir
+
+
+def _print_json(obj: dict):
+    json.dump(obj, sys.stdout, separators=(",", ":"), sort_keys=True)
+    sys.stdout.write("\n")
+    sys.stdout.flush()
+
+
 # --- Ephemeral modal scripts (SDK one-shots) -------------------------------
 
 
@@ -117,34 +145,38 @@ def _script_status_json(app_name: str) -> str:
     return textwrap.dedent(f"""
     import json, modal
 
-    app = modal.App.lookup("{app_name}")
-    data = {{"app": "{app_name}", "functions": []}}
-    for fn_name in ["http", "run", "default"]:
-        try:
-            fn = app[fn_name]  # Direct lookup by name
-            ref = ""
+    def main():
+        app = modal.App.lookup("{app_name}")
+        data = {{"app": "{app_name}", "functions": []}}
+        for fn_name in ["fastapi_app"]:
             try:
-                ref = str(getattr(getattr(fn, "_function_image", None), "ref", "")) or str(getattr(fn, "image", ""))
-            except Exception:
-                pass
-            data["functions"].append({{"name": fn_name, "image_ref": ref}})
-        except Exception:
-            pass
-    print(json.dumps(data))
+                fn = modal.Function.from_name(app.name, fn_name)
+                ref = ""
+                try:
+                    ref = str(getattr(getattr(fn, "_function_image", None), "ref", "")) or str(getattr(fn, "image", ""))
+                except Exception:
+                    pass
+                data["functions"].append({{"name": fn_name, "image_ref": ref}})
+            except Exception as e:
+                data["functions"].append({{"name": fn_name, "error": str(e)}})
+        print(json.dumps(data))
+
+    if __name__ == "__main__":
+        main()
     """)
 
 
-def _script_upsert_secret() -> str:
-    # Reads JSON on stdin: {"name": "...", "kv": {...}}
-    # Creates/updates a Modal Secret with that name & key-values.
+def _script_upsert_single_secret() -> str:
+    # Reads JSON on stdin: {"name": "...", "value": "..."}
+    # Creates/updates a Modal Secret with that name & single key-value.
     return textwrap.dedent("""
     import json, sys, modal
     payload = json.loads(sys.stdin.read())
     name = payload["name"]
-    kv = payload["kv"]
-    # Overwrite semantics: persist will replace existing secret with same name
-    modal.Secret.from_dict(kv).persist(name)
-    print(json.dumps({"status":"success","name":name,"keys":sorted(list(kv.keys()))}))
+    value = payload["value"]
+    # Create secret with the key name same as secret name
+    modal.Secret.from_dict({name: value}).persist(name)
+    print(json.dumps({"status":"success","name":name}))
     """)
 
 
@@ -161,8 +193,8 @@ def cmd_deploy(args: argparse.Namespace) -> None:
     app_name = _modal_app_name(
         ref=ref,
         env=env,
-        branch=os.getenv("GITHUB_HEAD_REF") or os.getenv("BRANCH"),
-        user=os.getenv("USER") or os.getenv("BUILD_USER"),
+        branch=getattr(settings, "MODAL_BRANCH", None),
+        user=getattr(settings, "MODAL_USER", None),
     )
 
     src = _script_deploy(app_name, oci)
@@ -182,15 +214,15 @@ def cmd_verify_digest(args: argparse.Namespace) -> None:
     app_name = _modal_app_name(
         ref=ref,
         env=env,
-        branch=os.getenv("GITHUB_HEAD_REF") or os.getenv("BRANCH"),
-        user=os.getenv("USER") or os.getenv("BUILD_USER"),
+        branch=getattr(settings, "MODAL_BRANCH", None),
+        user=getattr(settings, "MODAL_USER", None),
     )
 
     src = _script_status_json(app_name)
     path = _write_temp_modal_script(src)
 
     _ensure_modal_cli()
-    proc = _run(["python", str(path)], check=True)
+    proc = _run([sys.executable, str(path)], check=True)
     try:
         data = json.loads(proc.stdout.strip().splitlines()[-1])
     except Exception as e:
@@ -221,15 +253,15 @@ def cmd_status(args: argparse.Namespace) -> None:
     app_name = _modal_app_name(
         ref=ref,
         env=env,
-        branch=os.getenv("GITHUB_HEAD_REF") or os.getenv("BRANCH"),
-        user=os.getenv("USER") or os.getenv("BUILD_USER"),
+        branch=getattr(settings, "MODAL_BRANCH", None),
+        user=getattr(settings, "MODAL_USER", None),
     )
 
     src = _script_status_json(app_name)
     path = _write_temp_modal_script(src)
 
     _ensure_modal_cli()
-    proc = _run(["modal", "run", str(path)], check=True)
+    proc = _run([sys.executable, str(path)], check=True)
     sys.stdout.write(proc.stdout)
 
 
@@ -241,8 +273,8 @@ def cmd_logs(args: argparse.Namespace) -> None:
     app_name = _modal_app_name(
         ref=ref,
         env=env,
-        branch=os.getenv("GITHUB_HEAD_REF") or os.getenv("BRANCH"),
-        user=os.getenv("USER") or os.getenv("BUILD_USER"),
+        branch=getattr(settings, "MODAL_BRANCH", None),
+        user=getattr(settings, "MODAL_USER", None),
     )
 
     _ensure_modal_cli()
@@ -267,22 +299,6 @@ def _resolve_required_secret_names(ref: str) -> list[str]:
     return names
 
 
-def _load_overrides_from_json(path: str | None) -> dict[str, str]:
-    if not path:
-        return {}
-    p = Path(path)
-    if not p.exists():
-        raise CommandError(f"--from-json file not found: {p}")
-    try:
-        data = json.loads(p.read_text())
-    except Exception as e:
-        raise CommandError(f"--from-json must be valid JSON object: {e}") from e
-    if not isinstance(data, dict):
-        raise CommandError("--from-json must be a JSON object of KEY: VALUE")
-    # coerce values to strings
-    return {k: str(v) for k, v in data.items()}
-
-
 def cmd_sync_secrets(args: argparse.Namespace) -> None:
     ref = _require(args.ref, "--ref is required (ns/name@ver)")
     env = _require(args.env, "--env is required (dev|staging|main)")
@@ -293,80 +309,95 @@ def cmd_sync_secrets(args: argparse.Namespace) -> None:
         print(json.dumps({"status": "success", "note": "no_required_secrets"}))
         return
 
-    # 2) Load overrides from JSON (optional), then fill from environment
-    overrides = _load_overrides_from_json(args.from_json)
+    # 2) Collect from environment only
     kv: dict[str, str] = {}
     missing: list[str] = []
 
     for key in required:
-        if key in overrides and overrides[key] is not None:
-            kv[key] = str(overrides[key])
-            continue
         val = os.getenv(key)
         if val is None or str(val) == "":
             missing.append(key)
         else:
             kv[key] = str(val)
 
-    if missing and not args.allow_missing:
-        raise CommandError(
-            json.dumps(
-                {
-                    "status": "error",
-                    "code": "ERR_MISSING_SECRET",
-                    "missing": missing,
-                    "present": sorted(kv.keys()),
-                    "hint": "Provide via environment or --from-json",
-                }
-            )
-        )
+    # 3) Handle missing secrets
+    if missing:
+        result = {
+            "status": "error",
+            "code": "ERR_MISSING_SECRET",
+            "ref": ref,
+            "env": env,
+            "missing": sorted(missing),
+            "present": sorted(kv.keys()),
+        }
+        if hasattr(args, "json") and args.json:
+            print(json.dumps(result))
+        else:
+            print(json.dumps(result, indent=2))
+        raise CommandError(f"Missing required secrets: {', '.join(missing)}")
 
-    # If some are missing but allowed, proceed with the ones we have
-    if args.dry_run:
-        print(
-            json.dumps(
-                {
-                    "status": "dry_run",
-                    "would_sync": sorted(kv.keys()),
-                    "missing": missing,
-                    "ref": ref,
-                    "env": env,
-                }
-            )
-        )
+    # 4) Check mode - dry run
+    if hasattr(args, "check") and args.check:
+        result = {
+            "status": "check",
+            "ref": ref,
+            "env": env,
+            "would_sync": sorted(kv.keys()),
+            "missing": [],
+        }
+        if hasattr(args, "json") and args.json:
+            print(json.dumps(result))
+        else:
+            print(json.dumps(result, indent=2))
         return
 
-    # 3) Choose a canonical secret name (overridable)
-    app_name = _modal_app_name(
-        ref=ref,
-        env=env,
-        branch=os.getenv("GITHUB_HEAD_REF") or os.getenv("BRANCH"),
-        user=os.getenv("USER") or os.getenv("BUILD_USER"),
-    )
-    secret_name = args.name or f"{app_name}-secrets"
+    # 5) Actual sync - create individual secrets
+    created = []
+    updated = []
+    unchanged = []
 
-    # 4) Upsert via a tiny SDK script
-    payload = json.dumps({"name": secret_name, "kv": kv})
-    src = _script_upsert_secret()
-    path = _write_temp_modal_script(src)
+    for key, val in kv.items():
+        # Create one Modal secret per key, named exactly as the env var
+        payload = json.dumps({"name": key, "value": val})
+        src = _script_upsert_single_secret()
+        path = _write_temp_modal_script(src)
 
-    _ensure_modal_cli()
-    # We don't need a specific env for secret ops, but we allow passing one for consistency
-    proc = _run(["modal", "run", str(path)], check=True, stdin=payload)
-
-    # 5) Emit a boring, structured result
-    print(
-        json.dumps(
-            {
-                "status": "success",
+        try:
+            proc = _run([sys.executable, str(path)], check=True, stdin=payload)
+            # Parse result to categorize created/updated/unchanged
+            if "created" in proc.stdout.lower():
+                created.append(key)
+            elif "updated" in proc.stdout.lower():
+                updated.append(key)
+            else:
+                unchanged.append(key)
+        except subprocess.CalledProcessError:
+            result = {
+                "status": "error",
+                "code": "ERR_MODAL_SYNC",
                 "ref": ref,
                 "env": env,
-                "secret": secret_name,
-                "synced_keys": sorted(kv.keys()),
-                "missing": missing,
+                "failed_secret": key,
             }
-        )
-    )
+            if hasattr(args, "json") and args.json:
+                print(json.dumps(result))
+            else:
+                print(json.dumps(result, indent=2))
+            raise CommandError(f"Failed to sync secret: {key}")
+
+    # 6) Success result
+    result = {
+        "status": "success",
+        "ref": ref,
+        "env": env,
+        "created": sorted(created),
+        "updated": sorted(updated),
+        "unchanged": sorted(unchanged),
+    }
+    if hasattr(args, "json") and args.json:
+        print(json.dumps(result))
+    else:
+        print(json.dumps(result, indent=2))
 
 
 # --- Django management command entrypoint -----------------------------------
@@ -408,13 +439,12 @@ class Command(BaseCommand):
         p_logs.set_defaults(func=cmd_logs)
 
         # sync-secrets
-        p_sync = sub.add_parser("sync-secrets", help="Create/update Modal Secret from registry required keys.")
-        p_sync.add_argument("--ref", required=True, help="ns/name@ver")
-        p_sync.add_argument("--env", required=True, choices=["dev", "staging", "main"])
-        p_sync.add_argument("--name", help="Modal Secret name (default: <app-name>-secrets)")
-        p_sync.add_argument("--from-json", help="Path to JSON file with KEY: VALUE overrides")
-        p_sync.add_argument("--allow-missing", action="store_true", help="Proceed even if some required keys missing")
-        p_sync.add_argument("--dry-run", action="store_true", help="Only print what would be synced")
+        p_sync = sub.add_parser("sync-secrets", help="Sync required secrets for processor")
+        p_sync.add_argument("--ref", required=True, help="Processor ref: ns/name@ver")
+        p_sync.add_argument("--env", required=True, help="Environment name (dev|staging|prod)")
+        p_sync.add_argument("--check", action="store_true", help="Dry-run mode: show what would be synced")
+        p_sync.add_argument("--prune", action="store_true", help="Remove extra secrets not in registry")
+        p_sync.add_argument("--json", action="store_true", help="JSON output")
         p_sync.set_defaults(func=cmd_sync_secrets)
 
     def handle(self, *args, **options):

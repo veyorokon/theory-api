@@ -5,7 +5,7 @@ build:
 image:
   default_platform: amd64
   platforms:
-    amd64: ghcr.io/veyorokon/theory-api/llm-litellm@sha256:37c4259bde13f7d0fd380a4fc50c6680a8463407b065c8d035be71141d233511
+    amd64: ghcr.io/test/repo@sha256:b81a047471e35cb42fc1bbea5170617d5ac26e235b2d23b8a0a53a4bd4a82efc
     arm64: ghcr.io/owner/repo/llm-litellm@sha256:REPLACE_ARM64
 inputs:
   $schema: https://json-schema.org/draft-07/schema#

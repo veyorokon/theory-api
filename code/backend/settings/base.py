@@ -52,7 +52,6 @@ LOCAL_APPS = [
 THIRD_PARTY_APPS = [
     "rest_framework",
     "channels",
-    "management_commands",
 ]
 DJANGO_APPS = [
     "django.contrib.admin",
@@ -168,6 +167,9 @@ MODAL_ENABLED = os.environ.get("MODAL_ENABLED", "false").lower() == "true"
 MODAL_ENVIRONMENT = os.environ.get("MODAL_ENVIRONMENT", "").strip() or "dev"
 # Stable Modal app name (module uses this); env is selected at deploy/invoke time
 MODAL_APP_NAME = os.environ.get("MODAL_APP_NAME", "theory-rt")
+# Modal app naming context (for dev branch/user pattern)
+MODAL_BRANCH = os.environ.get("GITHUB_HEAD_REF") or os.environ.get("BRANCH", "").strip()
+MODAL_USER = os.environ.get("USER") or os.environ.get("BUILD_USER", "").strip()
 
 # Lease management feature flag
 LEASES_ENABLED = False

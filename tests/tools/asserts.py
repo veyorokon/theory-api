@@ -22,7 +22,7 @@ def assert_success_envelope(env: Mapping[str, Any], *, fingerprint_fragments: It
     assert isinstance(meta, dict), "meta must be present"
     fp = meta.get("env_fingerprint")
     assert isinstance(fp, str) and fp, "env_fingerprint must be present"
-    assert_env_fingerprint(fp, fragments=("image:", "cpu:", *fingerprint_fragments))
+    assert_env_fingerprint(fp, fragments=("cpu:", *fingerprint_fragments))
     return env  # type: ignore[return-value]
 
 

@@ -2,6 +2,7 @@
 
 import json
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -20,7 +21,7 @@ class TestLogContract:
     def processor_image(self):
         """Build processor image for log testing."""
         result = subprocess.run(
-            ["python", "manage.py", "build_processor", "--ref", "llm/litellm@1", "--json"],
+            [sys.executable, "manage.py", "build_processor", "--ref", "llm/litellm@1", "--json"],
             cwd="code",
             capture_output=True,
             text=True,

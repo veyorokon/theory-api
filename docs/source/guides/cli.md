@@ -37,6 +37,27 @@ python manage.py run_processor \
 | `mock` | No Docker/MinIO or network calls; deterministic outputs |
 | `real` | Full container execution (or Modal remote) with real provider calls |
 
+### Image Selection (`--build`)
+
+The `--build` flag affects only the local adapter:
+
+- `local + --build=true` → use the newest locally built, timestamped tag (build-from-source loop)
+- `local + --build=false` (default) → use the pinned registry digest from the per-processor `registry.yaml`
+- `modal + --build=any` → ignored; the adapter performs an SDK lookup of the deployed HTTP app/function (deployment is pinned by digest)
+
+Example:
+
+```bash
+# Build-from-source loop (local only)
+python manage.py run_processor --ref ns/name@1 --adapter local --mode mock --build --json
+
+# Pinned digest (supply-chain parity)
+python manage.py run_processor --ref ns/name@1 --adapter local --mode mock --json
+
+# Modal ignores --build
+python manage.py run_processor --ref ns/name@1 --adapter modal --mode mock --json
+```
+
 ### Examples
 
 ```bash

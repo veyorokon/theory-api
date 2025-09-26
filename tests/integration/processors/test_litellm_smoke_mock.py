@@ -38,6 +38,7 @@ class TestLiteLLMMock:
             "--inputs-json",
             json.dumps(inputs),
             "--json",
+            "--build",
         ]
 
         result = run_cli(args, env={"LOG_STREAM": "stderr"})

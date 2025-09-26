@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -33,6 +34,60 @@ def _err(code: str, message: str, *, json_mode: bool) -> None:
 
 def _slugify_ref(ref: str) -> str:
     return ref.replace("/", "-").replace("@", "-")
+
+
+def _detect_arch() -> str:
+    """Normalize architecture to {'amd64','arm64'}."""
+    machine = os.uname().machine
+    if machine == "x86_64":
+        return "amd64"
+    if machine in ("arm64", "aarch64"):
+        return "arm64"
+    return machine
+
+
+def _write_build_manifest(ref: str, tag_for_host: str) -> None:
+    """Write build manifest for local image resolution."""
+    try:
+        ns, rest = ref.split("/", 1)
+        name, _ver = rest.split("@", 1)
+    except ValueError:
+        raise RuntimeError(f"Invalid ref '{ref}'. Expected ns/name@ver")
+
+    processor_dir = f"{ns}_{name}"
+    processor_path = Path(settings.BASE_DIR) / "apps" / "core" / "processors" / processor_dir
+    build_dir = processor_path / ".build"
+    build_dir.mkdir(parents=True, exist_ok=True)
+
+    manifest_path = build_dir / "manifest.json"
+    arch = _detect_arch()
+    now = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+
+    data = {
+        "ref": ref,
+        "generated_at": now,
+        "tags": {arch: tag_for_host},
+        "latest_for_host": tag_for_host,
+    }
+
+    # Merge with existing manifest if present
+    if manifest_path.exists():
+        try:
+            existing = json.loads(manifest_path.read_text())
+            tags = existing.get("tags", {})
+            tags[arch] = tag_for_host
+            existing.update(
+                {
+                    "tags": tags,
+                    "latest_for_host": tag_for_host,
+                    "generated_at": now,
+                }
+            )
+            data = existing
+        except Exception:
+            pass  # Use new manifest if existing is corrupted
+
+    manifest_path.write_text(json.dumps(data, indent=2))
 
 
 def _build_image(
@@ -178,6 +233,8 @@ class Command(BaseCommand):
         build_spec = spec.get("build") or {}
         try:
             result = _build_image(ref, build_spec, platforms=platforms, no_cache=no_cache, tag=tag)
+            # Write build manifest for local image resolution
+            _write_build_manifest(ref, result["image_tag"])
         except Exception as exc:
             _err("ERR_IMAGE_BUILD", str(exc), json_mode=json_mode)
             return

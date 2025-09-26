@@ -2,12 +2,15 @@
 
 import json
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
 
 import pytest
 import requests
+
+from tests.tools.subprocess_helper import run_manage_py
 
 
 pytestmark = [pytest.mark.integration, pytest.mark.requires_docker]
@@ -19,12 +22,15 @@ class TestLocalAdapterHTTP:
     @pytest.fixture(scope="class")
     def processor_image(self):
         """Build processor image and return image tag."""
-        result = subprocess.run(
-            ["python", "manage.py", "build_processor", "--ref", "llm/litellm@1", "--json"],
-            cwd="code",
+        result = run_manage_py(
+            "build_processor",
+            "--ref",
+            "llm/litellm@1",
+            "--json",
             capture_output=True,
             text=True,
             timeout=300,
+            check=False,
         )
 
         if result.returncode != 0:
@@ -85,14 +91,15 @@ class TestLocalAdapterHTTP:
                 subprocess.run(["docker", "stop", container_id], capture_output=True)
                 subprocess.run(["docker", "rm", container_id], capture_output=True)
 
-    def test_local_adapter_calls_http_endpoints(self, running_container):
+    @pytest.mark.requires_docker
+    def test_local_adapter_calls_http_endpoints(self, require_docker, running_container):
         """Test LocalAdapter makes HTTP POST requests to /run endpoint."""
         # Use Django management command with LocalAdapter
         payload = {"schema": "v1", "params": {"messages": [{"role": "user", "content": "HTTP test"}]}}
 
         result = subprocess.run(
             [
-                "python",
+                sys.executable,
                 "manage.py",
                 "run_processor",
                 "--ref",
@@ -131,7 +138,8 @@ class TestLocalAdapterHTTP:
         # Should see HTTP POST to /run in container logs
         assert "POST /run" in logs_result.stderr or "POST /run" in logs_result.stdout
 
-    def test_local_adapter_propagates_415_error(self, running_container):
+    @pytest.mark.requires_docker
+    def test_local_adapter_propagates_415_error(self, require_docker, running_container):
         """Test LocalAdapter converts HTTP 415 to proper error envelope."""
         # Make direct HTTP request with wrong Content-Type to verify error
         response = requests.post(
@@ -147,7 +155,8 @@ class TestLocalAdapterHTTP:
         assert envelope["error"]["code"] == "ERR_INPUTS"
         assert "Content-Type must be application/json" in envelope["error"]["message"]
 
-    def test_local_adapter_propagates_400_error(self, running_container):
+    @pytest.mark.requires_docker
+    def test_local_adapter_propagates_400_error(self, require_docker, running_container):
         """Test LocalAdapter converts HTTP 400 to proper error envelope."""
         # Make direct HTTP request with invalid JSON
         response = requests.post(
@@ -163,7 +172,8 @@ class TestLocalAdapterHTTP:
         assert envelope["error"]["code"] == "ERR_INPUTS"
         assert "Invalid JSON body" in envelope["error"]["message"]
 
-    def test_local_adapter_not_stdin_stdout(self, running_container):
+    @pytest.mark.requires_docker
+    def test_local_adapter_not_stdin_stdout(self, require_docker, running_container):
         """Test LocalAdapter doesn't use legacy stdin/stdout CLI pattern."""
         # Verify that direct docker run with stdin doesn't work as expected
         # (because we're now HTTP-first)
@@ -188,7 +198,8 @@ class TestLocalAdapterHTTP:
         # The container is running HTTP server, not CLI processor
         assert stdin_result.returncode != 0
 
-    def test_local_adapter_http_success_path(self, running_container):
+    @pytest.mark.requires_docker
+    def test_local_adapter_http_success_path(self, require_docker, running_container):
         """Test LocalAdapter HTTP success path end-to-end."""
         # Test successful HTTP request directly
         payload = {
@@ -216,7 +227,8 @@ class TestLocalAdapterHTTP:
         for output in envelope["outputs"]:
             assert output["path"].startswith("/artifacts/outputs/http-success/")
 
-    def test_local_adapter_http_timeout_handling(self, running_container):
+    @pytest.mark.requires_docker
+    def test_local_adapter_http_timeout_handling(self, require_docker, running_container):
         """Test LocalAdapter handles HTTP timeouts appropriately."""
         # This is more of a network-level test
         # Make request with very short timeout
@@ -240,7 +252,8 @@ class TestLocalAdapterHTTP:
             # Timeout is expected with very short timeout
             pass
 
-    def test_local_adapter_concurrent_http_requests(self, running_container):
+    @pytest.mark.requires_docker
+    def test_local_adapter_concurrent_http_requests(self, require_docker, running_container):
         """Test LocalAdapter can handle concurrent HTTP requests."""
         import concurrent.futures
         import uuid

@@ -1,6 +1,7 @@
 # tests/tools/runner.py
 from __future__ import annotations
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -20,10 +21,12 @@ def run_cli(
 ) -> subprocess.CompletedProcess[str]:
     """Run a Django manage.py command with deterministic cwd and interpreter."""
     cmd = [sys.executable, "manage.py", *args]
+    # Merge os.environ with overrides to preserve PATH
+    run_env = {**os.environ, **(env or {})}
     return subprocess.run(
         cmd,
         cwd=str(code_dir()),
-        env=None if env is None else {**env},
+        env=run_env,
         capture_output=True,
         text=True,
         timeout=timeout,

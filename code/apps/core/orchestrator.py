@@ -1,292 +1,223 @@
-"""Core processor execution logic."""
-
 from __future__ import annotations
-import datetime
+
 import json
-import logging
+import sys
 import uuid
-from typing import Any, Dict
-
-from django.db import transaction
-
-from apps.plans.models import Plan
-from apps.runtime.models import Transition, Execution
-from apps.storage.artifact_store import artifact_store
-from apps.runtime.determinism import write_determinism_receipt
-from apps.runtime.services import settle_execution_success, settle_execution_failure
-from apps.core.adapters.local_adapter import LocalAdapter
-from apps.core.adapters.modal_adapter import ModalAdapter
-from apps.core.registry.loader import snapshot_for_ref, get_secrets_present_for_spec
-from libs.runtime_common.envelope import error_envelope
-from apps.core.errors import ERR_PREFIX_TEMPLATE, ERR_ADAPTER_INVOCATION
-from libs.runtime_common.paths import validate_write_prefix, PrefixError
-from libs.runtime_common.receipts import build_receipt
-
-logger = logging.getLogger(__name__)
+import traceback
+from dataclasses import dataclass
+from typing import Any, Dict, Protocol
 
 
-def _get_adapter(adapter_name: str):
-    """Get adapter instance by name."""
-    adapters = {
-        "local": LocalAdapter,
-        "modal": ModalAdapter,
-    }
-    if adapter_name not in adapters:
-        raise ValueError(f"Unknown adapter: {adapter_name}")
-    return adapters[adapter_name]()
+# --- Logging -----------------------------------------------------------------
+try:
+    from libs.runtime_common.logging import info, warn, error, debug  # type: ignore
+except Exception:  # pragma: no cover
+
+    def _log(level: str, event: str, **fields: Any) -> None:
+        base = {"level": level, "event": event, "service": "orchestrator"}
+        base.update(fields)
+        sys.stderr.write(json.dumps(base, separators=(",", ":"), sort_keys=False) + "\n")
+        sys.stderr.flush()
+
+    def info(event: str, **fields: Any) -> None:
+        _log("info", event, **fields)
+
+    def warn(event: str, **fields: Any) -> None:
+        _log("warn", event, **fields)
+
+    def error(event: str, **fields: Any) -> None:
+        _log("error", event, **fields)
+
+    def debug(event: str, **fields: Any) -> None:
+        _log("debug", event, **fields)
 
 
-def run_processor_core(
-    *,
-    ref: str,
-    adapter: str,
-    mode: str = "default",
-    inputs_json: Dict[str, Any],
-    write_prefix: str,
-    plan: str | None = None,
-    adapter_opts: Dict[str, Any] | None = None,
-    build: bool = False,
-    timeout: int | None = None,
-    started_at: datetime.datetime | None = None,
-    execution_id: str | None = None,
-    env: str | None = None,
-) -> Dict[str, Any]:
+# --- Result / Protocol --------------------------------------------------------
+@dataclass
+class InvokeResult:
+    status: str
+    envelope: Dict[str, Any]
+    http_status: int
+    url: str
+    stderr_tail: str | None = None
+
+
+class TransportAdapter(Protocol):
+    def invoke_by_ref(
+        self, *, ref: str, payload: Dict[str, Any], timeout_s: int = 600, expected_oci: str | None = None, **kwargs: Any
+    ) -> InvokeResult: ...
+
+
+# --- Adapter selection --------------------------------------------------------
+def _get_adapter(adapter_name: str) -> TransportAdapter:
+    name = (adapter_name or "").strip().lower()
+    if name == "local":
+        from apps.core.adapters.local_adapter import LocalHTTPAdapter  # type: ignore
+
+        return LocalHTTPAdapter()
+    if name == "modal":
+        from apps.core.adapters.modal_adapter import ModalHTTPAdapter  # type: ignore
+
+        return ModalHTTPAdapter()
+    raise ValueError(f"Unknown adapter '{adapter_name}'. Expected one of: local, modal.")
+
+
+# --- Utilities ----------------------------------------------------------------
+def _normalize_digest(oci_or_digest: str | None) -> str | None:
+    if not oci_or_digest:
+        return None
+    s = oci_or_digest.strip()
+    if "@sha256:" in s:
+        return "sha256:" + s.split("@sha256:", 1)[1]
+    if s.startswith("sha256:"):
+        return s
+    return None
+
+
+def _require_execution_id(execution_id: str | None) -> str:
+    eid = (execution_id or "").strip()
+    return eid or str(uuid.uuid4())
+
+
+def _validate_write_prefix(write_prefix: str | None, require_placeholder: bool = True) -> str:
+    wp = (write_prefix or "").strip()
+    if require_placeholder and "{execution_id}" not in wp:
+        raise ValueError("--write-prefix must include '{execution_id}' to prevent output collisions")
+    return wp
+
+
+# --- Options ------------------------------------------------------------------
+@dataclass
+class ExecutionOptions:
+    adapter: str
+    ref: str
+    mode: str = "mock"
+    inputs: Dict[str, Any] | None = None
+    write_prefix: str | None = None
+    expected_oci: str | None = None
+    timeout_s: int = 600
+    require_prefix_placeholder: bool = True
+    extra: Dict[str, Any] | None = None
+    build: bool = False
+    # Modal hints (optional)
+    env: str | None = None
+    branch: str | None = None
+    user: str | None = None
+
+
+# --- Orchestrator -------------------------------------------------------------
+class Orchestrator:
     """
-    Pure function: orchestrates one processor run and returns the envelope dict.
-    No printing, no Django IO. Easy to unit-test.
+    Transport-only orchestrator:
+      1) Build canonical payload
+      2) Call adapter.invoke_by_ref(...)
+      3) Validate / unwrap result
+      4) Return canonical envelope (dict)
     """
-    if started_at is None:
-        started_at = datetime.datetime.now(datetime.UTC)
 
-    # Single source of truth for environment
-    if env is None:
-        import os
+    def __init__(self) -> None:
+        pass
 
-        env = os.getenv("APP_ENV") or os.getenv("MODAL_ENVIRONMENT") or "dev"
+    def execute(self, opts: ExecutionOptions) -> Dict[str, Any]:
+        ref = (opts.ref or "").strip()
+        if "/" not in ref or "@" not in ref:
+            raise ValueError(f"Invalid ref '{ref}'. Expected 'ns/name@ver'.")
 
-    adapter_opts = adapter_opts or {}
+        eid = _require_execution_id((opts.extra or {}).get("execution_id") if opts.extra else None)
+        write_prefix = _validate_write_prefix(opts.write_prefix, opts.require_prefix_placeholder)
+        expected_digest = _normalize_digest(opts.expected_oci)
 
-    # Add build flag to adapter options
-    if build:
-        adapter_opts["build"] = build
-
-    # Get or create plan if specified
-    plan_obj = None
-    execution = None
-    if plan:
-        plan_obj, created = Plan.objects.get_or_create(key=plan, defaults={"reserved_micro": 100000, "spent_micro": 0})
-
-        # Create transition and execution
-        with transaction.atomic():
-            transition = Transition.objects.create(plan=plan_obj, key=f"run-{ref}", status="running")
-            execution = Execution.objects.create(transition=transition, attempt_idx=1)
-
-    try:
-        # Load registry snapshot
-        try:
-            registry_snapshot = snapshot_for_ref(ref)
-            spec = registry_snapshot["processors"][ref]
-        except Exception as e:
-            if execution_id is None:
-                execution_id = str(execution.id) if execution else str(uuid.uuid4())
-            logger.error("Registry loading failed", extra={"execution_id": execution_id, "ref": ref}, exc_info=True)
-            return error_envelope(
-                execution_id=execution_id,
-                code=ERR_ADAPTER_INVOCATION,
-                message=f"Failed to load registry for {ref}: {e}",
-                env_fingerprint="registry_error",
-            )
-
-        # Get secrets present in environment
-        secrets_present = get_secrets_present_for_spec(spec)
-
-        # Get adapter
-        try:
-            adapter_instance = _get_adapter(adapter)
-        except ValueError as e:
-            if execution_id is None:
-                execution_id = str(execution.id) if execution else str(uuid.uuid4())
-            logger.error(
-                "Adapter initialization failed", extra={"execution_id": execution_id, "adapter": adapter}, exc_info=True
-            )
-            return error_envelope(
-                execution_id=execution_id,
-                code=ERR_ADAPTER_INVOCATION,
-                message=str(e),
-                env_fingerprint="adapter_error",
-            )
-
-        # Use provided execution_id or generate one
-        if execution_id is None:
-            execution_id = str(execution.id) if execution else str(uuid.uuid4())
-        if execution:
-            adapter_opts["execution_id"] = execution_id
-
-        # Validate and expand write_prefix using secure validator
-        try:
-            write_prefix = validate_write_prefix(write_prefix, execution_id)
-        except PrefixError as e:
-            return error_envelope(
-                execution_id=execution_id,
-                code=ERR_PREFIX_TEMPLATE,
-                message=str(e),
-                env_fingerprint="prefix_validation_error",
-                meta_extra={"write_prefix_template": write_prefix},
-            )
-
-        # Build payload for transport-only adapter
-        payload = {
+        payload: Dict[str, Any] = {
             "schema": "v1",
-            "execution_id": execution_id,
+            "execution_id": eid,
             "ref": ref,
-            "mode": mode,
-            "inputs": inputs_json,
+            "mode": (opts.mode or "mock").strip(),
+            "inputs": opts.inputs or {},
             "write_prefix": write_prefix,
         }
 
-        # Get OCI digest from adapter opts or registry
-        oci = adapter_opts.get("expected_oci")
-        if not oci and adapter == "modal":
-            # Modal requires AMD64 digest
-            try:
-                platforms = spec.get("image", {}).get("platforms", {})
-                oci = platforms.get("amd64")
-            except (KeyError, TypeError):
-                pass
-
-        # Invoke adapter with HTTP transport-only signature
-        try:
-            result = adapter_instance.invoke(
-                ref=ref,
-                payload=payload,
-                timeout_s=timeout or 600,
-                oci=oci,
-                stream=False,  # TODO: Add streaming support
-            )
-        except TypeError as te:
-            # Adapter doesn't implement new signature
-            result = error_envelope(
-                execution_id=execution_id,
-                code=ERR_ADAPTER_INVOCATION,
-                message=f"Adapter {adapter} does not implement the new keyword-only signature: {te}",
-                env_fingerprint=f"adapter={adapter}",
-            )
-        except Exception as e:
-            logger.error(
-                "Adapter invocation failed", extra={"execution_id": execution_id, "adapter": adapter}, exc_info=True
-            )
-            result = error_envelope(
-                execution_id=execution_id,
-                code=ERR_ADAPTER_INVOCATION,
-                message=f"{e.__class__.__name__}: {e}",
-                env_fingerprint=f"adapter={adapter}",
-            )
-
-        # Generate receipt for every run (success and error)
-        finished_at = datetime.datetime.now(datetime.UTC)
-
-        # Generate inputs fingerprint
-        inputs_fingerprint = str(hash(json.dumps(inputs_json, sort_keys=True)))
-
-        # Extract model from inputs if available
-        model = None
-        if "model" in inputs_json:
-            model = inputs_json["model"]
-        elif "messages" in inputs_json and inputs_json["messages"]:
-            # Try to extract from LLM-style inputs
-            model = inputs_json.get("model", "gpt-4o-mini")  # Default fallback
-
-        # Determine status and extract metadata
-        status = "completed" if result.get("status") == "success" else "failed"
-        result_meta = result.get("meta", {})
-
-        # Extract image reference for digest fallback
-        image_ref = None
-        try:
-            image_ref = registry_snapshot["processors"][ref]["image"]["oci"]
-        except (KeyError, TypeError):
-            pass
-
-        # Plan information for extras (optional)
-        plan_extras = {}
-        if plan_obj:
-            plan_extras["plan_id"] = plan_obj.id
-        if execution:
-            plan_extras["execution_pk"] = execution.id
-
-        # Build complete receipt with new signature
-        receipt_data = build_receipt(
-            processor=ref,
-            model=model,
-            status=status,
-            execution_id=execution_id,
-            inputs_fingerprint=inputs_fingerprint,
-            env_fingerprint=result_meta.get("env_fingerprint", ""),
-            image_ref=image_ref,
-            image_digest=result_meta.get("image_digest"),
-            started_at=started_at,
-            finished_at=finished_at,
-            extra=plan_extras,
+        info(
+            "execution.start", adapter=opts.adapter, processor_ref=ref, mode=payload["mode"], write_prefix=write_prefix
         )
 
-        # Write receipt to write_prefix location alongside outputs
-        receipt_path = f"{write_prefix}receipt.json"
-        receipt_bytes = json.dumps(receipt_data, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-        artifact_store.put_bytes(receipt_path, receipt_bytes, "application/json")
+        adapter = _get_adapter(opts.adapter)
+        try:
+            result: InvokeResult = adapter.invoke_by_ref(
+                ref=ref,
+                payload=payload,
+                timeout_s=opts.timeout_s,
+                expected_oci=expected_digest,
+                build=opts.build,
+                env=opts.env,
+                branch=opts.branch,
+                user=opts.user,
+            )
+        except Exception as ex:
+            tb = traceback.format_exc(limit=2)
+            error("adapter.invoke.error", adapter=opts.adapter, ref=ref, exc=str(ex), tb=tb)
+            return {
+                "status": "error",
+                "execution_id": eid,
+                "error": {"code": "ERR_ADAPTER", "message": f"Adapter failure: {ex.__class__.__name__}"},
+                "meta": {"adapter": opts.adapter},
+            }
 
-        # Write determinism receipt and settle execution if plan/execution exists
-        if execution and result.get("status") == "success":
-            # Derive output_cids from canonical outputs
-            outputs = result.get("outputs") or []
-            output_cids = [o["cid"] for o in outputs if isinstance(o, dict) and "cid" in o]
+        env = result.envelope or {}
+        status = str(env.get("status", "")).lower()
+        got_eid = str(env.get("execution_id", "")).strip()
 
-            env_fp = result.get("env_fingerprint") or (result.get("meta") or {}).get("env_fingerprint", "")
-            determinism_uri = write_determinism_receipt(
-                plan=plan_obj,
-                execution=execution,
-                seed=result.get("seed", 0),
-                memo_key=result.get("memo_key", ""),
-                env_fingerprint=env_fp,
-                output_cids=output_cids,
+        if got_eid and got_eid != eid:
+            warn(
+                "execution.envelope.execution_id_mismatch",
+                expected=eid,
+                got=got_eid,
+                url=result.url,
+                http_status=result.http_status,
             )
 
-            # Settle execution with canonical output metadata
-            # Include outputs_index/outputs_count only when outputs non-empty
-            outputs_index = result.get("index_path") if outputs else None
-            outputs_count = len(outputs) if outputs else None
-            settle_execution_success(
-                plan=plan_obj,
-                execution=execution,
-                estimate_hi_micro=result.get("estimate_micro", 1000),
-                actual_micro=result.get("actual_micro", 500),
-                seed=result.get("seed", 0),
-                memo_key=result.get("memo_key", ""),
-                env_fingerprint=env_fp,
-                output_cids=output_cids,
-                outputs_index=outputs_index,
-                outputs_count=outputs_count,
+        if status not in ("success", "error"):
+            warn(
+                "execution.envelope.unknown_status",
+                status=status or "<missing>",
+                url=result.url,
+                http_status=result.http_status,
             )
 
-            result["determinism_uri"] = determinism_uri
+        info("execution.settle", status=status or "<missing>", http_status=result.http_status, url=result.url)
+        return env
 
-        # Ensure execution_id is in result envelope (contract guarantee)
-        result["execution_id"] = execution_id
 
-        return result
-
-    except Exception as e:
-        execution_id = str(execution.id) if execution else str(uuid.uuid4())
-
-        if execution:
-            # Settle as failure
-            settle_execution_failure(
-                plan=plan_obj, execution=execution, estimate_hi_micro=1000, metered_actual_micro=100, reason=str(e)
-            )
-
-        # Create error result for programmatic access
-        return {
-            "status": "error",
-            "execution_id": execution_id,
-            "error": {"code": "ERR_COMMAND_EXCEPTION", "message": str(e)},
-            "meta": {"env_fingerprint": "command_error"},
-        }
+# --- Convenience --------------------------------------------------------------
+def run(
+    *,
+    adapter: str,
+    ref: str,
+    mode: str,
+    inputs: Dict[str, Any],
+    write_prefix: str,
+    expected_oci: str | None,
+    timeout_s: int = 600,
+    require_prefix_placeholder: bool = True,
+    extra: Dict[str, Any] | None = None,
+    build: bool = False,
+    env: str | None = None,
+    branch: str | None = None,
+    user: str | None = None,
+) -> Dict[str, Any]:
+    orch = Orchestrator()
+    opts = ExecutionOptions(
+        adapter=adapter,
+        ref=ref,
+        mode=mode,
+        inputs=inputs,
+        write_prefix=write_prefix,
+        expected_oci=expected_oci,
+        timeout_s=timeout_s,
+        require_prefix_placeholder=require_prefix_placeholder,
+        extra=extra,
+        build=build,
+        env=env,
+        branch=branch,
+        user=user,
+    )
+    return orch.execute(opts)

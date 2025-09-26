@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+import sys
 import pytest
 import boto3
 from botocore.exceptions import ClientError
@@ -37,7 +38,7 @@ def _run_processor_and_get_receipt(test_name: str) -> dict:
     _ensure_bucket_exists()
 
     cmd = [
-        "python",
+        sys.executable,
         "manage.py",
         "run_processor",
         "--ref",

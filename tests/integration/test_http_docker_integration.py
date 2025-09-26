@@ -1,6 +1,7 @@
 """HTTP Docker integration tests for processor containers."""
 
 import json
+import subprocess
 import tempfile
 import time
 from pathlib import Path
@@ -8,6 +9,8 @@ from pathlib import Path
 import pytest
 import requests
 from testcontainers.compose import DockerCompose
+
+from tests.tools.subprocess_helper import run_manage_py
 
 
 pytestmark = [pytest.mark.integration, pytest.mark.requires_docker]
@@ -20,14 +23,15 @@ class TestHTTPDockerIntegration:
     def processor_container(self):
         """Start processor container and return its URL."""
         # Build processor image first
-        import subprocess
-
-        result = subprocess.run(
-            ["python", "manage.py", "build_processor", "--ref", "llm/litellm@1", "--json"],
-            cwd="code",
+        result = run_manage_py(
+            "build_processor",
+            "--ref",
+            "llm/litellm@1",
+            "--json",
             capture_output=True,
             text=True,
             timeout=300,
+            check=False,
         )
 
         if result.returncode != 0:

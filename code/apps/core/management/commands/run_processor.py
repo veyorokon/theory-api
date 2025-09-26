@@ -13,7 +13,7 @@ from typing import Any, Dict, List
 from django.core.management.base import BaseCommand
 from libs.runtime_common.envelope import resolve_mode, ModeSafetyError
 
-from apps.core.orchestrator import run_processor_core
+from apps.core.orchestrator import run
 from libs.runtime_common import logging as core_logging
 from libs.runtime_common.logging import bind, clear
 from apps.storage.artifact_store import artifact_store
@@ -246,22 +246,23 @@ class Command(BaseCommand):
 
             os.environ["GLOBAL_RECEIPT_BASE"] = options["global_receipt_base"]
 
-            # Lane toggle: allow CI to force build without changing tests
-            force_build = os.getenv("RUN_PROCESSOR_FORCE_BUILD") == "1"
-            build_flag = options.get("build", False) or (force_build and options["adapter"] == "local")
+            # Extract Modal context from Django settings
+            from django.conf import settings
 
-            # Call core function with pre-generated execution_id
-            result = run_processor_core(
+            # Call new orchestrator run function
+            result = run(
                 ref=options["ref"],
                 adapter=options["adapter"],
                 mode=options["mode"],
-                inputs_json=inputs_json,
+                inputs=inputs_json,
                 write_prefix=options["write_prefix"],
-                plan=options.get("plan"),
-                adapter_opts=adapter_opts,
-                build=build_flag,
-                timeout=options.get("timeout"),
-                execution_id=execution_id,
+                expected_oci=None,  # Could extract from adapter_opts if needed
+                timeout_s=options.get("timeout", 600),
+                build=options.get("build", False),
+                extra={"execution_id": execution_id},
+                env=getattr(settings, "MODAL_ENVIRONMENT", None),
+                branch=getattr(settings, "MODAL_BRANCH", None),
+                user=getattr(settings, "MODAL_USER", None),
             )
 
             # Log execution outcome (boundary discipline)

@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+import sys
 import pytest
 import boto3
 from botocore.exceptions import ClientError
@@ -43,7 +44,7 @@ class TestE2ELocal:
         prefix = "/artifacts/outputs/text/{execution_id}/"
 
         cmd = [
-            "python",
+            sys.executable,
             "manage.py",
             "run_processor",
             "--ref",
@@ -126,7 +127,7 @@ class TestE2ELocal:
     def test_local_adapter_error_handling(self):
         """Test local adapter properly handles processor failures."""
         cmd = [
-            "python",
+            sys.executable,
             "manage.py",
             "run_processor",
             "--ref",

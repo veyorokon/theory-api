@@ -2,6 +2,7 @@ import sys
 import pathlib
 import os
 import json
+import subprocess
 import typing as t
 import pytest
 
@@ -135,12 +136,32 @@ def no_network():
         yield
 
 
+# ---------- Docker check ----------
+def _docker_available() -> bool:
+    try:
+        subprocess.run(
+            ["docker", "version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        return True
+    except Exception:
+        return False
+
+
+@pytest.fixture(scope="session")
+def require_docker():
+    if not _docker_available():
+        pytest.skip("Docker not available")
+
+
 # ---------- Lane fixtures ----------
 @pytest.fixture
 def pr_lane_env(monkeypatch: pytest.MonkeyPatch, no_network, registry_required_secrets: set[str]):
     """PR lane: build from source, mock only, no secrets, filesystem storage."""
     monkeypatch.setenv("CI", "true")  # CI guard still active; mode=real forbidden
-    monkeypatch.setenv("RUN_PROCESSOR_FORCE_BUILD", "1")  # force --build path in helpers/CLI
+    # PR lane uses --build flag in CLI calls instead of environment variable
     # Strip all registry-required secrets to enforce hermetic behavior
     for name in registry_required_secrets:
         monkeypatch.delenv(name, raising=False)
@@ -154,7 +175,7 @@ def pr_lane_env(monkeypatch: pytest.MonkeyPatch, no_network, registry_required_s
 def supplychain_env(monkeypatch: pytest.MonkeyPatch, registry_required_secrets: set[str]):
     """Supply-chain lane (dev/staging/main): pinned-only by default; secrets absent unless test sets."""
     monkeypatch.setenv("CI", "true")
-    monkeypatch.setenv("RUN_PROCESSOR_FORCE_BUILD", "0")  # ensure no local builds
+    # Supply-chain lane avoids --build flag to use registry images only
     # Default: still hermetic. Pinned acceptance should not need secrets.
     for name in registry_required_secrets:
         monkeypatch.delenv(name, raising=False)

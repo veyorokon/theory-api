@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+import sys
 import pytest
 import boto3
 from botocore.exceptions import ClientError
@@ -35,7 +36,7 @@ def _ensure_bucket_exists():
 def _run_processor_with_template(template_prefix: str) -> dict:
     """Run processor with templated write prefix."""
     cmd = [
-        "python",
+        sys.executable,
         "manage.py",
         "run_processor",
         "--ref",
@@ -148,7 +149,7 @@ class TestWritePrefixTemplating:
 
         for invalid_prefix in invalid_prefixes:
             cmd = [
-                "python",
+                sys.executable,
                 "manage.py",
                 "run_processor",
                 "--ref",

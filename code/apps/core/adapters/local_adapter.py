@@ -1,271 +1,310 @@
-"""
-Local (Docker) adapter: HTTP transport-only execution.
-
-Contract:
-- Start container from registry digest
-- Health poll /healthz endpoint
-- POST payload to /run or /run-stream
-- Return validated envelope
-- Optional digest drift check
-"""
+from __future__ import annotations
 
 import json
-import time
-import requests
+import os
+import shlex
+import socket
 import subprocess
-import platform
-from typing import Any, Dict, Iterator
-from libs.runtime_common.envelope import is_valid_envelope, error_envelope
-from libs.runtime_common.logging import log
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict
 
 
-class LocalAdapter:
-    """Docker-backed HTTP adapter."""
+import requests
 
-    def invoke(
-        self, *, ref: str, payload: Dict[str, Any], timeout_s: int, oci: str | None = None, stream: bool = False, **_
-    ) -> Dict[str, Any] | Iterator[Dict[str, Any]]:
-        """
-        Execute processor locally via Docker HTTP.
+from .base_http_adapter import (
+    BaseHTTPAdapter,
+    InvokeOptions,
+    InvokeResult,
+    _normalize_digest,
+    _error_envelope,
+)
 
-        1. Resolve image digest based on host architecture
-        2. Start container with port mapping
-        3. Health poll /healthz
-        4. POST to /run or /run-stream
-        5. Return validated envelope
-        """
-        execution_id = payload.get("execution_id", "")
+# --- Logging -----------------------------------------------------------------
+try:
+    from libs.runtime_common.logging import info, warn, error, debug  # type: ignore
+except Exception:  # pragma: no cover
+    import logging
 
-        log(
-            "info",
-            "adapter.invoke.start",
-            adapter="local",
-            ref=ref,
-            execution_id=execution_id,
-            mode=payload.get("mode"),
-            timeout_s=timeout_s,
+    _L = logging.getLogger("adapters.local")
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+    def info(event: str, **fields):
+        _L.info(json.dumps({"event": event, **fields}))
+
+    def warn(event: str, **fields):
+        _L.warning(json.dumps({"event": event, **fields}))
+
+    def error(event: str, **fields):
+        _L.error(json.dumps({"event": event, **fields}))
+
+    def debug(event: str, **fields):
+        _L.debug(json.dumps({"event": event, **fields}))
+
+
+# --- Options -----------------------------------------------------------------
+@dataclass(frozen=True)
+class LocalInvokeOptions(InvokeOptions):
+    image_ref: str | None = None  # resolved OCI or local build tag
+    mount_artifacts: str | None = None  # e.g., "/artifacts"
+    run_path: str = "/run"
+    health_path: str = "/healthz"
+    build: bool = False
+
+    @classmethod
+    def from_ref(cls, ref: str, **kwargs) -> LocalInvokeOptions:
+        build = kwargs.pop("build", False)
+        return cls(image_ref=_resolve_image_ref(ref, build=build), build=build, **kwargs)
+
+
+# --- Registry helpers ---------------------------------------------------------
+def _code_root() -> Path:
+    # .../code/apps/core/adapters/local_adapter.py -> .../code
+    return Path(__file__).resolve().parents[3]
+
+
+def _registry_path(ref: str) -> Path:
+    ns, rest = ref.split("/", 1)
+    name, _ver = rest.split("@", 1)
+    return _code_root() / "apps" / "core" / "processors" / f"{ns}_{name}" / "registry.yaml"
+
+
+def _load_registry_for_ref(ref: str) -> Dict[str, Any]:
+    reg_path = _registry_path(ref)
+    if not reg_path.exists():
+        raise FileNotFoundError(f"registry.yaml not found for ref '{ref}' at {reg_path}")
+    try:
+        import yaml  # type: ignore
+    except ImportError as ie:  # pragma: no cover
+        raise ImportError("PyYAML is required. Install with: pip install pyyaml") from ie
+    with reg_path.open("r") as f:
+        return yaml.safe_load(f) or {}
+
+
+def _detect_arch() -> str:
+    m = os.uname().machine
+    return "amd64" if m == "x86_64" else ("arm64" if m in ("aarch64", "arm64") else m)
+
+
+def _get_newest_build_tag(ref: str) -> str:
+    """Find the newest timestamped build tag for theory-local/{ns}-{name}-{ver}:build-*"""
+    ns, rest = ref.split("/", 1)
+    name, ver = rest.split("@", 1)
+    repo = f"theory-local/{ns}-{name}-{ver}"
+
+    try:
+        out = subprocess.check_output(
+            ["docker", "image", "ls", "--format", "{{.Repository}}:{{.Tag}}|{{.CreatedAt}}", repo],
+            stderr=subprocess.STDOUT,
+            text=True,
         )
+    except Exception:
+        raise ValueError(f"No local build images found. Run: make build-processor REF={ref}")
 
-        # Resolve image based on architecture
-        image = self._resolve_image(ref, oci)
+    candidates = []
+    for line in out.splitlines():
+        try:
+            tag_part, created = line.split("|", 1)
+        except ValueError:
+            continue
+        if tag_part.startswith(f"{repo}:build-"):
+            candidates.append((created, tag_part))
+
+    if not candidates:
+        raise ValueError(f"No local build images found. Run: make build-processor REF={ref}")
+
+    # Sort by creation time (newest first)
+    candidates.sort(reverse=True, key=lambda x: x[0])
+    return candidates[0][1]
+
+
+def _docker_image_id(image_ref: str) -> str:
+    """Get Docker image ID (sha256:...) or 'unknown'"""
+    try:
+        out = subprocess.check_output(
+            ["docker", "inspect", "--format", "{{.Id}}", image_ref], stderr=subprocess.STDOUT, text=True
+        ).strip()
+        return out if out.startswith("sha256:") else "unknown"
+    except Exception:
+        return "unknown"
+
+
+def _resolve_image_ref(ref: str, *, build: bool = False) -> str:
+    """
+    Resolve image reference:
+      - If build=True: use newest timestamped build tag
+      - Else select platform-specific image from embedded registry (skip placeholders).
+    """
+    if build:
+        return _get_newest_build_tag(ref)
+
+    registry = _load_registry_for_ref(ref)
+    platforms = (registry.get("image") or {}).get("platforms") or {}
+    default_platform = (registry.get("image") or {}).get("default_platform", "amd64")
+    arch = _detect_arch()
+
+    # Prefer host arch if available and not a placeholder
+    def _valid(v: str | None) -> bool:
+        return bool(v) and "REPLACE_" not in v.upper()
+
+    cand = platforms.get(arch)
+    if _valid(cand):
+        return cand
+
+    # Fall back to default platform
+    cand = platforms.get(default_platform)
+    if _valid(cand):
+        return cand
+
+    raise ValueError(f"No valid image mapping for {ref}; platforms keys={list(platforms.keys())}")
+
+
+# --- Local docker lifecycle ---------------------------------------------------
+def _docker_available() -> bool:
+    try:
+        subprocess.run(["docker", "version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)  # noqa: S603
+        return True
+    except Exception:
+        return False
+
+
+def _pick_free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def _wait_for_port(host: str, port: int, budget_s: float) -> None:
+    deadline = time.monotonic() + budget_s
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=0.25):
+                return
+        except OSError:
+            time.sleep(0.05)
+    raise TimeoutError(f"port {host}:{port} not open after {budget_s}s")
+
+
+def _wait_healthy(session: requests.Session, base_url: str, health_path: str, budget_s: float) -> None:
+    url = base_url.rstrip("/") + (health_path or "/healthz")
+    backoff = 0.1
+    deadline = time.monotonic() + budget_s
+    while time.monotonic() < deadline:
+        try:
+            r = session.get(url, timeout=1.5)
+            if r.status_code == 200 and (r.headers.get("content-type", "").startswith("application/json")):
+                body = r.json()
+                if isinstance(body, dict) and body.get("ok") is True:
+                    return
+        except Exception:
+            pass
+        time.sleep(backoff)
+        backoff = min(backoff * 1.6, 1.5)
+    raise TimeoutError(f"health check failed for {url}")
+
+
+# --- Adapter ------------------------------------------------------------------
+class LocalHTTPAdapter:
+    def __init__(self, http: BaseHTTPAdapter | None = None) -> None:
+        self._http = http or BaseHTTPAdapter()
+        self._session = requests.Session()
+
+    def invoke_by_ref(self, *, ref: str, payload: Dict[str, Any], **options) -> InvokeResult:
+        local_opts = LocalInvokeOptions.from_ref(ref, **options)
+        return self.invoke(payload=payload, options=local_opts, ref=ref)
+
+    def invoke(self, *, payload: Dict[str, Any], options: LocalInvokeOptions, ref: str | None = None) -> InvokeResult:
+        if not _docker_available():
+            env = _error_envelope(payload.get("execution_id", ""), "ERR_DOCKER", "docker not available")
+            return InvokeResult(status="error", envelope=env, http_status=0, url="")
+
+        # Host URL and docker command
+        port = _pick_free_port()
+        base_url = f"http://127.0.0.1:{port}"
+        start_cmd = ["docker", "run", "--rm", "-p", f"{port}:8000"]
+
+        # Mount artifacts (optional)
+        if options.mount_artifacts:
+            start_cmd += ["-v", f"{options.mount_artifacts}:/artifacts:rw"]
+
+        # IMAGE_DIGEST env: prefer expected_oci digest, else digest from image ref, else local image ID
+        expected = _normalize_digest(options.expected_oci)
+        fallback = _normalize_digest(options.image_ref)
+        if expected:
+            image_digest = expected
+        elif fallback:
+            image_digest = fallback
+        else:
+            # Local build: get Docker image ID
+            image_digest = _docker_image_id(options.image_ref or "")
+        start_cmd += ["-e", f"IMAGE_DIGEST={image_digest}"]
+
+        # Image
+        image = options.image_ref or (ref and _resolve_image_ref(ref)) or ""
         if not image:
-            msg = f"No image found for {ref}"
-            log("error", "adapter.invoke.error", adapter="local", error="ERR_NO_IMAGE", message=msg)
-            return error_envelope(
-                execution_id=execution_id, code="ERR_ADAPTER_INVOCATION", message=msg, env_fingerprint="local_error"
-            )
+            env = _error_envelope(payload.get("execution_id", ""), "ERR_IMAGE_NOT_FOUND", "no image reference resolved")
+            return InvokeResult(status="error", envelope=env, http_status=0, url=base_url)
+        start_cmd.append(image)
 
         # Start container
-        container_id = None
+        info("adapter.local.container.start", cmd=" ".join(shlex.quote(c) for c in start_cmd), port=port, image=image)
         try:
-            # Pull image if needed
-            log("debug", "adapter.docker.pull", image=image)
-            subprocess.run(["docker", "pull", image], capture_output=True, check=False)
-
-            # Start container with port mapping
-            start_cmd = ["docker", "run", "-d", "-p", "8000:8000", "--rm", image]
-
-            log("debug", "adapter.docker.start", command=" ".join(start_cmd))
-            result = subprocess.run(start_cmd, capture_output=True, text=True, check=True)
-            container_id = result.stdout.strip()
-
-            log("debug", "adapter.docker.started", container_id=container_id[:12])
-
-            # Health poll (max 3 seconds)
-            health_url = "http://localhost:8000/healthz"
-            for attempt in range(6):  # 6 attempts * 0.5s = 3s max
-                try:
-                    resp = requests.get(health_url, timeout=1)
-                    if resp.status_code == 200:
-                        health_data = resp.json()
-                        log("debug", "adapter.health.ok", image_digest=health_data.get("image_digest"), attempt=attempt)
-                        break
-                except requests.RequestException:
-                    if attempt < 5:
-                        time.sleep(0.5)
-                    else:
-                        raise Exception("Health check failed after 3 seconds")
-
-            # POST to endpoint
-            endpoint = "/run-stream" if stream else "/run"
-            url = f"http://localhost:8000{endpoint}"
-
-            log(
-                "debug",
-                "adapter.http.request",
-                url=url,
-                execution_id=execution_id,
-                payload_size=len(json.dumps(payload)),
+            proc = subprocess.Popen(  # noqa: S603
+                start_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
             )
+        except FileNotFoundError as fe:
+            env = _error_envelope(payload.get("execution_id", ""), "ERR_DOCKER", f"docker not found: {fe}")
+            return InvokeResult(status="error", envelope=env, http_status=0, url=base_url)
 
-            if stream:
-                # SSE streaming
-                return self._handle_stream(url, payload, timeout_s, execution_id)
-            else:
-                # Synchronous request
-                start_time = time.time()
-                resp = requests.post(
-                    url,
-                    json=payload,
-                    timeout=timeout_s + 5,  # Small buffer over handler timeout
-                )
-                elapsed_ms = int((time.time() - start_time) * 1000)
-
-                if resp.status_code != 200:
-                    msg = f"HTTP {resp.status_code}: {resp.text[:200]}"
-                    log(
-                        "error",
-                        "adapter.http.error",
-                        adapter="local",
-                        status_code=resp.status_code,
-                        message=msg,
-                        elapsed_ms=elapsed_ms,
-                    )
-                    return error_envelope(
-                        execution_id=execution_id,
-                        code="ERR_ADAPTER_INVOCATION",
-                        message=msg,
-                        env_fingerprint="local_http_error",
-                    )
-
-                # Parse and validate envelope
-                try:
-                    envelope = resp.json()
-                except json.JSONDecodeError as e:
-                    msg = f"Invalid JSON response: {e}"
-                    log("error", "adapter.response.invalid", adapter="local", message=msg)
-                    return error_envelope(
-                        execution_id=execution_id,
-                        code="ERR_ADAPTER_INVOCATION",
-                        message=msg,
-                        env_fingerprint="local_json_error",
-                    )
-
-                # Validate envelope
-                ok, why = is_valid_envelope(envelope)
-                if not ok:
-                    msg = f"Invalid envelope: {why}"
-                    log("error", "adapter.envelope.invalid", adapter="local", message=msg)
-                    return error_envelope(
-                        execution_id=execution_id,
-                        code="ERR_ADAPTER_INVOCATION",
-                        message=msg,
-                        env_fingerprint="local_validation_error",
-                    )
-
-                # Optional digest drift check
-                if oci:
-                    got = envelope.get("meta", {}).get("image_digest", "")
-                    if got and got != oci:
-                        msg = f"Digest mismatch: {got} != {oci}"
-                        log("error", "adapter.digest.mismatch", adapter="local", got=got, expected=oci)
-                        return error_envelope(
-                            execution_id=execution_id,
-                            code="ERR_REGISTRY_MISMATCH",
-                            message=msg,
-                            env_fingerprint="local_digest_error",
-                        )
-
-                log(
-                    "info",
-                    "adapter.invoke.complete",
-                    adapter="local",
-                    execution_id=execution_id,
-                    status=envelope.get("status"),
-                    elapsed_ms=elapsed_ms,
-                )
-
-                return envelope
-
-        except subprocess.CalledProcessError as e:
-            msg = f"Docker error: {e.stderr[:200] if e.stderr else str(e)}"
-            log("error", "adapter.docker.error", adapter="local", message=msg)
-            return error_envelope(
-                execution_id=execution_id,
-                code="ERR_ADAPTER_INVOCATION",
-                message=msg,
-                env_fingerprint="local_docker_error",
-            )
-        except requests.RequestException as e:
-            msg = f"HTTP error: {e}"
-            log("error", "adapter.http.error", adapter="local", message=msg)
-            return error_envelope(
-                execution_id=execution_id,
-                code="ERR_ADAPTER_INVOCATION",
-                message=msg,
-                env_fingerprint="local_request_error",
-            )
+        # Wait for readiness
+        try:
+            _wait_for_port("127.0.0.1", port, budget_s=5.0)
+            _wait_healthy(self._session, base_url, options.health_path, budget_s=15.0)
+            info("adapter.health.ok", url=base_url + options.health_path)
         except Exception as e:
-            msg = f"Unexpected error: {e}"
-            log("error", "adapter.invoke.error", adapter="local", message=msg)
-            return error_envelope(
-                execution_id=execution_id, code="ERR_ADAPTER_INVOCATION", message=msg, env_fingerprint="local_error"
+            stderr_tail = ""
+            try:
+                if proc.poll() is None:
+                    time.sleep(0.25)
+                if proc.stderr:
+                    stderr_tail = "".join(proc.stderr.readlines()[-20:])
+            except Exception:
+                pass
+            proc.terminate()
+            try:
+                proc.wait(timeout=3)
+            except Exception:
+                proc.kill()
+            error(
+                "adapter.health.fail", url=base_url + options.health_path, err=str(e), stderr_tail=stderr_tail[-2000:]
+            )
+            env = _error_envelope(
+                payload.get("execution_id", ""), "ERR_HEALTH", "unhealthy", {"stderr_tail": stderr_tail[-2000:]}
+            )
+            return InvokeResult(status="error", envelope=env, http_status=0, url=base_url)
+
+        # Invoke over HTTP
+        try:
+            result = self._http.invoke(
+                url=base_url,
+                payload=payload,
+                options=InvokeOptions(
+                    expected_oci=options.expected_oci,
+                    timeout_s=options.timeout_s,
+                    run_path=options.run_path,
+                    health_path=options.health_path,
+                ),
             )
         finally:
-            # Stop container
-            if container_id:
+            # Always stop the container
+            try:
+                proc.terminate()
+                proc.wait(timeout=5)
+            except Exception:
                 try:
-                    subprocess.run(["docker", "stop", container_id], capture_output=True, check=False)
-                    log("debug", "adapter.docker.stopped", container_id=container_id[:12])
-                except:
+                    proc.kill()
+                except Exception:
                     pass
 
-    def _resolve_image(self, ref: str, oci: str | None) -> str | None:
-        """Resolve image based on architecture and registry."""
-        if oci:
-            # Use provided OCI digest
-            return oci
-
-        # Load from registry
-        try:
-            from apps.core.registry.loader import load_processor_spec
-
-            spec = load_processor_spec(ref)
-
-            # Detect host architecture
-            arch = platform.machine().lower()
-            if arch == "x86_64":
-                arch = "amd64"
-            elif arch in ["aarch64", "arm64"]:
-                arch = "arm64"
-
-            # Get platform-specific digest
-            platforms = spec.get("image", {}).get("platforms", {})
-            if arch in platforms:
-                return platforms[arch]
-
-            # Fall back to default platform
-            default_platform = spec.get("image", {}).get("default_platform", "amd64")
-            return platforms.get(default_platform)
-
-        except Exception as e:
-            log("error", "adapter.image.resolve.error", error=str(e))
-            return None
-
-    def _handle_stream(
-        self, url: str, payload: Dict[str, Any], timeout_s: int, execution_id: str
-    ) -> Iterator[Dict[str, Any]]:
-        """Handle SSE streaming response."""
-        try:
-            resp = requests.post(url, json=payload, stream=True, timeout=timeout_s)
-
-            for line in resp.iter_lines():
-                if line:
-                    line = line.decode("utf-8")
-                    if line.startswith("event:"):
-                        event_type = line[6:].strip()
-                    elif line.startswith("data:"):
-                        data = json.loads(line[5:].strip())
-                        yield {"event": event_type, "data": data}
-
-                        # If done event, break
-                        if event_type == "done":
-                            break
-
-        except Exception as e:
-            yield {
-                "event": "error",
-                "data": error_envelope(
-                    execution_id=execution_id, code="ERR_STREAM", message=str(e), env_fingerprint="local_stream_error"
-                ),
-            }
+        return result

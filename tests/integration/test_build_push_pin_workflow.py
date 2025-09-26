@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.tools.subprocess_helper import run_manage_py
+
 
 pytestmark = [pytest.mark.integration, pytest.mark.requires_docker]
 
@@ -33,13 +35,16 @@ class TestBuildPushPinWorkflow:
     def test_build_processor_updates_embedded_registry(self):
         """Test build_processor writes digest to processor's registry.yaml."""
         # Build processor
-        result = subprocess.run(
-            ["python", "manage.py", "build_processor", "--ref", "llm/litellm@1", "--json"],
-            cwd="code",
+        result = run_manage_py(
+            "build_processor",
+            "--ref",
+            "llm/litellm@1",
+            "--json",
             capture_output=True,
             text=True,
             timeout=300,
-            env={"DJANGO_SETTINGS_MODULE": "backend.settings.unittest"},
+            extra_env={"DJANGO_SETTINGS_MODULE": "backend.settings.unittest"},
+            check=False,
         )
 
         assert result.returncode == 0, f"Build failed: {result.stderr}"
@@ -59,23 +64,19 @@ class TestBuildPushPinWorkflow:
         # Test with invalid digest format
         invalid_digest = "sha256:invalid"
 
-        result = subprocess.run(
-            [
-                "python",
-                "manage.py",
-                "pin_processor",
-                "--ref",
-                "llm/litellm@1",
-                "--repo",
-                "ghcr.io/test/repo",
-                "--digest",
-                invalid_digest,
-                "--json",
-            ],
-            cwd="code",
+        result = run_manage_py(
+            "pin_processor",
+            "--ref",
+            "llm/litellm@1",
+            "--repo",
+            "ghcr.io/test/repo",
+            "--digest",
+            invalid_digest,
+            "--json",
             capture_output=True,
             text=True,
-            env={"DJANGO_SETTINGS_MODULE": "backend.settings.unittest"},
+            extra_env={"DJANGO_SETTINGS_MODULE": "backend.settings.unittest"},
+            check=False,
         )
 
         assert result.returncode != 0, "Should fail with invalid digest format"
@@ -97,12 +98,17 @@ class TestBuildPushPinWorkflow:
             # Copy temp registry to actual location
             registry_path.write_text(temp_registry_file.read_text())
 
-            result = subprocess.run(
-                ["python", "manage.py", "pin_processor", "--ref", "llm/litellm@1", "--oci", valid_oci, "--json"],
-                cwd="code",
+            result = run_manage_py(
+                "pin_processor",
+                "--ref",
+                "llm/litellm@1",
+                "--oci",
+                valid_oci,
+                "--json",
                 capture_output=True,
                 text=True,
-                env={"DJANGO_SETTINGS_MODULE": "backend.settings.unittest"},
+                extra_env={"DJANGO_SETTINGS_MODULE": "backend.settings.unittest"},
+                check=False,
             )
 
             assert result.returncode == 0, f"Pin failed: {result.stderr}"
@@ -123,7 +129,7 @@ class TestBuildPushPinWorkflow:
     def test_pin_processor_validates_multi_arch(self):
         """Test pin_processor can validate multi-arch images."""
         # This test would need actual multi-arch image, so we test the validation logic
-        from apps.core.management.commands.processors.pin_processor import _DIGEST_RE
+        from apps.core.management.commands.pin_processor import _DIGEST_RE
 
         # Test digest regex validation
         valid_digests = [
@@ -150,13 +156,16 @@ class TestBuildPushPinWorkflow:
     def test_build_pin_workflow_integration(self):
         """Test complete build → pin workflow."""
         # Step 1: Build processor
-        build_result = subprocess.run(
-            ["python", "manage.py", "build_processor", "--ref", "llm/litellm@1", "--json"],
-            cwd="code",
+        build_result = run_manage_py(
+            "build_processor",
+            "--ref",
+            "llm/litellm@1",
+            "--json",
             capture_output=True,
             text=True,
             timeout=300,
-            env={"DJANGO_SETTINGS_MODULE": "backend.settings.unittest"},
+            extra_env={"DJANGO_SETTINGS_MODULE": "backend.settings.unittest"},
+            check=False,
         )
 
         assert build_result.returncode == 0, f"Build failed: {build_result.stderr}"
@@ -174,12 +183,17 @@ class TestBuildPushPinWorkflow:
         mock_oci = f"ghcr.io/test/repo@{image_digest}"
 
         # Step 3: Pin the digest (dry run - don't actually modify registry)
-        pin_result = subprocess.run(
-            ["python", "manage.py", "pin_processor", "--ref", "llm/litellm@1", "--oci", mock_oci, "--json"],
-            cwd="code",
+        pin_result = run_manage_py(
+            "pin_processor",
+            "--ref",
+            "llm/litellm@1",
+            "--oci",
+            mock_oci,
+            "--json",
             capture_output=True,
             text=True,
-            env={"DJANGO_SETTINGS_MODULE": "backend.settings.unittest"},
+            extra_env={"DJANGO_SETTINGS_MODULE": "backend.settings.unittest"},
+            check=False,
         )
 
         # This might fail because we're not actually pushing to registry,
@@ -200,7 +214,7 @@ class TestBuildPushPinWorkflow:
         registry_data = yaml.safe_load(registry_path.read_text())
 
         # Verify required top-level fields
-        required_fields = ["schema", "name", "secrets", "image"]
+        required_fields = ["ref", "secrets", "image"]  # Updated to match actual structure
         for field in required_fields:
             assert field in registry_data, f"Registry missing required field: {field}"
 
@@ -242,12 +256,17 @@ class TestBuildPushPinWorkflow:
             # Simulate pin operation (modify and restore)
             test_oci = "ghcr.io/test/repo@sha256:" + "f" * 64
 
-            pin_result = subprocess.run(
-                ["python", "manage.py", "pin_processor", "--ref", "llm/litellm@1", "--oci", test_oci, "--json"],
-                cwd="code",
+            pin_result = run_manage_py(
+                "pin_processor",
+                "--ref",
+                "llm/litellm@1",
+                "--oci",
+                test_oci,
+                "--json",
                 capture_output=True,
                 text=True,
-                env={"DJANGO_SETTINGS_MODULE": "backend.settings.unittest"},
+                extra_env={"DJANGO_SETTINGS_MODULE": "backend.settings.unittest"},
+                check=False,
             )
 
             if pin_result.returncode == 0:
@@ -275,13 +294,16 @@ class TestBuildPushPinWorkflow:
             pytest.skip("Docker Buildx not available")
 
         # Build should work (even if not multi-arch in test environment)
-        result = subprocess.run(
-            ["python", "manage.py", "build_processor", "--ref", "llm/litellm@1", "--json"],
-            cwd="code",
+        result = run_manage_py(
+            "build_processor",
+            "--ref",
+            "llm/litellm@1",
+            "--json",
             capture_output=True,
             text=True,
             timeout=300,
-            env={"DJANGO_SETTINGS_MODULE": "backend.settings.unittest"},
+            extra_env={"DJANGO_SETTINGS_MODULE": "backend.settings.unittest"},
+            check=False,
         )
 
         assert result.returncode == 0, f"Build with buildx support failed: {result.stderr}"

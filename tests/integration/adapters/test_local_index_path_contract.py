@@ -25,5 +25,6 @@ def test_local_adapter_index_path_under_prefix(tmp_write_prefix):
     proc = run_cli(args, env={"LOG_STREAM": "stderr"})
     env = parse_stdout_json_or_fail(proc)
     assert_success_envelope(env)
-    # Verify path relationship
-    assert_index_under_prefix(env["index_path"], tmp_write_prefix)
+    # Verify path relationship - expand template with actual execution_id
+    expected_prefix = tmp_write_prefix.replace("{execution_id}", env["execution_id"])
+    assert_index_under_prefix(env["index_path"], expected_prefix)

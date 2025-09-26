@@ -81,6 +81,8 @@ _build/
 .pybuilder/
 target/
 
+**/.build/
+
 evidence/
 node_modules/
 package*.json
