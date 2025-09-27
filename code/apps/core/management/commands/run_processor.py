@@ -49,7 +49,6 @@ class Command(BaseCommand):
         )
         parser.add_argument("--save-dir", help="Download all outputs into this directory (mirrors world paths)")
         parser.add_argument("--save-first", help="Download only the first output into this file path")
-        parser.add_argument("--global-receipt-base", default="/artifacts", help="Base path for global receipts")
 
     def materialize_attachments(self, attachments: List[str]) -> Dict[str, Dict[str, Any]]:
         """Materialize attachment files and return mapping."""
@@ -239,11 +238,6 @@ class Command(BaseCommand):
 
             # Parse adapter options
             adapter_opts = json.loads(options.get("adapter_opts_json") or "{}")
-
-            # Set global receipt base in environment for processors
-            import os
-
-            os.environ["GLOBAL_RECEIPT_BASE"] = options["global_receipt_base"]
 
             # Extract Modal context from Django settings
             from django.conf import settings
