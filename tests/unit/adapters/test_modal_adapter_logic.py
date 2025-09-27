@@ -33,9 +33,11 @@ class TestModalAdapterLogic:
         mock_modal = Mock()
         mock_app = Mock()
         mock_function = Mock()
+        mock_function.get_web_url.return_value = "https://modal-function-url.com"
         mock_function.web_url = "https://modal-function-url.com"
         mock_app.function.return_value = mock_function
         mock_modal.App.lookup.return_value = mock_app
+        mock_modal.Function.from_name.return_value = mock_function
 
         def mock_import_func(name, *args, **kwargs):
             if name == "modal":
@@ -50,14 +52,13 @@ class TestModalAdapterLogic:
         url = adapter._get_modal_web_url("test-app", "fastapi_app", env="dev")
 
         assert url == "https://modal-function-url.com"
-        mock_modal.App.lookup.assert_called_once_with("test-app", environment="dev")
-        mock_app.function.assert_called_once_with("fastapi_app")
+        mock_modal.Function.from_name.assert_called_once_with("test-app", "fastapi_app")
 
     @patch("builtins.__import__")
     def test_modal_url_resolution_app_not_found(self, mock_import):
         """Test error handling when Modal app not found."""
         mock_modal = Mock()
-        mock_modal.App.lookup.side_effect = Exception("App not found")
+        mock_modal.Function.from_name.side_effect = Exception("App not found")
 
         def mock_import_func(name, *args, **kwargs):
             if name == "modal":
@@ -78,9 +79,11 @@ class TestModalAdapterLogic:
         mock_modal = Mock()
         mock_app = Mock()
         mock_function = Mock()
+        mock_function.get_web_url.return_value = None
         mock_function.web_url = None  # No URL available
         mock_app.function.return_value = mock_function
         mock_modal.App.lookup.return_value = mock_app
+        mock_modal.Function.from_name.return_value = mock_function
 
         def mock_import_func(name, *args, **kwargs):
             if name == "modal":

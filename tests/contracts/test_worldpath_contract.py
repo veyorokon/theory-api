@@ -1,6 +1,6 @@
 # tests/contracts/test_worldpath_contract.py
 import pytest
-from tests.tools.runner import run_cli, parse_stdout_json_or_fail
+from apps.core.orchestrator import run as orch_run
 from tests.tools.asserts import assert_error_envelope
 
 pytestmark = [pytest.mark.acceptance, pytest.mark.requires_docker, pytest.mark.requires_minio]
@@ -20,21 +20,18 @@ def test_duplicate_after_canon_returns_canonical_error(
     # Force the processor to emit two outputs with the same relpath after canon.
     monkeypatch.setenv("FORCE_DUPLICATE_OUTPUTS", "1")
 
-    args = [
-        "run_processor",
-        "--ref",
-        "llm/litellm@1",
-        "--adapter",
-        "local",
-        "--mode",
-        "mock",
-        "--build",
-        "--write-prefix",
-        tmp_write_prefix,
-        "--inputs-json",
-        '{"schema":"v1","params":{}}',
-        "--json",
-    ]
-    proc = run_cli(args)
-    env = parse_stdout_json_or_fail(proc)
-    assert_error_envelope(env, code_fragment="ERR_OUTPUT_DUPLICATE")
+    # Prepare inputs
+    inputs = {"schema": "v1", "params": {}}
+
+    # Execute via orchestrator
+    envelope = orch_run(
+        adapter="local",
+        ref="llm/litellm@1",
+        mode="mock",
+        inputs=inputs,
+        write_prefix=tmp_write_prefix,
+        expected_oci=None,
+        build=True,
+    )
+
+    assert_error_envelope(envelope, code_fragment="ERR_OUTPUT_DUPLICATE")

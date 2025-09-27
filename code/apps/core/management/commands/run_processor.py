@@ -179,7 +179,6 @@ class Command(BaseCommand):
         )
 
         try:
-            core_logging.info("execution.start", write_prefix=options["write_prefix"])
             # Require {execution_id} in write prefix for collision prevention
             write_prefix = options["write_prefix"]
             if "{execution_id}" not in write_prefix:
@@ -264,12 +263,6 @@ class Command(BaseCommand):
                 branch=getattr(settings, "MODAL_BRANCH", None),
                 user=getattr(settings, "MODAL_USER", None),
             )
-
-            # Log execution outcome (boundary discipline)
-            if result.get("status") == "success":
-                core_logging.info("execution.settle", status="success", outputs_count=len(result.get("outputs", [])))
-            else:
-                core_logging.error("execution.fail", error=result.get("error", {}))
 
             # Download outputs if requested
             if result.get("status") == "success" and result.get("outputs"):
