@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
-      - run: pip install -r code/requirements.txt
+      - run: pip install -r requirements.txt
       - name: Unit tests
         run: make test-unit
 
@@ -39,7 +39,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
-      - run: pip install -r code/requirements.txt
+      - run: pip install -r requirements.txt
       - name: Integration tests
         run: make test-integration
 
@@ -59,6 +59,6 @@ jobs:
       - uses: docker/setup-buildx-action@v3
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
-      - run: pip install -r code/requirements.txt
+      - run: pip install -r requirements.txt
       - name: Acceptance (PR lane, mock, hermetic)
         run: make test-acceptance-pr

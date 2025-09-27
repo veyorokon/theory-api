@@ -35,7 +35,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
-      - run: pip install -r code/requirements.txt
+      - run: pip install -r requirements.txt
       - name: Build & Pin (staging owns pins)
         run: make build-and-pin
       - name: Commit pin updates to staging (if any)
@@ -59,7 +59,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
-      - run: pip install -r code/requirements.txt
+      - run: pip install -r requirements.txt
       - name: Install Modal CLI
         run: pip install modal-client
       - name: Sync secrets to Modal (staging)
@@ -89,7 +89,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
-      - run: pip install -r code/requirements.txt
+      - run: pip install -r requirements.txt
       - name: Acceptance (pinned, mock, hermetic)
         run: make test-acceptance-dev
 
@@ -108,7 +108,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
-      - run: pip install -r code/requirements.txt
+      - run: pip install -r requirements.txt
       - name: Deploy functions (digest-only via modalctl)
         run: make deploy-staging   # wraps: python manage.py modalctl deploy --ref … --env staging --oci <pinned>
 
@@ -125,7 +125,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
-      - run: pip install -r code/requirements.txt
+      - run: pip install -r requirements.txt
       - name: Smoke tests (timeout protected)
         run: make smoke-staging
       - name: Negative probe (mode=real → ERR_MISSING_SECRET)
