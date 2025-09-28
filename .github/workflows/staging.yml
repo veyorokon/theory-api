@@ -37,7 +37,7 @@ jobs:
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - name: Build & Pin (staging owns pins)
-        run: make build-and-pin
+        run: make build-and-pin REGISTRY=ghcr.io/veyorokon/theory-api
       - name: Commit pin updates to staging (if any)
         run: |
           git config user.name "pin-bot"

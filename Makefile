@@ -46,6 +46,8 @@ help:
 	@echo "  make push-processor REF=ns/name@ver TARGET=ghcr.io/you/repo:tag"
 	@echo "  make pin-processor REF=ns/name@ver OCI=ghcr.io/...@sha256:..."
 	@echo ""
+	@echo "  make build-and-pin REGISTRY=ghcr.io/you/repo - build, push, pin all processors"
+	@echo ""
 	@echo "  make modal-deploy REF=ns/name@ver ENV=dev OCI=ghcr.io/...@sha256:..."
 	@echo "  make modal-sync-secrets REF=ns/name@ver ENV=dev"
 	@echo "  make modal-logs REF=ns/name@ver ENV=dev"
@@ -125,7 +127,8 @@ push-processor:
 	$(call require,REF)
 	$(call require,TARGET)
 	@cd $(CODE_DIR); DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) \
-	$(PY) manage.py push_processor --ref $(REF) --target "$(TARGET)" --json | jq .
+	IMAGE_TAG=$$($(PY) manage.py build_processor --ref $(REF) --json | jq -r '.image_tag'); \
+	$(PY) manage.py push_processor --image "$$IMAGE_TAG" --target "$(TARGET)" --json | jq .
 
 .PHONY: pin-processor
 pin-processor:
@@ -213,3 +216,17 @@ services-down:
 .PHONY: services-status
 services-status:
 	@docker compose ps
+
+# ---- Build and Pin Pipeline (Staging) -------------------------------------
+
+# Auto-discover all processors and convert to REF format
+PROCESSOR_REFS := $(patsubst %,%@1, $(subst _,/, $(shell find code/apps/core/processors -name "registry.yaml" -exec dirname {} \; | xargs -I {} basename {})))
+
+.PHONY: build-and-pin
+build-and-pin:
+	$(call require,REGISTRY)
+	@for ref in $(PROCESSOR_REFS); do \
+		target="$(REGISTRY)/$$(echo $$ref | sed 's/@.*//' | sed 's/\//-/g'):staging-$$(date +%Y%m%d%H%M%S)"; \
+		oci=$$($(MAKE) push-processor REF=$$ref TARGET=$$target | jq -r '.oci_digest'); \
+		$(MAKE) pin-processor REF=$$ref OCI=$$oci; \
+	done
