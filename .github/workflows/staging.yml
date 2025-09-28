@@ -48,6 +48,7 @@ jobs:
             git add -A
             git commit -m "pin: update processor digests (staging)"
             git remote set-url origin https://x-access-token:${ADMIN_GITHUB_TOKEN}@github.com/veyorokon/theory-api.git
+            git pull --rebase origin staging
             git push
           fi
 
