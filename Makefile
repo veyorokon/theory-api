@@ -228,17 +228,10 @@ PLATFORM ?= $(shell uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
 build-and-pin:
 	$(call require,REGISTRY)
 	@for ref in $(PROCESSOR_REFS); do \
-		echo "=== Building $$ref for platform $(PLATFORM) ==="; \
 		build_result=$$($(MAKE) build-processor REF=$$ref PLATFORMS=linux/$(PLATFORM)); \
-		echo "Build result: $$build_result"; \
 		image_tag=$$(echo "$$build_result" | jq -r '.image_tag'); \
-		echo "Image tag: $$image_tag"; \
 		target="$(REGISTRY)/$$(echo $$ref | sed 's/@.*//' | sed 's/\//-/g'):staging-$$(date +%Y%m%d%H%M%S)"; \
-		echo "Push target: $$target"; \
 		push_result=$$($(MAKE) push-processor IMAGE=$$image_tag TARGET=$$target); \
-		echo "Push result: $$push_result"; \
 		oci=$$(echo "$$push_result" | jq -r '.digest_ref'); \
-		echo "OCI digest: $$oci"; \
-		echo "Pinning to platform $(PLATFORM)"; \
 		$(MAKE) pin-processor REF=$$ref OCI=$$oci PLATFORM=$(PLATFORM); \
 	done
