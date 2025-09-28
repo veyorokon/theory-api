@@ -4,7 +4,7 @@ build:
   port: 8000
 image:
   platforms:
-    amd64: ghcr.io/veyorokon/theory-api/llm-litellm@sha256:7d7a47764c75243935258867e25e0494c496f0ae7207420aae6ea3057a3a2dea
+    amd64: ghcr.io/veyorokon/theory-api/llm-litellm@sha256:31c0aca7f06529ca62fc2ee9bac2310c5ce58576e9f58d48ac6fc515d737a70d
     arm64: ghcr.io/owner/repo/llm-litellm@sha256:REPLACE_ARM64
 inputs:
   $schema: https://json-schema.org/draft-07/schema#
