@@ -114,9 +114,12 @@ def _get_newest_build_tag(ref: str) -> str:
     if not candidates:
         raise ValueError(f"No local build images found. Run: make build-processor REF={ref}")
 
-    # Sort by creation time (newest first)
-    candidates.sort(reverse=True, key=lambda x: x[0])
-    return candidates[0][1]
+    # Sort by tag name timestamp (newest first), not Docker creation time
+    # Tag format: theory-local/llm-litellm-1:build-YYYYMMDDHHMMSS
+    # Docker's creation time can be misleading when layers are reused
+    candidates_by_tag = [(tag.split(":build-")[1], tag) for created, tag in candidates]
+    candidates_by_tag.sort(reverse=True, key=lambda x: x[0])
+    return candidates_by_tag[0][1]
 
 
 def _docker_image_id(image_ref: str) -> str:

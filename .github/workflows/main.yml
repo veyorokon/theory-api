@@ -47,7 +47,6 @@ jobs:
     timeout-minutes: 30
     env:
       DJANGO_SETTINGS_MODULE: backend.settings.unittest
-      RUN_PROCESSOR_FORCE_BUILD: "0"
       LOG_STREAM: stderr
       TEST_LANE: supplychain
     steps:

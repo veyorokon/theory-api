@@ -28,7 +28,7 @@ jobs:
       - name: Unit
         run: make test-unit
       - name: Integration
-        run: make test-integration
+        run: make integration-local-build
       # Intentionally no build/pin/deploy here (dev is code-only integration).
 
   sync-secrets-dev:

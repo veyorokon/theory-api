@@ -33,8 +33,9 @@ help:
 	@echo "  make tools-check                     - verify jq/yq present"
 	@echo "  make test-unit                       - unit/contract/property (hermetic)"
 	@echo "  make test-contracts                  - contracts only (hermetic)"
-	@echo "  make test-integration-local          - integration via local adapter (default)"
-	@echo "  make test-integration-modal ENV=dev  - integration via modal adapter"
+	@echo "  make integration-local               - integration via local adapter (pinned)"
+	@echo "  make integration-local-build         - integration via local adapter (build fresh)"
+	@echo "  make integration-modal ENV=dev       - integration via modal adapter"
 	@echo "  make test-smoke                      - post-deploy smoke (modal-only)"
 	@echo ""
 	@echo "  make build-processor REF=ns/name@ver - build local image"
@@ -84,16 +85,21 @@ test-integration:
 	@PYTHONPATH=$(CODE_DIR) DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) TEST_LANE=pr \
 	RUN_TARGET=$(if $(TARGET),$(TARGET),local) \
 	$(if $(filter modal,$(TARGET)),MODAL_ENVIRONMENT=$(ENV),) \
+	$(if $(filter 1,$(BUILD)),BUILD=1,BUILD=0) \
 	LOG_STREAM=stderr JSON_LOGS=1 \
 	$(PY) -m pytest -m '$(MARK_EXPR_INTEGRATION)'
 
-# Friendly aliases
-.PHONY: test-integration-local
-test-integration-local:
-	@$(MAKE) test-integration TARGET=local BUILD=$(BUILD)
+# Explicit aliases following smoke pattern
+.PHONY: integration-local
+integration-local:
+	@$(MAKE) test-integration TARGET=local BUILD=0
 
-.PHONY: test-integration-modal
-test-integration-modal:
+.PHONY: integration-local-build
+integration-local-build:
+	@$(MAKE) test-integration TARGET=local BUILD=1
+
+.PHONY: integration-modal
+integration-modal:
 	$(call require,ENV)
 	@$(MAKE) test-integration TARGET=modal ENV=$(ENV)
 

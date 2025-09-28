@@ -59,7 +59,7 @@ This runbook captures the three-lane delivery system: PRs build directly from so
 ## Test Lanes & Make Targets
 
 - `make test-unit` / `make test-integration` – hermetic SQLite/pytest flows for fast feedback.
-- `make test-acceptance-pr` – PR lane acceptance; composes services, forces `RUN_PROCESSOR_FORCE_BUILD=1`, requires docker, uses mock mode.
+- `make test-acceptance-pr` – PR lane acceptance; composes services, forces `BUILD=1`, requires docker, uses mock mode.
 - `make test-acceptance-dev` – Supply-chain acceptance; reuses pinned artifacts, still mock mode, hermetic.
 - `make test-smoke` – Post-deploy smoke markers (`deploy_smoke`).
 - Pytest markers live in `pytest.ini` and `tests/tools/markers.py`; strict markers enforce taxonomy (unit/integration/contracts/property/acceptance/prlane/supplychain/etc.).

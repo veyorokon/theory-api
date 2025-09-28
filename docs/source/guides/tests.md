@@ -19,7 +19,7 @@ This guide is the single source of truth for exercising processors and adapters 
 
 | Where you run             | Adapter                          | Artifacts                                                          | Mode                    | Allowed in CI? | Purpose                                              |
 | ------------------------- | -------------------------------- | ------------------------------------------------------------------ | ----------------------- | -------------- | ---------------------------------------------------- |
-| Local PR-parity           | `local`                          | **Build-from-source** (`--build` or `RUN_PROCESSOR_FORCE_BUILD=1`) | `mock`                  | ✅              | Dev loop, PR lane parity                             |
+| Local PR-parity           | `local`                          | **Build-from-source** (`--build` or `BUILD=1`) | `mock`                  | ✅              | Dev loop, PR lane parity                             |
 | Local supply-chain parity | `local`                          | **Pinned** digests                                               | `mock`                  | ✅              | Validate against pinned digests                      |
 | Local “real”              | `local`                          | Build or pinned                                                    | `real`                  | ❌ (local only) | Exercise actual provider calls                       |
 | Modal dev mock            | `modal` ( `MODAL_ENVIRONMENT=dev` ) | n/a                                                              | `mock`                  | ✅              | Adapter + app routing, hermetic                      |
@@ -74,10 +74,10 @@ export LOG_STREAM=stderr           # processors log to stderr; envelopes come fr
 
 ### 3.1 PR-lane parity — build-from-source, mock
 
-Knob: `RUN_PROCESSOR_FORCE_BUILD=1` (or pass `--build`).
+Knob: `BUILD=1` (or pass `--build`).
 
 ```bash
-export RUN_PROCESSOR_FORCE_BUILD=1
+export BUILD=1
 python manage.py run_processor \
   --ref llm/litellm@1 \
   --adapter local \
@@ -91,10 +91,10 @@ Or simply: `make test-acceptance-pr`
 
 ### 3.2 Supply-chain parity — pinned-only, mock
 
-Knob: `RUN_PROCESSOR_FORCE_BUILD=0` (default).
+Knob: `BUILD=0` (default).
 
 ```bash
-export RUN_PROCESSOR_FORCE_BUILD=0
+export BUILD=0
 python manage.py run_processor \
   --ref llm/litellm@1 \
   --adapter local \
@@ -114,7 +114,7 @@ Not allowed in CI. Provide real secrets locally:
 
 ```bash
 export OPENAI_API_KEY=sk-...           # set the secrets your processor needs
-export RUN_PROCESSOR_FORCE_BUILD=1     # or 0, your choice
+export BUILD=1     # or 0, your choice
 python manage.py run_processor \
   --ref llm/litellm@1 \
   --adapter local \
@@ -268,7 +268,7 @@ python manage.py run_processor --ref llm/litellm@1 --adapter local --mode real \
 
 ## 8. Troubleshooting
 
-- **PR acceptance fails but unit passes** → verify `RUN_PROCESSOR_FORCE_BUILD=1` or use the Make target.
+- **PR acceptance fails but unit passes** → verify `BUILD=1` or use the Make target.
 - **Pinned acceptance fails locally** → your registry pins are stale; rebase or wait for staging’s Build & Pin commit.
 - **Modal dev errors** → ensure app naming matches `<branch>-<user>-<slug>-vX`, inputs satisfy payload validation, and secrets exist in Modal.
 - **Streaming issues** → consume `/run-stream` SSE events if available; the final event contains the envelope.

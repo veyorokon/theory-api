@@ -41,7 +41,7 @@ jobs:
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - name: Integration tests
-        run: make test-integration
+        run: make integration-local-build
 
   acceptance-pr:
     runs-on: ubuntu-latest
@@ -51,7 +51,6 @@ jobs:
       DJANGO_SETTINGS_MODULE: backend.settings.unittest
       TEST_LANE: pr
       # PR lane invariants:
-      RUN_PROCESSOR_FORCE_BUILD: "1"   # build-from-source
       LOG_STREAM: stderr               # keep stdout clean for --json
       RUN_TRANSPORT: "http"            # NEW: drive HTTP processors locally
     steps:

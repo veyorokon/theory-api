@@ -23,7 +23,7 @@ def test_run_processor_prlane_mock_builds_from_source_and_writes_index(
     processor_ref: str,
     tmp_write_prefix: str,
     assert_envelope_success,  # from conftest.py
-    pr_lane_env,  # lane fixture: CI=true, no secrets, RUN_PROCESSOR_FORCE_BUILD=1
+    pr_lane_env,  # lane fixture: no secrets, BUILD=1
     logs_to_stderr,  # opt-in stderr logging for CLI --json
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -40,7 +40,7 @@ def test_run_processor_prlane_mock_builds_from_source_and_writes_index(
     assert code_dir.is_dir(), f"Expected code/ directory at {code_dir}"
 
     # logs_to_stderr fixture already set LOG_STREAM=stderr
-    # Force build-from-source explicitly for clarity (PR lane also sets RUN_PROCESSOR_FORCE_BUILD=1)
+    # Force build-from-source explicitly for clarity (PR lane also sets BUILD=1)
     cmd = [
         sys.executable,
         "manage.py",

@@ -40,21 +40,14 @@ class TestResolveModeInterface:
         with pytest.raises(ValueError, match="Invalid mode 'smoke'"):
             resolve_mode({"mode": "smoke"})
 
-    @patch.dict("os.environ", {"CI": "true"}, clear=False)
-    def test_ci_blocks_real_mode(self):
-        """Contract: CI=true blocks mode=real."""
-        # Mock should work in CI
+    @patch.dict("os.environ", {"TEST_LANE": "pr"}, clear=False)
+    def test_real_mode_allowed_in_pr_lane(self):
+        """Real mode is allowed even in PR lane now."""
+        # Both mock and real should work
         assert resolve_mode("mock").value == "mock"
         assert resolve_mode({"mode": "mock"}).value == "mock"
-
-        # Real should be blocked in CI
-        with pytest.raises(ModeSafetyError) as exc_info:
-            resolve_mode("real")
-        assert "ERR_CI_SAFETY" in str(exc_info.value)
-
-        with pytest.raises(ModeSafetyError) as exc_info:
-            resolve_mode({"mode": "real"})
-        assert "ERR_CI_SAFETY" in str(exc_info.value)
+        assert resolve_mode("real").value == "real"
+        assert resolve_mode({"mode": "real"}).value == "real"
 
     @patch.dict("os.environ", {}, clear=True)
     def test_non_ci_allows_real_mode(self):
@@ -63,15 +56,11 @@ class TestResolveModeInterface:
         assert resolve_mode({"mode": "real"}).value == "real"
 
     @patch.dict("os.environ", {"LANE": "pr"}, clear=False)
-    def test_pr_lane_blocks_real_mode(self):
-        """Contract: LANE=pr blocks mode=real."""
-        with pytest.raises(ModeSafetyError) as exc_info:
-            resolve_mode("real")
-        assert "ERR_CI_SAFETY" in str(exc_info.value)
+    def test_pr_lane_allows_real_mode(self):
+        """LANE=pr no longer blocks mode=real."""
+        assert resolve_mode("real").value == "real"
 
     @patch.dict("os.environ", {"TEST_LANE": "pr"}, clear=False)
-    def test_test_lane_blocks_real_mode(self):
-        """Contract: TEST_LANE=pr blocks mode=real."""
-        with pytest.raises(ModeSafetyError) as exc_info:
-            resolve_mode("real")
-        assert "ERR_CI_SAFETY" in str(exc_info.value)
+    def test_test_lane_allows_real_mode(self):
+        """TEST_LANE=pr no longer blocks mode=real."""
+        assert resolve_mode("real").value == "real"

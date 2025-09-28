@@ -11,7 +11,7 @@ import pytest
 import requests
 
 
-pytestmark = [pytest.mark.unit]
+pytestmark = [pytest.mark.integration]
 
 
 class TestLogContract:

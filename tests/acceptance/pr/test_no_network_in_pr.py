@@ -6,6 +6,6 @@ import pytest
 
 @pytest.mark.prlane
 def test_no_network():
-    if os.getenv("CI") and (os.getenv("LANE", "pr").lower() == "pr"):
+    if os.getenv("LANE", "pr").lower() == "pr":
         with pytest.raises(OSError):
             socket.socket().connect(("8.8.8.8", 53))

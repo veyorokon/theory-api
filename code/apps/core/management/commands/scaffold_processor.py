@@ -102,11 +102,6 @@ class Command(BaseCommand):
             "pydantic>=2.8" \\
             "jsonschema>=4.22"{extra_pip}
 
-        # Create non-root user to avoid permission issues with mounted volumes
-        RUN adduser --system --group --uid 1000 appuser && \\
-            chown -R appuser:appuser /work
-
-        USER appuser
 
         EXPOSE {port}
         # NOTE: We do NOT run uvicorn when used with Modal @asgi_app(); but for local docker run, this CMD is handy.

@@ -142,13 +142,6 @@ def resolve_mode(flag_value: str | Mapping[str, Any] | None) -> ResolvedMode:
     if v not in ("mock", "real"):
         raise ValueError("Invalid mode '%s'. Allowed: ['mock', 'real']" % v)
 
-    # CI safety: block real mode in CI or PR lane
-    ci = os.getenv("CI", "")
-    lane_env = os.getenv("LANE") or os.getenv("TEST_LANE")
-    lane = lane_env.lower() if lane_env else None
-    if v == "real" and (ci or lane == "pr"):
-        raise ModeSafetyError("ERR_CI_SAFETY: Real mode is blocked in CI environments. Use mode=mock.")
-
     return ResolvedMode(value=v)  # type: ignore[arg-type]
 
 

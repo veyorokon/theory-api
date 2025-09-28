@@ -21,11 +21,6 @@ FROM python:3.11-slim
         "jsonschema>=4.22" \
 "litellm>=1.43.0"
 
-    # Create non-root user to avoid permission issues with mounted volumes
-    RUN adduser --system --group --uid 1000 appuser && \
-        chown -R appuser:appuser /work
-
-    USER appuser
 
     EXPOSE 8000
     # NOTE: We do NOT run uvicorn when used with Modal @asgi_app(); but for local docker run, this CMD is handy.
