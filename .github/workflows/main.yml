@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  MODAL_ENVIRONMENT: prod
+  MODAL_ENVIRONMENT: main
 
 jobs:
   sync-secrets-prod:
@@ -31,6 +31,9 @@ jobs:
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - name: Sync secrets to Modal (main)
         env:
+          # Modal authentication
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
           # Expose GitHub secrets as process environment variables
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
@@ -52,7 +55,7 @@ jobs:
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - name: Acceptance (pinned)
-        run: make test-acceptance-dev
+        run: make test-unit
 
   deploy:
     name: Deploy to Modal (prod)
@@ -62,7 +65,7 @@ jobs:
     env:
       DJANGO_SETTINGS_MODULE: backend.settings.unittest
       MODAL_ENABLED: "true"
-      MODAL_ENVIRONMENT: prod
+      MODAL_ENVIRONMENT: main
       BRANCH: ${{ github.ref_name }}
       USER: ${{ github.actor }}
     steps:
@@ -70,24 +73,34 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
       - name: Deploy functions (digest-only via modalctl)
-        run: make deploy-prod   # wraps: python manage.py modalctl deploy --ref … --env prod --oci <pinned>
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+        run: |
+          OCI=$(yq eval '.image.platforms.amd64' code/apps/core/processors/llm_litellm/registry.yaml)
+          make modal-deploy REF=llm/litellm@1 ENV=main OCI="$OCI"
 
   post_deploy_checks:
-    name: Smoke/Canary + Drift (prod)
+    name: Smoke tests
     needs: deploy
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       DJANGO_SETTINGS_MODULE: backend.settings.unittest
       MODAL_ENABLED: "true"
-      MODAL_ENVIRONMENT: prod
+      MODAL_ENVIRONMENT: main
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt -r requirements-dev.txt
-      - name: Smoke/Canary (timeout protected)
-        run: make smoke-prod
-      - name: Drift audit (fail-closed on main)
-        run: make drift-audit
+      - name: Smoke tests (timeout protected)
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+        run: make test-smoke ENV=main

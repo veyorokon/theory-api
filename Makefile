@@ -113,6 +113,7 @@ integration-modal:
 test-smoke:
 	$(call guard_collect,$(MARK_EXPR_SMOKE))
 	@PYTHONPATH=$(CODE_DIR) DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) TEST_LANE=staging LOG_STREAM=stderr JSON_LOGS=1 \
+	RUN_TARGET=modal MODAL_ENVIRONMENT=$(ENV) \
 	$(PY) -m pytest -m '$(MARK_EXPR_SMOKE)'
 
 # ---- Build / Push / Pin -----------------------------------------------------

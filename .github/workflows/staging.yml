@@ -123,7 +123,10 @@ jobs:
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - name: Smoke tests (timeout protected)
-        run: make smoke-modal ENV=staging
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+        run: make test-smoke ENV=staging
 
   release_pr_to_main:
     name: "Open PR: staging -> main"
