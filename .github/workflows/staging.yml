@@ -39,12 +39,15 @@ jobs:
       - name: Build & Pin (staging owns pins)
         run: make build-and-pin REGISTRY=ghcr.io/veyorokon/theory-api
       - name: Commit pin updates to staging (if any)
+        env:
+          ADMIN_GITHUB_TOKEN: ${{ secrets.ADMIN_GITHUB_TOKEN }}
         run: |
           git config user.name "pin-bot"
           git config user.email "pin-bot@users.noreply.github.com"
           if ! git diff --quiet; then
             git add -A
             git commit -m "pin: update processor digests (staging)"
+            git remote set-url origin https://x-access-token:${ADMIN_GITHUB_TOKEN}@github.com/veyorokon/theory-api.git
             git push
           fi
 
