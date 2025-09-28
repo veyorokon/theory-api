@@ -175,7 +175,7 @@ def _script_upsert_single_secret() -> str:
     name = payload["name"]
     value = payload["value"]
     # Create secret with the key name same as secret name
-    modal.Secret.from_dict({name: value}).persist(name)
+    modal.Secret.objects.create(name, {name: value}, allow_existing=True)
     print(json.dumps({"status":"success","name":name}))
     """)
 

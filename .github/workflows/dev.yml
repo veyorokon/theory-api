@@ -25,11 +25,11 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt -r requirements-dev.txt
-      - name: Unit
+      - name: Unit tests
         run: make test-unit
       - name: Build processor image
         run: make build-processor REF=llm/litellm@1
-      - name: Integration
+      - name: Integration tests
         run: make integration-local-build
       # Intentionally no build/pin/deploy here (dev is code-only integration).
 
@@ -44,10 +44,11 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt -r requirements-dev.txt
-      - name: Install Modal CLI
-        run: pip install modal-client
       - name: Sync secrets to Modal (dev)
         env:
+          # Modal authentication
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
           # Expose GitHub secrets as process environment variables
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
