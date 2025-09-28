@@ -144,10 +144,9 @@ def _resolve_image_ref(ref: str, *, build: bool = False) -> str:
 
     registry = _load_registry_for_ref(ref)
     platforms = (registry.get("image") or {}).get("platforms") or {}
-    default_platform = (registry.get("image") or {}).get("default_platform", "amd64")
     arch = _detect_arch()
 
-    # Prefer host arch if available and not a placeholder
+    # Use host arch if available and not a placeholder
     def _valid(v: str | None) -> bool:
         return bool(v) and "REPLACE_" not in v.upper()
 
@@ -155,12 +154,7 @@ def _resolve_image_ref(ref: str, *, build: bool = False) -> str:
     if _valid(cand):
         return cand
 
-    # Fall back to default platform
-    cand = platforms.get(default_platform)
-    if _valid(cand):
-        return cand
-
-    raise ValueError(f"No valid image mapping for {ref}; platforms keys={list(platforms.keys())}")
+    raise ValueError(f"No valid image mapping for {ref} on {arch}; platforms keys={list(platforms.keys())}")
 
 
 # --- Local docker lifecycle ---------------------------------------------------

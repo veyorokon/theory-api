@@ -175,7 +175,6 @@ class Command(BaseCommand):
                     "amd64": f"ghcr.io/owner/repo/{ns}-{name}@sha256:REPLACE_AMD64",
                     "arm64": f"ghcr.io/owner/repo/{ns}-{name}@sha256:REPLACE_ARM64",
                 },
-                "default_platform": "amd64",
             },
             "runtime": {
                 "cpu": str(cpu),

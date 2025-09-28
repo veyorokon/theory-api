@@ -40,10 +40,12 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Build processor image
+        run: make build-processor REF=llm/litellm@1
       - name: Integration tests
         run: make integration-local-build
 
-  acceptance-pr:
+  contracts:
     runs-on: ubuntu-latest
     needs: integration
     timeout-minutes: 20
@@ -59,5 +61,5 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt -r requirements-dev.txt
-      - name: Acceptance (PR lane, mock, hermetic)
-        run: make test-acceptance-pr
+      - name: Contract tests (PR lane, mock, hermetic)
+        run: make test-contracts
