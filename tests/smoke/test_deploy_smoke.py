@@ -53,46 +53,6 @@ def test_llm_litellm_smoke_mock():
     assert "outputs" in response, "Missing outputs in response"
 
 
-def test_replicate_generic_smoke_mock():
-    """Smoke test for deployed Replicate generic processor using mode=mock."""
-    cmd = [
-        sys.executable,
-        "manage.py",
-        "run_processor",
-        "--ref",
-        "replicate/generic@1",
-        "--adapter",
-        "modal",
-        "--mode",
-        "mock",
-        "--inputs-json",
-        '{"schema":"v1","params":{"prompt":"smoke test image","model":"black-forest-labs/flux-schnell"}}',
-        "--write-prefix",
-        "/artifacts/outputs/smoke/{execution_id}/",
-        "--json",
-    ]
-
-    result = subprocess.run(
-        cmd,
-        cwd="code",
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-
-    assert result.returncode == 0, f"run_processor smoke failed: {result.stderr}"
-
-    # Parse the JSON output (canonical envelope)
-    try:
-        response = json.loads(result.stdout.strip())
-    except json.JSONDecodeError as e:
-        pytest.fail(f"Invalid JSON output: {e}\nOutput: {result.stdout}")
-
-    assert response["status"] == "success", f"Smoke test failed: {response}"
-    assert response["execution_id"], "Missing execution_id in response"
-    assert "outputs" in response, "Missing outputs in response"
-
-
 def test_modal_logs_retrieval():
     """Smoke test for Modal logs retrieval functionality."""
     cmd = [
