@@ -120,22 +120,21 @@ test-smoke:
 build-processor:
 	$(call require,REF)
 	@cd $(CODE_DIR); DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) \
-	$(PY) manage.py build_processor --ref $(REF) --json | jq .
+	$(PY) manage.py build_processor --ref $(REF) $(if $(PLATFORMS),--platforms $(PLATFORMS),) --json | jq .
 
 .PHONY: push-processor
 push-processor:
-	$(call require,REF)
+	$(call require,IMAGE)
 	$(call require,TARGET)
 	@cd $(CODE_DIR); DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) \
-	IMAGE_TAG=$$($(PY) manage.py build_processor --ref $(REF) --json | jq -r '.image_tag'); \
-	$(PY) manage.py push_processor --image "$$IMAGE_TAG" --target "$(TARGET)" --json | jq .
+	$(PY) manage.py push_processor --image "$(IMAGE)" --target "$(TARGET)" --json | jq .
 
 .PHONY: pin-processor
 pin-processor:
 	$(call require,REF)
 	$(call require,OCI)
 	@cd $(CODE_DIR); DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) \
-	$(PY) manage.py pin_processor --ref $(REF) --oci "$(OCI)" --json | jq .
+	$(PY) manage.py pin_processor --ref $(REF) --oci "$(OCI)" $(if $(PLATFORM),--platform $(PLATFORM),) --json | jq .
 
 # ---- Modal control ----------------------------------------------------------
 .PHONY: modal-deploy
@@ -222,11 +221,24 @@ services-status:
 # Auto-discover all processors and convert to REF format
 PROCESSOR_REFS := $(patsubst %,%@1, $(subst _,/, $(shell find code/apps/core/processors -name "registry.yaml" -exec dirname {} \; | xargs -I {} basename {})))
 
+# Detect platform for pinning (can be overridden)
+PLATFORM ?= $(shell uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
+
 .PHONY: build-and-pin
 build-and-pin:
 	$(call require,REGISTRY)
 	@for ref in $(PROCESSOR_REFS); do \
+		echo "=== Building $$ref for platform $(PLATFORM) ==="; \
+		build_result=$$($(MAKE) build-processor REF=$$ref PLATFORMS=linux/$(PLATFORM)); \
+		echo "Build result: $$build_result"; \
+		image_tag=$$(echo "$$build_result" | jq -r '.image_tag'); \
+		echo "Image tag: $$image_tag"; \
 		target="$(REGISTRY)/$$(echo $$ref | sed 's/@.*//' | sed 's/\//-/g'):staging-$$(date +%Y%m%d%H%M%S)"; \
-		oci=$$($(MAKE) push-processor REF=$$ref TARGET=$$target | jq -r '.oci_digest'); \
-		$(MAKE) pin-processor REF=$$ref OCI=$$oci; \
+		echo "Push target: $$target"; \
+		push_result=$$($(MAKE) push-processor IMAGE=$$image_tag TARGET=$$target); \
+		echo "Push result: $$push_result"; \
+		oci=$$(echo "$$push_result" | jq -r '.digest_ref'); \
+		echo "OCI digest: $$oci"; \
+		echo "Pinning to platform $(PLATFORM)"; \
+		$(MAKE) pin-processor REF=$$ref OCI=$$oci PLATFORM=$(PLATFORM); \
 	done

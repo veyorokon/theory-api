@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -58,6 +59,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--verify-digest", action="store_true", help="Verify digest exists via docker manifest inspect"
         )
+        parser.add_argument("--platform", help="Platform to pin (amd64, arm64)")
         parser.add_argument("--json", action="store_true", help="Emit machine JSON to stdout")
 
     def handle(self, *args, **opts):
@@ -65,6 +67,7 @@ class Command(BaseCommand):
         oci: str | None = opts.get("oci")
         repo: str | None = opts.get("repo")
         digest: str | None = opts.get("digest")
+        platform: str | None = opts.get("platform")
         verify: bool = bool(opts.get("verify_digest"))
         json_mode: bool = bool(opts.get("json"))
 
@@ -101,10 +104,10 @@ class Command(BaseCommand):
         # New schema supports platform digests; we still update a generic 'oci' if present
         # or set default_platform digest when only one digest is provided.
         if "platforms" in image_section:
-            # update the default platform digest if it matches repo
-            default_plat = image_section.get("default_platform", "amd64")
+            # use provided platform or detect from system
+            target_platform = platform if platform else ("amd64" if os.uname().machine == "x86_64" else "arm64")
             platforms = image_section.get("platforms") or {}
-            platforms[default_plat] = oci
+            platforms[target_platform] = oci
             image_section["platforms"] = platforms
         else:
             image_section["oci"] = oci
