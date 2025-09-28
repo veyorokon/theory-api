@@ -27,6 +27,8 @@ jobs:
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - name: Unit
         run: make test-unit
+      - name: Build processor image
+        run: make build-processor REF=llm/litellm@1
       - name: Integration
         run: make integration-local-build
       # Intentionally no build/pin/deploy here (dev is code-only integration).
@@ -50,6 +52,5 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        working-directory: code
         run: |
-          python manage.py sync_modal_secrets --env dev
+          make modal-sync-secrets REF=llm/litellm@1 ENV=dev

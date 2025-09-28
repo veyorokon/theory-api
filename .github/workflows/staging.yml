@@ -71,9 +71,8 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        working-directory: code
         run: |
-          python manage.py sync_modal_secrets --env staging --fail-on-missing
+          make modal-sync-secrets REF=llm/litellm@1 ENV=staging
 
   acceptance_pinned:
     name: Acceptance (pinned digests)
