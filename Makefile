@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 .ONESHELL:
 .SHELLFLAGS := -eu -o pipefail -c
-MAKEFLAGS += --no-builtin-rules
+MAKEFLAGS += --no-builtin-rules --no-print-directory
 
 # ---- Paths / Python ---------------------------------------------------------
 CODE_DIR := code
@@ -228,16 +228,10 @@ PLATFORM ?= $(shell uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
 build-and-pin:
 	$(call require,REGISTRY)
 	@for ref in $(PROCESSOR_REFS); do \
-		echo "=== Building $$ref ==="; \
 		build_result=$$($(MAKE) build-processor REF=$$ref PLATFORMS=linux/$(PLATFORM) 2>/dev/null); \
-		echo "Build result raw: '$$build_result'"; \
 		image_tag=$$(echo "$$build_result" | jq -r '.image_tag'); \
-		echo "Image tag: $$image_tag"; \
 		target="$(REGISTRY)/$$(echo $$ref | sed 's/@.*//' | sed 's/\//-/g'):staging-$$(date +%Y%m%d%H%M%S)"; \
-		echo "Target: $$target"; \
 		push_result=$$($(MAKE) push-processor IMAGE=$$image_tag TARGET=$$target 2>/dev/null); \
-		echo "Push result raw: '$$push_result'"; \
 		oci=$$(echo "$$push_result" | jq -r '.digest_ref'); \
-		echo "OCI: $$oci"; \
 		$(MAKE) pin-processor REF=$$ref OCI=$$oci PLATFORM=$(PLATFORM); \
 	done
