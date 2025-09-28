@@ -142,6 +142,7 @@ jobs:
       - name: Create/Update PR to main
         uses: peter-evans/create-pull-request@v6
         with:
+          token: ${{ secrets.ADMIN_GITHUB_TOKEN }}
           branch: promote/staging-to-main
           base: main
           title: "Promote staging -> main"
