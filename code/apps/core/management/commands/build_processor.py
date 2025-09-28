@@ -212,7 +212,11 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--ref", required=True, help="Processor ref (e.g. llm/litellm@1)")
-        parser.add_argument("--platforms", default="linux/amd64", help="Docker build platform (default: linux/amd64)")
+        parser.add_argument(
+            "--platforms",
+            default=f"linux/{_detect_arch()}",
+            help=f"Docker build platform (default: linux/{_detect_arch()})",
+        )
         parser.add_argument("--tag", help="Optional explicit image tag to use when building")
         parser.add_argument("--no-cache", action="store_true", help="Disable Docker build cache")
         parser.add_argument("--json", action="store_true", help="Emit machine JSON to stdout")
