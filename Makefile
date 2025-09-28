@@ -143,14 +143,14 @@ modal-deploy:
 	$(call require,ENV)
 	$(call require,OCI)
 	@cd $(CODE_DIR); DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) MODAL_ENVIRONMENT=$(ENV) \
-	$(PY) manage.py modalctl deploy --ref $(REF) --env $(ENV) --oci "$(OCI)" --json | jq .
+	$(PY) manage.py modalctl deploy --ref $(REF) --env $(ENV) --oci "$(OCI)"
 
 .PHONY: modal-sync-secrets
 modal-sync-secrets:
 	$(call require,REF)
 	$(call require,ENV)
 	@cd $(CODE_DIR); DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) MODAL_ENVIRONMENT=$(ENV) \
-	$(PY) manage.py modalctl sync-secrets --ref $(REF) --env $(ENV) --json | jq .
+	$(PY) manage.py modalctl sync-secrets --ref $(REF) --env $(ENV) --json
 
 .PHONY: modal-logs
 modal-logs:
