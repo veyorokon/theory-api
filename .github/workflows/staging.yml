@@ -57,6 +57,8 @@ jobs:
       DJANGO_SETTINGS_MODULE: backend.settings.unittest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: staging  # Get latest staging with pin commits
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt -r requirements-dev.txt
@@ -83,6 +85,8 @@ jobs:
       TEST_LANE: supplychain
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: staging  # Get latest staging with pin commits
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt -r requirements-dev.txt
@@ -102,6 +106,8 @@ jobs:
       USER: ${{ github.actor }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: staging  # Get latest staging with pin commits
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt -r requirements-dev.txt
@@ -119,6 +125,8 @@ jobs:
       MODAL_ENVIRONMENT: staging
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: staging  # Get latest staging with pin commits
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt -r requirements-dev.txt
@@ -138,6 +146,8 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: staging  # Get latest staging with pin commits
       - name: Create/Update PR to main
         uses: peter-evans/create-pull-request@v6
         with:
