@@ -138,13 +138,47 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: staging  # Get latest staging with pin commits
-      - name: Create/Update PR to main
-        uses: peter-evans/create-pull-request@v7
-        with:
-          branch: promote/staging-to-main
-          base: main
-          title: "Promote staging -> main"
-          body: "Pins and code validated on staging. Ready for production."
-          commit-message: "chore: promote staging -> main"
-          labels: release
+          fetch-depth: 0  # Need full history for branch operations
+      - name: Create PR from staging to main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Check if PR already exists for this staging SHA
+          EXISTING_PR=$(gh pr list --base main --head staging --state open --json number --jq '.[0].number' || echo "")
+
+          if [ -z "$EXISTING_PR" ]; then
+            echo "Creating new PR from staging to main"
+            gh pr create \
+              --base main \
+              --head staging \
+              --title "Release #${{ github.run_id }}: Promote staging -> main" \
+              --body "## 🚀 Production Release
+
+          This PR promotes validated changes from staging to main for production deployment.
+
+          ### Validation Status
+          - ✅ **Build & Pin**: Completed successfully
+          - ✅ **Deploy to staging**: Deployed and verified
+          - ✅ **Smoke tests**: All tests passed
+
+          ### Release Info
+          - **Run ID**: ${{ github.run_id }}
+          - **SHA**: ${{ github.sha }}
+          - **Workflow**: [View run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+          ---
+          Ready for production deployment. Please review and merge to deploy." \
+              --label "release" \
+              --label "production"
+
+            echo "✅ PR created successfully"
+          else
+            echo "⚠️ PR #$EXISTING_PR already exists from staging to main"
+            echo "Updating existing PR with latest run info"
+
+            gh pr comment $EXISTING_PR --body "## Updated from Run #${{ github.run_id }}
+
+          - **SHA**: ${{ github.sha }}
+          - **Workflow**: [View run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          - **Status**: ✅ All validations passed"
+          fi
