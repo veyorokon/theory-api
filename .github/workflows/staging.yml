@@ -5,10 +5,6 @@ on:
     branches: [ staging ]
     paths-ignore:
       - "code/apps/core/processors/**/registry.yaml"  # Ignore pin commits
-    paths:
-      - "code/**"
-      - ".github/workflows/staging.yml"
-      - "Makefile"
   workflow_dispatch: {}
 
 concurrency:
