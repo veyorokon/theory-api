@@ -9,7 +9,7 @@
 | `PROCESSOR_REF` | env             | Set by workflows when deploying a specific processor.    |
 
 App names are derived automatically:
-- CI/CD (`modal_app.py`): canonical slug via `modal_app_name_from_ref(ref)` → `llm-litellm-v1`
+- CI/CD (Modal): canonical slug `ns-name-vX` (e.g., `llm-litellm-v1`) with optional `branch-user-` prefix in dev
 - Manual commands: default to the same slug; use `--app-name`/`MODAL_APP_NAME` only if a custom sandbox name is required.
 
 ## Secrets Standard

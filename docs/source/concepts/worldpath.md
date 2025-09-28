@@ -81,7 +81,7 @@ WorldPath selectors specify resource access patterns with strict validation:
 - Validated by `enforce_selector_kind(path, kind="exact")`
 - Examples: `/artifacts/outputs/text/response.txt`, `/artifacts/models/weights.bin`
 
-### Prefix Selectors  
+### Prefix Selectors
 - Target all resources under a path prefix
 - **Must end with `/`**
 - Validated by `enforce_selector_kind(path, kind="prefix")`
@@ -158,7 +158,7 @@ The canonicalization system returns specific error codes:
 /artifacts/outputs/images/generated.png
 /artifacts/models/llm/weights.bin
 /artifacts/datasets/training/data.json
-/artifacts/execution/E123/outputs.json
+/artifacts/outputs/.../E123/outputs.json
 /artifacts/inputs/data.csv
 ```
 

@@ -1,4 +1,0 @@
-# You can choose to avoid the SDK and use requests; keeping SDK for convenience.
-replicate>=0.25.0
-requests>=2.32.0
-blake3>=0.4.1

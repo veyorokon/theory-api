@@ -6,9 +6,10 @@ from pathlib import Path
 
 
 def main() -> int:
-    base = Path("code/apps/core/registry/processors")
+    # New layout: scan per-processor registry.yaml files
+    base = Path("code/apps/core/processors")
     names = set()
-    for y in base.glob("*.yaml"):
+    for y in base.glob("**/registry.yaml"):
         txt = y.read_text(encoding="utf-8")
         # ultra-light parse to find "secrets:\n  required:\n    - NAME"
         # avoids pyyaml dep in CI

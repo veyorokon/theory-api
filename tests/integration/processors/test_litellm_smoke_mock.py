@@ -1,16 +1,10 @@
 """Integration tests for llm_litellm mock mode testing."""
 
-import json
-import subprocess
-import sys
-import os
-import tempfile
-from pathlib import Path
-
 import pytest
+from apps.core.orchestrator import run as orch_run
 
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.requires_docker]
 
 
 class TestLiteLLMMock:
@@ -29,40 +23,27 @@ class TestLiteLLMMock:
             },
         }
 
-        # Execute processor
-        cmd = [
-            sys.executable,
-            "manage.py",
-            "run_processor",
-            "--ref",
-            "llm/litellm@1",
-            "--adapter",
-            "local",
-            "--mode",
-            "mock",
-            "--write-prefix",
-            "/artifacts/outputs/litellm-mock/{execution_id}/",
-            "--inputs-json",
-            json.dumps(inputs),
-            "--json",
-        ]
+        # Execute processor via orchestrator
+        envelope = orch_run(
+            adapter="local",
+            ref="llm/litellm@1",
+            mode="mock",
+            inputs=inputs,
+            write_prefix="/artifacts/outputs/litellm-mock/{execution_id}/",
+            expected_oci=None,
+            build=True,
+        )
 
-        env = os.environ.copy()
-        env["PYTHONPATH"] = "."
+        assert envelope["status"] == "success"
+        assert "execution_id" in envelope
+        assert "outputs" in envelope
 
-        result = subprocess.run(cmd, env=env, capture_output=True, text=True, cwd=".")
-
-        # Verify success
-        assert result.returncode == 0, f"Command failed: {result.stderr}"
-
-        # Parse response
-        response = json.loads(result.stdout)
-        assert response["status"] == "success"
-        assert "execution_id" in response
-        assert "outputs" in response
-
-    def test_litellm_ci_forces_mock(self):
+    def test_litellm_ci_forces_mock(self, monkeypatch):
         """Test that CI=true forces mock mode even with API key present."""
+        # Set environment variables
+        monkeypatch.setenv("CI", "true")
+        monkeypatch.setenv("OPENAI_API_KEY", "fake-key-should-be-ignored")
+
         # Prepare inputs
         inputs = {
             "schema": "v1",
@@ -70,30 +51,16 @@ class TestLiteLLMMock:
             "params": {"messages": [{"role": "user", "content": "test"}]},
         }
 
-        # Execute processor
-        cmd = [
-            sys.executable,
-            "manage.py",
-            "run_processor",
-            "--ref",
-            "llm/litellm@1",
-            "--adapter",
-            "local",
-            "--mode",
-            "mock",
-            "--write-prefix",
-            "/artifacts/outputs/litellm-ci/{execution_id}/",
-            "--inputs-json",
-            json.dumps(inputs),
-            "--json",
-        ]
-
-        env = os.environ.copy()
-        env["PYTHONPATH"] = "."
-        env["CI"] = "true"
-        env["OPENAI_API_KEY"] = "fake-key-should-be-ignored"
-
-        result = subprocess.run(cmd, env=env, capture_output=True, text=True, cwd=".")
+        # Execute processor via orchestrator
+        envelope = orch_run(
+            adapter="local",
+            ref="llm/litellm@1",
+            mode="mock",
+            inputs=inputs,
+            write_prefix="/artifacts/outputs/litellm-ci/{execution_id}/",
+            expected_oci=None,
+            build=True,
+        )
 
         # Should succeed without network access in mock mode
-        assert result.returncode == 0, f"Mock mode should succeed without network: {result.stderr}"
+        assert envelope["status"] == "success"

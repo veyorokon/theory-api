@@ -26,7 +26,7 @@ All adapters return consistent envelope structures regardless of execution envir
       "mime": "application/json"
     }
   ],
-  "index_path": "/artifacts/execution/E123/outputs.json",
+  "index_path": "/artifacts/outputs/.../E123/outputs.json",
   "meta": {
     "image_digest": "ghcr.io/owner/llm_litellm@sha256:...",
     "env_fingerprint": "adapter=local,mode=mock,present_env_keys=[OPENAI_API_KEY]",
@@ -69,7 +69,7 @@ Both adapters (local and modal) emit the same envelope format. The local adapter
 - **mode="mock"** – Hermetic; writes outputs locally without Docker/ArtifactStore.
 - **mode="real"** – Uses Docker and ArtifactStore (or Modal runtime) to persist artifacts.
 
-Modal deploy workflows force `mode="mock"` for their smoke tests, but the resulting envelope is identical.
+Modal deploy workflows run `run_processor … --mode mock` for smoke tests; the resulting envelope is identical.
 
 ## Index Artifacts
 
@@ -79,7 +79,7 @@ The `index_path` points to a JSON artifact containing the outputs array. Structu
 {
   "outputs": [
     {
-      "path": "/artifacts/outputs/text/response.txt",
+      "path": "/artifacts/outputs/.../E123/outputs/text/response.txt",
       "cid": "b3:abc123...",
       "size_bytes": 42,
       "mime": "text/plain"

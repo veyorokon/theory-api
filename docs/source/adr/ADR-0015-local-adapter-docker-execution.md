@@ -1,6 +1,6 @@
 ---
 title: ADR-0015 — Local Adapter Docker Execution
-status: Accepted
+status: Superseded
 date: 2025-09-09
 deciders: architect, engineer
 ---
@@ -9,7 +9,7 @@ deciders: architect, engineer
 
 ## Status
 
-Accepted
+Superseded by HTTP-first processors and transport-only adapters (see Concepts → Adapters and Registry). Containers now expose FastAPI (`/healthz`, `/run`, `/run-stream`), and adapters POST payloads over HTTP. The file-based `/work/inputs.json`/`/work/out/**` contract in this ADR reflects the legacy model.
 
 ## Context
 
@@ -27,7 +27,7 @@ The architectural decision establishes that processors should be stateless, cont
 Local adapter will execute processors as Docker/Podman containers, not as direct Python subprocesses.
 
 **Container Execution Model:**
-- Read processor specifications from registry YAML files (`image.oci`, `runtime.*`)
+- Read processor specifications from registry YAML files (runtime, secrets, image digests)
 - Create isolated workdir under `settings.BASE_DIR/tmp/plan.key/execution.id`
 - Mount workdir as `/work` inside container with read-write access
 - Standardized I/O: processor reads `/work/inputs.json`, writes outputs to `/work/out/**`

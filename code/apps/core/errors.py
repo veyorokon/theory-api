@@ -8,6 +8,8 @@ consistently across all adapters and components.
 # Image and registry errors
 ERR_IMAGE_UNPINNED = "ERR_IMAGE_UNPINNED"
 ERR_IMAGE_PULL = "ERR_IMAGE_PULL"
+ERR_IMAGE_UNAVAILABLE = "ERR_IMAGE_UNAVAILABLE"
+ERR_REGISTRY_MISMATCH = "ERR_REGISTRY_MISMATCH"
 
 # Secret and authentication errors
 ERR_MISSING_SECRET = "ERR_MISSING_SECRET"

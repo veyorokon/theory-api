@@ -116,63 +116,103 @@ paths_overlap("/artifacts/out", "/artifacts/out/frames")  # True
 paths_overlap("/artifacts/foo", "/artifacts/foobar")      # False
 ```
 
-## Processor Interface Contract
+## Processor Interface Contract (HTTP-first)
 
-Processors are stateless, containerized programs that execute within isolated Docker containers. They provide a standardized interface for processing inputs and generating outputs.
+Processors are stateless containers exposing a FastAPI service with one contract. Adapters are transport-only.
 
-### Interface Specification
+### HTTP Endpoints
 
-**Input Contract:**
-- Processors read JSON inputs from `/work/inputs.json` inside the container
-- Input JSON contains all necessary parameters and data references
-- Attachment references use `{"$artifact": "/artifacts/path"}` format
+- `GET /healthz` → `{ "ok": true }`
+- `POST /run` → synchronous execution, returns canonical envelope JSON
+- `POST /run-stream` (optional) → SSE stream of events; the final event carries the envelope (event name may be `done` or `settle` depending on processor)
 
-**Output Contract:**
-- All outputs must be written under `/work/out/` directory
-- Files can be organized in subdirectories (e.g., `/work/out/text/response.txt`)
-- Exit code 0 indicates success; non-zero indicates failure
-- Successful execution generates canonical outputs with index artifact at `/artifacts/execution/<id>/outputs.json`
-- See {doc}`Processor Outputs </guides/processor-outputs>` for canonical format specification
+### Payload (control plane → processor)
 
-**Environment Variables:**
-- `THEORY_OUTPUT_DIR=/work/out` - Standard output directory
-- Secret environment variables injected based on registry `secrets` specification
+```json
+{
+  "schema": "v1",
+  "execution_id": "<uuid>",
+  "ref": "ns/name@ver",
+  "mode": "mock" | "real",
+  "inputs": { /* validated by registry inputs schema */ },
+  "write_prefix": "/artifacts/outputs/.../{execution_id}/",
+  "meta": { "trace_id": "<uuid>" }
+}
+```
 
-**Container Execution:**
-- Working directory: `/work`
-- Read-write mount: Host workdir mounted at `/work`
-- Resource constraints: CPU, memory, timeout enforced via Docker flags
-- Isolated execution: No access to Django models or host resources
+Rules:
+- `write_prefix` must include `{execution_id}` and end with `/`
+- PR lane uses `mode="mock"` (no secrets, no egress)
+
+### Outputs & Receipts (inside container)
+
+- Write files under `<write_prefix>/outputs/**`
+- Write `<write_prefix>/outputs.json` (sorted, wrapper `{ "outputs": [...] }`)
+- Dual receipts:
+  - `<write_prefix>/receipt.json`
+  - `/artifacts/execution/<execution_id>/determinism.json`
+
+See {doc}`Processor Outputs </guides/processor-outputs>` and {doc}`Envelopes & Index </concepts/envelopes-and-index>`.
 
 ### Registry Integration
 
-Processors are defined by YAML specifications in `apps/core/registry/processors/`:
+Each processor directory contains a `registry.yaml` at `code/apps/core/processors/<ns>_<name>/registry.yaml` with this shape:
 
 ```yaml
 ref: llm/litellm@1
-description: LLM processor using LiteLLM for multi-provider support
-version: 1
+
 image:
-  dockerfile: apps/core/processors/llm_litellm/Dockerfile
-  oci: docker.io/library/python:3.11-slim
-entrypoint:
-  cmd: ["python", "/app/processor.py"]
+  platforms:
+    amd64: ghcr.io/owner/repo/llm-litellm@sha256:<amd64>
+    arm64: ghcr.io/owner/repo/llm-litellm@sha256:<arm64>
+  default_platform: amd64
+
 runtime:
-  cpu: 1
-  memory_gb: 0.5
-  timeout_s: 300
+  cpu: "1"
+  memory_gb: 2
+  timeout_s: 600
+  gpu: null
+
 secrets:
-  - OPENAI_API_KEY
+  required: [OPENAI_API_KEY]
+
+inputs:
+  $schema: "https://json-schema.org/draft-07/schema#"
+  title: "llm/litellm inputs v1"
+  type: object
+  additionalProperties: false
+  required: [schema, params]
+  properties:
+    schema: { const: "v1" }
+    params:
+      type: object
+      additionalProperties: false
+      required: [messages, model]
+      properties:
+        model: { type: string }
+        messages:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [role, content]
+            properties:
+              role: { enum: [user, system, assistant] }
+              content: { type: string }
+
+outputs:
+  # Paths are relative to the outputs/ directory
+  - { path: text/response.txt, mime: text/plain }
+  - { path: metadata.json, mime: application/json }
 ```
 
-### Adapter Implementation
+### Adapter Implementation (transport-only)
 
-**Local Adapter (Docker + Mock Mode):**
-- Reads registry specification for processor configuration
-- Creates isolated workdir under `settings.BASE_DIR/tmp/plan_id/execution_id`
-- Default mode executes containers with resource constraints and uploads via `ArtifactStore`
-- `mode="smoke"` fabricates outputs locally (no Docker/MinIO) for unit-style tests
+**Local Adapter (Docker → HTTP):**
+- Start container by digest (host arch → platform)
+- Poll `/healthz`, then `POST /run` (or `/run-stream` for SSE)
+- Validate envelope; enforce index discipline; optional digest drift check
 
-**Modal Adapter:**
-- Uses registry `image.oci` reference for Modal execution
-- Identical I/O contract with different execution environment
+**Modal Adapter (Web endpoint → HTTP):**
+- Call deployed web endpoint bound to the pinned digest
+- Same payload and envelope as local; drift check vs deployed digest

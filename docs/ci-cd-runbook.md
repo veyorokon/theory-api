@@ -9,7 +9,7 @@ The CI/CD system uses a **build-once, deploy-many** strategy with digest pinning
 ### Core Principles
 
 - **Fast feedback loops**: Separate fast (unit tests, docs) from slow (acceptance, Docker) lanes
-- **Digest pinning**: All production deployments use pinned SHA256 digests, not floating tags
+- **Digest pinning**: All deployments use pinned SHA256 digests, not floating tags
 - **Environment parity**: Same secret names and configurations across dev/staging/prod
 - **Fail-fast**: Zero retries on Modal functions; let CI handle retry policy
 - **Audit trails**: Weekly drift detection between deployed vs expected state
@@ -31,9 +31,9 @@ The CI/CD system uses a **build-once, deploy-many** strategy with digest pinning
 **Purpose**: Immediate feedback for developers; required check for merge.
 
 ### 2. Docker Lane (Acceptance & Property)
-**Trigger**: 
+**Trigger**:
 - Push to `dev` branch
-- Daily schedule (06:00 UTC)  
+- Daily schedule (06:00 UTC)
 - Manual dispatch
 - PRs with `run-acceptance` label
 
@@ -54,7 +54,7 @@ The CI/CD system uses a **build-once, deploy-many** strategy with digest pinning
 **Trigger**: Changes to processor code paths:
 - `code/apps/core/processors/**`
 - `code/libs/**`
-- `code/apps/core/registry/processors/**`
+- `code/apps/core/processors/**/registry.yaml`
 
 **Runtime**: ~3-5 minutes per processor
 **Runs on**: `ubuntu-latest`
@@ -64,8 +64,8 @@ The CI/CD system uses a **build-once, deploy-many** strategy with digest pinning
 - Discover changed processors (paths-filter)
 - Build Docker images (linux/amd64)
 - Push to GHCR with SHA tag
-- Extract digest from registry
-- Create bot PR pinning digest in registry YAML
+- Extract digest from per-processor registry.yaml
+- Create bot PR pinning digest in the processor's registry.yaml
 ```
 
 **Purpose**: Automated image building with digest pinning for reproducible deployments.
@@ -74,8 +74,8 @@ The CI/CD system uses a **build-once, deploy-many** strategy with digest pinning
 
 GitHub Actions must be able to pull private images from GitHub Container Registry (GHCR). Link the package to your repo with the correct permission:
 
-1) Repository → Packages → Select package (e.g., `llm_litellm`) → Package settings  
-2) Repository access → Add repository → Select your repo  
+1) Repository → Packages → Select package (e.g., `llm_litellm`) → Package settings
+2) Repository access → Add repository → Select your repo
 3) Choose “Actions: Read” permission (NOT “Codespaces”).
 
 CI authentication (example):
@@ -103,15 +103,15 @@ Distinction: “Codespaces” access is for dev environments; **CI/CD needs “A
 
 ```yaml
 # .github/workflows/modal-deploy.yml
-- Extract pinned digest from registry
-- Deploy committed module: modal deploy -m modal_app
+- Extract pinned digest from per-processor registry.yaml
+- Deploy by digest: python manage.py modalctl deploy --ref <ref> --env <env> --oci <digest>
 - Post-deploy smoke test
 ```
 
 **Purpose**: Environment-gated deployments to Modal with smoke testing.
 
 ### 5. Modal Drift Audit
-**Trigger**: 
+**Trigger**:
 - Push to `dev`, `staging`, `main` branches
 - Pull requests to `main`
 - Manual workflow_dispatch
@@ -144,7 +144,7 @@ git log --oneline
 git checkout <commit-sha>
 
 # Redeploy modal app from target commit
-modal deploy -m modal_app
+python manage.py modalctl deploy --ref <ref> --env <env> --oci <digest>
 
 # Verify deployment
 modal function logs <slug>-v<ver>-<env>::run --env <environment>
@@ -178,30 +178,30 @@ OPENAI_API_KEY          # Workload runtime key
 - **App naming**: `{slug}-{version}-{environment}`
   - Example: `llm-litellm-v1-dev`
 - **Function naming**: `run` (single function per app)
-- **Environment mapping**: 
+- **Environment mapping**:
   - `dev` → `dev`
-  - `staging` → `staging`  
+  - `staging` → `staging`
   - `main` → `main` (production)
 
 ### Image References
 - **During build**: `ghcr.io/owner/llm-litellm:sha-{commit}`
 - **After pinning**: `ghcr.io/owner/llm-litellm@sha256:{digest}`
-- **Registry storage**: `image.oci` field in `code/apps/core/registry/processors/{processor}.yaml`
+- **Registry storage**: `image.platforms.{amd64,arm64}` in `code/apps/core/processors/<ns>_<name>/registry.yaml`
 
 ## Operational Procedures
 
 ### Image Pin Workflow
 1. **Automated trigger**: Push changes to processor paths
-2. **Build process**: 
+2. **Build process**:
    - Detect changed processors via paths-filter
    - Build and push Docker images to GHCR
    - Extract SHA256 digest from registry
-3. **Pin creation**: 
+3. **Pin creation**:
    - Bot creates PR updating registry YAML
    - PR title: `Pin digest for {processor} @ {commit}`
    - Auto-labeled: `registry`, `automation`
 4. **Review and merge**: Human reviews and merges pin PR
-5. **Deployment**: Next Modal deploy uses pinned digest
+5. **Deployment**: Modal deploy uses pinned digest (amd64) via `python manage.py modalctl deploy --ref ... --env ... --oci ...`
 
 ### Rollback Procedure
 1. **Identify target**: Determine commit SHA of known-good state
@@ -210,7 +210,7 @@ OPENAI_API_KEY          # Workload runtime key
    ```bash
    # Via GitHub UI: Actions → Rollback Deployment
    # Inputs:
-   # - environment: dev|staging|prod  
+   # - environment: dev|staging|prod
    # - previous_commit: <commit-sha>
    ```
 4. **Verify deployment**: Check smoke test results
@@ -223,7 +223,7 @@ OPENAI_API_KEY          # Workload runtime key
    - **main**: Drift failures block deployment for safety
 3. **Investigate discrepancies**:
    - Missing apps: Check deployment pipeline health
-   - Version mismatches: Verify pin PR workflow  
+   - Version mismatches: Verify pin PR workflow
    - Access errors: Validate Modal credentials
 4. **Remediation**:
    - Re-trigger deployments if needed
@@ -264,7 +264,7 @@ python manage.py run_processor \
 # Check workflow status
 gh run list --workflow="Modal Deploy"
 
-# View specific run logs  
+# View specific run logs
 gh run view <run-id> --log
 
 # Re-trigger failed workflow
@@ -280,7 +280,7 @@ gh run rerun <run-id>
 - **Cause**: Registry YAML has floating tag instead of digest
 - **Fix**: Ensure build-and-pin workflow completed; check for open pin PRs
 
-#### "Modal function not found"  
+#### "Modal function not found"
 - **Symptom**: Adapter can't resolve function by name
 - **Cause**: App naming mismatch or deployment failure
 - **Fix**: Verify app name construction; check Modal deploy workflow logs
@@ -329,7 +329,7 @@ gh run rerun <run-id>
 - Check for stale pin PRs awaiting review
 - Verify Modal token expiration dates
 
-### Monthly  
+### Monthly
 - Review workflow run history for patterns
 - Update documentation for any process changes
 - Audit Modal secret rotation needs
@@ -352,7 +352,7 @@ python scripts/ci/get_image_ref.py
 # Output: ghcr.io/owner/llm-litellm@sha256:abc123...
 ```
 
-### `pin_processor.py`  
+### `pin_processor.py`
 ```bash
 # Pin processor to specific digest
 python scripts/ci/pin_processor.py llm_litellm \

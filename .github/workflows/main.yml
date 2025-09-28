@@ -1,0 +1,96 @@
+name: Main Lane
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "code/**"
+      - "code/apps/core/processors/**"  # NEW source of truth for pins
+      - ".github/workflows/main.yml"
+      - "Makefile"
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MODAL_ENVIRONMENT: prod
+
+jobs:
+  sync-secrets-prod:
+    name: Sync secrets to Modal (prod)
+    runs-on: ubuntu-latest
+    env:
+      MODAL_ENVIRONMENT: main
+      DJANGO_SETTINGS_MODULE: backend.settings.unittest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Install Modal CLI
+        run: pip install modal-client
+      - name: Sync secrets to Modal (main)
+        env:
+          # Expose GitHub secrets as process environment variables
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        working-directory: code
+        run: |
+          python manage.py sync_modal_secrets --env main
+
+  acceptance_pinned:
+    name: Acceptance (pinned, belt & suspenders)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DJANGO_SETTINGS_MODULE: backend.settings.unittest
+      LOG_STREAM: stderr
+      TEST_LANE: supplychain
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Acceptance (pinned)
+        run: make test-acceptance-dev
+
+  deploy:
+    name: Deploy to Modal (prod)
+    needs: [acceptance_pinned, sync-secrets-prod]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DJANGO_SETTINGS_MODULE: backend.settings.unittest
+      MODAL_ENABLED: "true"
+      MODAL_ENVIRONMENT: prod
+      BRANCH: ${{ github.ref_name }}
+      USER: ${{ github.actor }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Deploy functions (digest-only via modalctl)
+        run: make deploy-prod   # wraps: python manage.py modalctl deploy --ref … --env prod --oci <pinned>
+
+  post_deploy_checks:
+    name: Smoke/Canary + Drift (prod)
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DJANGO_SETTINGS_MODULE: backend.settings.unittest
+      MODAL_ENABLED: "true"
+      MODAL_ENVIRONMENT: prod
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Smoke/Canary (timeout protected)
+        run: make smoke-prod
+      - name: Drift audit (fail-closed on main)
+        run: make drift-audit

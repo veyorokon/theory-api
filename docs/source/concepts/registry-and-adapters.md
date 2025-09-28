@@ -1,8 +1,7 @@
 # Registry & Adapters
 
-- **Registry**: versioned specs for tools, schemas, prompts, and policies.
-- **Adapters**: map `processor_ref` → runnable function (e.g., Modal). The executor only speaks a thin adapter API.
-- **ExpandedContext** is passed to processors (never raw DB access).
+- Registry: per-processor YAML specs colocated with the processor
+- Adapters: transport-only bridges to HTTP processors (local Docker or Modal)
 
 ## Registry System
 
@@ -10,36 +9,54 @@ The registry provides versioned, immutable specifications for all system compone
 
 ### Processor Specifications
 
+`code/apps/core/processors/<ns>_<name>/registry.yaml`:
+
 ```yaml
-# registry/processors/llm/litellm.yaml
 ref: llm/litellm@1
-name: "LLM processor using LiteLLM"
+
 image:
-  oci: "ghcr.io/theory/litellm:v1.2.3@sha256:abc123..."
-  build:
-    context: "apps/core/processors/llm_litellm"
-    dockerfile: "Dockerfile"
+  platforms:
+    amd64: ghcr.io/owner/repo/llm-litellm@sha256:<amd64>
+    arm64: ghcr.io/owner/repo/llm-litellm@sha256:<arm64>
+  default_platform: amd64
+
 runtime:
   cpu: 1
   memory_gb: 2
-  timeout_s: 300
-  gpu: false
+  timeout_s: 600
+  gpu: null
+
 secrets:
-  required:
-    - OPENAI_API_KEY
-  optional:
-    - ANTHROPIC_API_KEY
+  required: [OPENAI_API_KEY]
+
+inputs:
+  $schema: "https://json-schema.org/draft-07/schema#"
+  title: "llm/litellm inputs v1"
+  type: object
+  additionalProperties: false
+  required: [schema, params]
+  properties:
+    schema: { const: "v1" }
+    params:
+      type: object
+      additionalProperties: false
+      required: [messages, model]
+      properties:
+        model: { type: string }
+        messages:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [role, content]
+            properties:
+              role: { enum: [user, system, assistant] }
+              content: { type: string }
+
 outputs:
-  writes:
-    - prefix: "/artifacts/outputs/text/"
-    - prefix: "/artifacts/outputs/meta.json"
-predicates:
-  admission:
-    - id: "budget.available@1"
-      args: {required_usd_micro: 1000}
-  success:
-    - id: "artifact.exists@1"
-      args: {path: "${outputs.text_path}"}
+  # Paths are relative to the outputs/ directory
+  - { path: text/response.txt, mime: text/plain }
+  - { path: metadata.json, mime: application/json }
 ```
 
 ### Schema Definitions
@@ -77,56 +94,20 @@ leases:
 
 ## Adapter System
 
-Adapters provide runtime placement for processors, mapping `processor_ref` to concrete execution environments:
-
-- **local**: Docker-backed execution on the same host (inputs carry `mode: "mock"` for hermetic runs).
-- **modal**: Cloud execution via the Modal platform.
-
-> “mock adapter” no longer exists; instead processors honour `mode` in the inputs JSON. CI smoke tests, local quick checks, and the `modal_app.smoke` function simply force `mode="mock"`.
-
-### Local Adapter (Docker + Mock mode)
-
-Executes processors on the host. In **real mode** it uses Docker containers and ArtifactStore; in **mock mode** it fabricates deterministic outputs under the write-prefix without touching external services.
-
-**Use cases:**
-- Fast mock runs (unit-style)
-- Full Docker execution for integration
-- CI smoke tests (mock mode)
-
-**Characteristics:**
-- Synchronous execution
-- Docker isolation in `mode="real"`
-- Hermetic, no-external-deps path in `mode="mock"`
-
-### Modal Adapter
-
-Executes processors on Modal's serverless platform using the pinned image digest.
-
-**Use cases:**
-- Production workloads
-- GPU or high-memory processors
-- Warm pools for low latency
-
-**Characteristics:**
-- Pre-deployed functions (`modal deploy -m modal_app`)
-- Secrets mounted by name
-- Identical envelope format to local adapter
+- local: Docker container → HTTP (`/healthz`, `/run`, `/run-stream`)
+- modal: Web endpoint → HTTP (same payload/envelope; deployed by digest)
 
 ## Uniform Adapter API
-
-All adapters implement the same interface with keyword-only parameters:
 
 ```python
 def invoke(
     *,
-    processor_ref: str,
-    inputs_json: dict,
-    write_prefix: str,
-    execution_id: str,
-    registry_snapshot: dict,
-    adapter_opts: dict,
-    secrets_present: list[str]
-) -> envelope
+    ref: str,
+    payload: dict,
+    timeout_s: int,
+    oci: str | None,
+    stream: bool = False,
+) -> dict | Iterator[dict]
 ```
 
 ### Parameters
@@ -153,9 +134,8 @@ All adapters return consistent **envelope** format.
 
 ### Modal Adapter
 
-- Uses `image.oci` digests from the registry
-- Secrets pulled from Modal secret store
-- Deployed via `modal deploy -m modal_app.py`
+- Deploy by digest only; drift check on invoke
+- Secrets pulled from Modal secret store (names only in payloads/logs)
 
 ### Secrets Handling
 

@@ -16,9 +16,9 @@ Processor execution generates canonical outputs in a standardized envelope forma
       "mime": "text/plain"
     }
   ],
-  "index_path": "/artifacts/execution/exec_abc123/outputs.json",
+  "index_path": "/artifacts/outputs/.../exec_abc123/outputs.json",
   "meta": {
-    "image_digest": "sha256:abc123...",
+    "image_digest": "ghcr.io/...@sha256:abc123...",
     "mode": "mock",
     "duration_ms": 2341
   }
@@ -39,6 +39,6 @@ python manage.py run_processor \
 
 ## Implementation Notes
 
-- Local adapter supports `mode=mock` and `mode=real`; Modal adapter always runs real mode but smoke tests force the inputs to `mode=mock`.
+- Both adapters honour `mode=mock` and `mode=real`; smoke tests simply pass `mode=mock` through the same execution surface.
 - Envelopes remain the same regardless of mode; only the meta fields differ (e.g., `mode` or resource usage).
 - Output paths are canonicalized, deduplicated, and sorted.

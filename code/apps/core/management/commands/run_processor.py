@@ -6,17 +6,16 @@ Pure function available at libs.runtime_common.core.run_processor_core for progr
 
 from __future__ import annotations
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
 from django.core.management.base import BaseCommand
-from libs.runtime_common.mode import resolve_mode, ModeSafetyError
+from libs.runtime_common.envelope import resolve_mode, ModeSafetyError
 
-from apps.core.orchestrator import run_processor_core
-from apps.core import logging as core_logging
-from apps.core.logging import bind, clear
+from apps.core.orchestrator import run
+from libs.runtime_common import logging as core_logging
+from libs.runtime_common.logging import bind, clear
 from apps.storage.artifact_store import artifact_store
 
 
@@ -50,7 +49,6 @@ class Command(BaseCommand):
         )
         parser.add_argument("--save-dir", help="Download all outputs into this directory (mirrors world paths)")
         parser.add_argument("--save-first", help="Download only the first output into this file path")
-        parser.add_argument("--global-receipt-base", default="/artifacts", help="Base path for global receipts")
 
     def materialize_attachments(self, attachments: List[str]) -> Dict[str, Dict[str, Any]]:
         """Materialize attachment files and return mapping."""
@@ -180,7 +178,6 @@ class Command(BaseCommand):
         )
 
         try:
-            core_logging.info("execution.start", write_prefix=options["write_prefix"])
             # Require {execution_id} in write prefix for collision prevention
             write_prefix = options["write_prefix"]
             if "{execution_id}" not in write_prefix:
@@ -207,7 +204,7 @@ class Command(BaseCommand):
 
             # CI guardrail: validate mode before proceeding
             try:
-                resolve_mode(inputs_json)  # This will raise if CI=true and mode=real
+                resolve_mode(options.get("mode"))  # This will raise if CI=true and mode=real
             except ModeSafetyError as e:
                 # Explicit non-zero exit for guardrail violation; no adapter invoked
                 # Note: No execution_id available yet for early failures
@@ -242,34 +239,24 @@ class Command(BaseCommand):
             # Parse adapter options
             adapter_opts = json.loads(options.get("adapter_opts_json") or "{}")
 
-            # Set global receipt base in environment for processors
-            import os
+            # Extract Modal context from Django settings
+            from django.conf import settings
 
-            os.environ["GLOBAL_RECEIPT_BASE"] = options["global_receipt_base"]
-
-            # Lane toggle: allow CI to force build without changing tests
-            force_build = os.getenv("RUN_PROCESSOR_FORCE_BUILD") == "1"
-            build_flag = options.get("build", False) or (force_build and options["adapter"] == "local")
-
-            # Call core function with pre-generated execution_id
-            result = run_processor_core(
+            # Call new orchestrator run function
+            result = run(
                 ref=options["ref"],
                 adapter=options["adapter"],
                 mode=options["mode"],
-                inputs_json=inputs_json,
+                inputs=inputs_json,
                 write_prefix=options["write_prefix"],
-                plan=options.get("plan"),
-                adapter_opts=adapter_opts,
-                build=build_flag,
-                timeout=options.get("timeout"),
-                execution_id=execution_id,
+                expected_oci=None,  # Could extract from adapter_opts if needed
+                timeout_s=options.get("timeout", 600),
+                build=options.get("build", False),
+                extra={"execution_id": execution_id},
+                env=getattr(settings, "MODAL_ENVIRONMENT", None),
+                branch=getattr(settings, "MODAL_BRANCH", None),
+                user=getattr(settings, "MODAL_USER", None),
             )
-
-            # Log execution outcome (boundary discipline)
-            if result.get("status") == "success":
-                core_logging.info("execution.settle", status="success", outputs_count=len(result.get("outputs", [])))
-            else:
-                core_logging.error("execution.fail", error=result.get("error", {}))
 
             # Download outputs if requested
             if result.get("status") == "success" and result.get("outputs"):
@@ -279,7 +266,7 @@ class Command(BaseCommand):
                     self._download_first_output(result["outputs"], options["save_first"], options)
 
             # Always output JSON (for both success and error)
-            self.stdout.write(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
+            self.stdout.write(json.dumps(result, ensure_ascii=False, separators=(",", ":")) + "\n")
 
             # Return None to satisfy Django management command contract
             return None

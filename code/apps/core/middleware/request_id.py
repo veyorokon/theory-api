@@ -1,8 +1,7 @@
 from __future__ import annotations
 import uuid
-import time
 from django.utils.deprecation import MiddlewareMixin
-from apps.core.logging import bind, clear, info
+from libs.runtime_common.logging import bind, clear, info
 
 
 class RequestIdMiddleware(MiddlewareMixin):

@@ -8,6 +8,18 @@ def jcs_dumps(obj) -> str:
     return json.dumps(obj, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
 
 
+def canonicalize_inputs(obj):
+    """Recursively sort mapping keys and normalize lists for deterministic hashing.
+
+    Useful for stable input hashing independent of input key order.
+    """
+    if isinstance(obj, dict):
+        return {k: canonicalize_inputs(v) for k, v in sorted(obj.items())}
+    if isinstance(obj, list):
+        return [canonicalize_inputs(v) for v in obj]
+    return obj
+
+
 def blake3_hex(b: bytes) -> str:
     """BLAKE3 hash as hexadecimal string."""
     return blake3(b).hexdigest()

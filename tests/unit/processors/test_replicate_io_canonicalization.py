@@ -1,7 +1,7 @@
 """Unit tests for shared input canonicalization."""
 
 import pytest
-from libs.runtime_common.outputs import canonicalize_inputs
+from libs.runtime_common.hashing import canonicalize_inputs
 from libs.runtime_common.hashing import inputs_hash
 
 

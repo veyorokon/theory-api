@@ -1,59 +1,64 @@
+"""Lightweight registry loader for per-processor registry.yaml files.
+
+New layout:
+  code/apps/core/processors/<ns>_<name>/registry.yaml
+
+Functions mirror the old interface used across the codebase to ease migration.
+"""
+
 from __future__ import annotations
+
 import os
-import yaml
+from pathlib import Path
 from typing import Dict, List
 
 
-def ref_to_yaml_filename(ref: str) -> str:
-    """
-    Map 'llm/litellm@1' -> 'llm_litellm.yaml'.
-    Version suffix is ignored at file name level; the YAML can still contain '@1' in its 'name'.
-    """
-    base = ref.split("@", 1)[0]  # 'llm/litellm'
-    fname = base.replace("/", "_") + ".yaml"
-    return fname
+def _root_dir() -> Path:
+    # .../code/apps/core/registry/loader.py -> .../code
+    return Path(__file__).resolve().parents[3]
 
 
-def get_registry_dir() -> str:
-    """Get the registry directory path."""
-    return os.path.join(os.path.dirname(__file__), "processors")
+def _registry_yaml_path_for_ref(ref: str) -> Path:
+    try:
+        ns, rest = ref.split("/", 1)
+        name, _ver = rest.split("@", 1)
+    except ValueError as e:  # pragma: no cover
+        raise FileNotFoundError(f"invalid ref '{ref}', expected ns/name@ver") from e
+
+    return _root_dir() / "apps" / "core" / "processors" / f"{ns}_{name}" / "registry.yaml"
 
 
 def load_processor_spec(ref: str) -> Dict:
-    """Load processor specification from registry YAML file."""
-    registry_dir = get_registry_dir()
-    path = os.path.join(registry_dir, ref_to_yaml_filename(ref))
-    if not os.path.exists(path):
+    """Load registry.yaml for a single processor ref."""
+    path = _registry_yaml_path_for_ref(ref)
+    if not path.exists():
         raise FileNotFoundError(f"registry spec not found for {ref} at {path}")
-    with open(path, encoding="utf-8") as f:
-        return yaml.safe_load(f)
+    try:
+        import yaml  # type: ignore
+    except Exception as e:  # pragma: no cover
+        raise RuntimeError("PyYAML required to load registry specs") from e
+    with path.open("r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
 
 
 def snapshot_for_ref(ref: str) -> Dict:
-    """Create registry snapshot for a single processor reference."""
-    spec = load_processor_spec(ref)
-    return {"processors": {ref: spec}}
+    """Compatibility shim: return {"processors": {ref: spec}}."""
+    return {"processors": {ref: load_processor_spec(ref)}}
 
 
-def _present_secret_names(required: List[str], optional: List[str]) -> List[str]:
-    """Get list of secret names that are present in environment."""
-    import os
+def get_registry_dir() -> str:
+    """Compatibility shim for callers expecting a directory path.
 
-    names = set()
-    for n in required + optional:
-        if n and n in os.environ:
-            names.add(n)
-    return sorted(names)
+    Historically returned '.../apps/core/registry/processors'. In the new layout
+    there is no single directory; callers should not rely on this. We return the
+    processors root to keep tools working: '.../apps/core/processors'.
+    """
+    return str(_root_dir() / "apps" / "core" / "processors")
 
 
 def get_secrets_present_for_spec(spec: Dict) -> List[str]:
-    """Extract and check which secrets are present in environment for a processor spec."""
-    required, optional = [], []
-    secrets_section = spec.get("secrets")
-    if isinstance(secrets_section, dict):
-        required = list(secrets_section.get("required", []))
-        optional = list(secrets_section.get("optional", []))
-    elif isinstance(secrets_section, list):
-        required = list(secrets_section)
-
-    return _present_secret_names(required, optional)
+    """Extract which declared secrets are present in the current environment."""
+    secrets = spec.get("secrets") or {}
+    req = list(secrets.get("required", []) if isinstance(secrets, dict) else (secrets or []))
+    names = sorted({n for n in (req or []) if n and n in os.environ})
+    return names

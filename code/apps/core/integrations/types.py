@@ -1,27 +1,10 @@
 """Universal processor interfaces - provider-agnostic."""
 
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import List, Mapping, Protocol
+from typing import Protocol
 
-
-@dataclass
-class OutputItem:
-    """Single output artifact from processor execution."""
-
-    relpath: str  # posix relative path under write_prefix (must start with outputs/)
-    bytes_: bytes  # raw bytes content
-    meta: Mapping[str, str] | None = None  # optional metadata
-
-
-@dataclass
-class ProcessorResult:
-    """Standard result from any processor execution."""
-
-    outputs: List[OutputItem]  # zero or more output artifacts
-    processor_info: str  # processor identification (name, version, etc.)
-    usage: Mapping[str, float]  # resource usage metrics (processor-specific)
-    extra: Mapping[str, str]  # additional metadata (optional)
+# Import canonical types from runtime_common
+from libs.runtime_common.envelope import ProcessorResult
 
 
 class ProviderRunner(Protocol):

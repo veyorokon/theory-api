@@ -1,116 +1,71 @@
-# Adapters & Placement
+# Adapters (HTTP transport-only)
 
-Adapters provide uniform processor execution across different compute environments while maintaining consistent APIs and envelope formats.
+Adapters move payloads to processors over HTTP and validate envelopes. They do no business logic.
 
-## Adapter Types
+## Types
 
-### Local Adapter
+### LocalAdapter (Docker → HTTP)
 
-Executes processors on the host. In **mode="real"** it launches Docker containers and writes via ArtifactStore; in **mode="mock"** it fabricates deterministic outputs under the requested write prefix without external dependencies.
+- Start container by pinned digest (select platform by host arch)
+- Poll `GET /healthz`, then `POST /run` (optional: `/run-stream` for SSE if the processor implements streaming)
+- Validate envelope; enforce index discipline; optional digest drift check
 
-**Use cases:**
-- Development and CI smoke tests (`mode=mock`)
-- Integration testing with real containers (`mode=real`)
-- On-premise deployments
+### ModalAdapter (Web endpoint → HTTP)
 
-**Characteristics:**
-- Same envelope format for both modes
-- Docker isolation only in real mode
-- No MinIO or Docker required in mock mode
+- Call deployed FastAPI endpoint bound to the pinned digest
+- Same payload and envelope; enforce digest drift vs deployment
 
-### Modal Adapter
-
-Executes processors on Modal's serverless platform with pre-deployed functions.
-
-**Use cases:**
-- Production workloads
-- GPU-intensive processors
-- Scalable execution with warm pools
-
-**Characteristics:**
-- Uses pinned `image.oci` digests from registry
-- Secrets mounted by name via Modal Secret Store
-- Identical envelope format to local adapter
-
-## Uniform Adapter API
-
-All adapters implement the same keyword-only `invoke` signature:
+## Minimal API (Protocol)
 
 ```python
 def invoke(
     *,
-    processor_ref: str,
-    inputs_json: dict,
-    write_prefix: str,
-    execution_id: str,
-    registry_snapshot: dict,
-    adapter_opts: dict,
-    secrets_present: list[str],
-) -> dict:
-    ...
+    ref: str,
+    payload: dict,
+    timeout_s: int,
+    oci: str | None,
+    stream: bool = False,
+) -> dict | Iterator[dict]
 ```
 
-### Key Points
+Key points:
+- `payload.mode ∈ {mock, real}`; adapters never infer from env
+- In PR lane, use `mode=mock` (hermetic; no secrets)
+- Envelopes identical across adapters; only transport differs
 
-- `inputs_json` now carries `mode` (`"mock"` or `"real"`). Adapters do not infer from environment variables.
-- `secrets_present` contains **names only**; adapters never receive secret values.
-- Envelopes are identical across adapters; mock vs real affects only IO side effects.
+## Image Selection Behavior
 
-## Implementation Details
+The adapter chooses which image to run or call based on adapter type and the `--build` flag passed to `run_processor`:
 
-### Local Adapter
+| Adapter | `--build` | Behavior |
+|---------|-----------|----------|
+| local   | true      | Uses the newest locally built, timestamped tag (build-from-source loop) |
+| local   | false     | Uses the pinned registry digest from the processor's `registry.yaml` |
+| modal   | any       | Ignores `--build`; performs SDK lookup of the deployed app/function bound to the pinned digest |
 
-- Real mode pulls/builds the pinned image and runs it via Docker.
-- Mock mode bypasses Docker/ArtifactStore and writes outputs directly in-process.
-- Both modes emit identical success/error envelopes; only the IO path differs.
+Notes:
+- “Pinned digest” comes from `code/apps/core/processors/<ns>_<name>/registry.yaml` (`image.platforms.{amd64,arm64}` and `default_platform`).
+- Modal deployments must be created by digest; the adapter then looks up the deployed app and can perform a digest drift check.
 
-### Modal Adapter
-
-- Uses `modal deploy -m modal_app.py` and `ModalAdapter` runtime.
-- Relies on Modal secrets (`REGISTRY_AUTH`, etc.) for image pulls.
-- Assumes inputs already specify `mode`; Modal functions typically force `mode="mock"` in smoke tests.
-
-## Adapter Selection
-
-Choose adapter and mode explicitly:
+## Selection examples
 
 ```bash
-# Local mock run (no external deps)
-python manage.py run_processor --adapter local --mode mock --ref llm/litellm@1 ...
+# Local mock (no external deps)
+python manage.py run_processor --adapter local --mode mock --ref llm/litellm@1 --inputs-json '{"schema":"v1","params":{...}}'
 
-# Local real run (Docker)
-python manage.py run_processor --adapter local --mode real --ref llm/litellm@1 ...
+# Local real (Docker)
+python manage.py run_processor --adapter local --mode real --ref llm/litellm@1 --inputs-json '{...}'
 
-# Modal run (always real mode after deploy)
-python manage.py run_processor --adapter modal --mode real --ref llm/litellm@1 ...
+# Modal (mock for smoke, real for prod)
+python manage.py run_processor --adapter modal --mode mock --ref llm/litellm@1 --inputs-json '{...}'
 ```
 
-## Error Handling
+## Error handling (common codes)
 
-Common error codes returned in envelopes:
+- `ERR_MISSING_SECRET`, `ERR_OUTPUT_DUPLICATE`, `ERR_IMAGE_PULL`, `ERR_TIMEOUT`, `ERR_FUNCTION_NOT_FOUND`
 
-- `ERR_MISSING_SECRET` – required secret absent
-- `ERR_OUTPUT_DUPLICATE` – duplicate paths after canonicalization
-- `ERR_IMAGE_PULL` – Docker pull failure (real mode)
-- `ERR_TIMEOUT` – execution exceeded runtime limit
-- `ERR_FUNCTION_NOT_FOUND` – Modal function missing
+## Best practices
 
-## Best Practices
-
-### Development
-
-1. Start with `mode=mock` for quick feedback.
-2. Switch to `mode=real` on local adapter to validate Docker builds.
-3. Deploy to Modal once registry digests are pinned.
-
-### Testing
-
-- Use `mode=mock` for deterministic unit tests.
-- Use `mode=real` for integration tests requiring containers/MinIO.
-- Make sure tests explicitly set `mode`; no environment heuristics remain.
-
-### Security
-
-- Never log secret values.
-- Environment fingerprints should list only secret names.
-- Modal deploy workflow syncs secrets before running real mode.
+- Start with `mode=mock` for unit/acceptance
+- Use `mode=real` for integration with containers
+- Deploy by digest only; verify digest on staging/main

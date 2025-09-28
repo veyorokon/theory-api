@@ -1,29 +1,29 @@
-"""Test that local adapter index_path is under write_prefix."""
-
-import uuid
+# tests/integration/adapters/test_local_index_path_contract.py
 import pytest
+from apps.core.orchestrator import run as orch_run
+from tests.tools.asserts import assert_success_envelope, assert_index_under_prefix
 
-pytestmark = pytest.mark.integration
 
+@pytest.mark.requires_docker
+def test_local_adapter_index_path_under_prefix(tmp_write_prefix):
+    # Prepare inputs
+    inputs = {
+        "schema": "v1",
+        "params": {"messages": [{"role": "user", "content": "hi"}]},
+    }
 
-def test_local_index_path_is_under_write_prefix():
-    """Test that index_path in result envelope points under write_prefix, not execution artifacts."""
-    # This test exercises the core logic without requiring Docker or external dependencies
+    # Execute via orchestrator with build=True (PR lane behavior)
+    envelope = orch_run(
+        adapter="local",
+        ref="llm/litellm@1",
+        mode="mock",
+        inputs=inputs,
+        write_prefix=tmp_write_prefix,
+        expected_oci=None,
+        build=True,
+    )
 
-    execution_id = str(uuid.uuid4())
-    write_prefix = f"/artifacts/outputs/test/{execution_id}/"
-
-    # Test the path computation logic that was fixed
-    # This is the core contract: index_path should be computed from write_prefix
-    expanded_write_prefix = write_prefix.format(execution_id=execution_id)
-    expected_index_path = f"{expanded_write_prefix.rstrip('/')}/outputs.json"
-
-    # Verify the expected behavior
-    assert expected_index_path.startswith(expanded_write_prefix.rstrip("/"))
-    assert expected_index_path.endswith("/outputs.json")
-
-    # Should NOT be under /artifacts/execution (old bug path)
-    assert not expected_index_path.startswith("/artifacts/execution/")
-
-    # Verify the path structure matches the write_prefix pattern
-    assert expected_index_path == f"/artifacts/outputs/test/{execution_id}/outputs.json"
+    assert_success_envelope(envelope)
+    # Verify path relationship - expand template with actual execution_id
+    expected_prefix = tmp_write_prefix.replace("{execution_id}", envelope["execution_id"])
+    assert_index_under_prefix(envelope["index_path"], expected_prefix)

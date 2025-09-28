@@ -1,0 +1,60 @@
+build:
+  context: .
+  dockerfile: Dockerfile
+  port: 8000
+image:
+  platforms:
+    amd64: ghcr.io/test/repo@sha256:a32523455667533f2bc7e777cae065f11e95cd2e8241f3fc9f614779042c0b5e
+    arm64: ghcr.io/owner/repo/llm-litellm@sha256:REPLACE_ARM64
+inputs:
+  $schema: https://json-schema.org/draft-07/schema#
+  additionalProperties: false
+  properties:
+    params:
+      additionalProperties: false
+      properties:
+        messages:
+          items:
+            properties:
+              content:
+                minLength: 1
+                type: string
+              role:
+                enum:
+                - user
+                - system
+                - assistant
+            required:
+            - role
+            - content
+            type: object
+          minItems: 1
+          type: array
+        model:
+          type: string
+      required:
+      - messages
+      type: object
+    schema:
+      const: v1
+  required:
+  - schema
+  - params
+  title: llm/litellm inputs v1
+  type: object
+outputs:
+- description: LLM response
+  mime: text/plain
+  path: text/response.txt
+- description: Execution metadata
+  mime: application/json
+  path: metadata.json
+ref: llm/litellm@1
+runtime:
+  cpu: '1'
+  gpu: null
+  memory_gb: 2
+  timeout_s: 600
+secrets:
+  required:
+  - OPENAI_API_KEY

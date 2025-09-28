@@ -65,7 +65,7 @@ class TestContextBinding:
         """Clear context after each test."""
         clear()
 
-    def test_bind_updates_context(self):
+    def test_bind_updates_context(self, logs_to_stdout):
         """Test bind adds fields to context."""
         bind(trace_id="test-123", processor_ref="llm/test@1")
 
@@ -78,7 +78,7 @@ class TestContextBinding:
         assert log_data["processor_ref"] == "llm/test@1"
         assert log_data["custom_field"] == "value"
 
-    def test_clear_removes_context(self):
+    def test_clear_removes_context(self, logs_to_stdout):
         """Test clear removes all context."""
         bind(trace_id="test-123")
         clear()
@@ -90,7 +90,7 @@ class TestContextBinding:
         log_data = json.loads(output)
         assert "trace_id" not in log_data
 
-    def test_bind_none_values_ignored(self):
+    def test_bind_none_values_ignored(self, logs_to_stdout):
         """Test None values are ignored in bind."""
         bind(trace_id="test-123", empty_field=None)
 
@@ -115,7 +115,7 @@ class TestLogFormatting:
         clear()
 
     @mock.patch.dict(os.environ, {"JSON_LOGS": "1"})
-    def test_json_output_format(self):
+    def test_json_output_format(self, logs_to_stdout):
         """Test JSON log output format."""
         with mock.patch("sys.stdout", new_callable=StringIO) as mock_stdout:
             info("test.event", field="value")
@@ -130,7 +130,7 @@ class TestLogFormatting:
         assert "service" in log_data
 
     @mock.patch.dict(os.environ, {"JSON_LOGS": "0"})
-    def test_pretty_output_format(self):
+    def test_pretty_output_format(self, logs_to_stdout):
         """Test pretty log output format for development."""
         with mock.patch("sys.stdout", new_callable=StringIO) as mock_stdout:
             info("test.event", field="value")
@@ -139,7 +139,7 @@ class TestLogFormatting:
         assert output.startswith("[INFO] test.event")
         assert "field=value" in output
 
-    def test_field_truncation(self):
+    def test_field_truncation(self, logs_to_stdout):
         """Test long fields are truncated."""
         long_text = "x" * 3000  # Over 2000 char limit
 
@@ -150,7 +150,7 @@ class TestLogFormatting:
         log_data = json.loads(output)
         assert len(log_data["long_field"]) == 2000
 
-    def test_redaction_applied_to_fields(self):
+    def test_redaction_applied_to_fields(self, logs_to_stdout):
         """Test redaction is applied to string fields."""
         with mock.patch("sys.stdout", new_callable=StringIO) as mock_stdout:
             info("test.event", secret="API_KEY=sk-1234567890abcdef")
@@ -205,7 +205,7 @@ class TestErrorHandling:
         """Clear context after each test."""
         clear()
 
-    def test_json_encoding_with_valid_types(self):
+    def test_json_encoding_with_valid_types(self, logs_to_stdout):
         """Test logging handles all valid JSON types correctly."""
         valid_data = {
             "string": "test",
@@ -238,7 +238,7 @@ class TestLoggingIntegration:
         """Clear context after each test."""
         clear()
 
-    def test_execution_trace_logging(self):
+    def test_execution_trace_logging(self, logs_to_stdout):
         """Test logging throughout an execution trace."""
         execution_id = "test-exec-123"
 

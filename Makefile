@@ -1,144 +1,215 @@
 SHELL := /bin/bash
-.PHONY: compose-up compose-down wait-db migrate makemigrations test-unit test-acceptance test-property test-all docs docs-export docs-drift-check ci-get-image-ref ci-pin-processor test-coverage deadcode import-graph deps-lint lint-deadcode mutmut-run mutmut-reset
+.ONESHELL:
+.SHELLFLAGS := -eu -o pipefail -c
+MAKEFLAGS += --no-builtin-rules
 
-# --- Docker services for acceptance/integration ---
-compose-up:
-	docker compose up -d postgres redis minio
+# ---- Paths / Python ---------------------------------------------------------
+CODE_DIR := code
+PY := python
+PIP := $(PY) -m pip
+DJANGO_SETTINGS ?= backend.settings.unittest
 
-compose-down:
-	docker compose down
+# ---- Test markers -----------------------------------------------------------
+MARK_EXPR_UNIT          := (unit or contracts or property) and not requires_docker and not requires_postgres
+MARK_EXPR_INTEGRATION   := (integration and requires_docker)
+MARK_EXPR_CONTRACTS     := contracts
+MARK_EXPR_SMOKE         := deploy_smoke
+MARK_EXPR_ACCEPT_PR     := (acceptance and prlane)
+MARK_EXPR_ACCEPT_SUPPLY := (acceptance and supplychain)
 
-wait-db:
-	@container=$$(docker ps --filter "ancestor=postgres:15" --format "{{.Names}}" | head -1); \
-	if [ -z "$$container" ]; then echo "PostgreSQL container not found"; exit 1; fi; \
-	echo "Waiting for PostgreSQL in container: $$container"; \
-	until docker exec $$container pg_isready -U postgres -d postgres >/dev/null 2>&1; do sleep 1; done
+# ---- Helpers ----------------------------------------------------------------
+define guard_collect
+@COUNT="$$(PYTHONPATH=$(CODE_DIR) DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) TEST_LANE=pr $(PY) -m pytest --collect-only -q -m '$(1)' | grep -c ':')"; \
+ if [ "$$COUNT" -eq 0 ]; then echo "✖ No tests collected for expression: $(1)" >&2; exit 1; else echo "✓ Collected $$COUNT tests for expression: $(1)"; fi
+endef
 
-# --- Django tasks (always from ./code) ---
-migrate:
-	cd code && python manage.py migrate --noinput
+require = @test -n "$($(1))" || { echo "Missing required var: $(1)"; exit 2; }
 
-makemigrations:
-	cd code && python manage.py makemigrations
+# ---- Help -------------------------------------------------------------------
+.PHONY: help
+help:
+	@echo ""
+	@echo "Targets:"
+	@echo "  make tools-check                     - verify jq/yq present"
+	@echo "  make test-unit                       - unit/contract/property (hermetic)"
+	@echo "  make test-contracts                  - contracts only (hermetic)"
+	@echo "  make integration-local               - integration via local adapter (pinned)"
+	@echo "  make integration-local-build         - integration via local adapter (build fresh)"
+	@echo "  make integration-modal ENV=dev       - integration via modal adapter"
+	@echo "  make test-smoke                      - post-deploy smoke (modal-only)"
+	@echo ""
+	@echo "  make services-up                     - start test services (postgres, redis, minio)"
+	@echo "  make services-down                   - stop test services"
+	@echo "  make services-status                 - show test services status"
+	@echo ""
+	@echo "  make build-processor REF=ns/name@ver - build local image"
+	@echo "  make push-processor REF=ns/name@ver TARGET=ghcr.io/you/repo:tag"
+	@echo "  make pin-processor REF=ns/name@ver OCI=ghcr.io/...@sha256:..."
+	@echo ""
+	@echo "  make modal-deploy REF=ns/name@ver ENV=dev OCI=ghcr.io/...@sha256:..."
+	@echo "  make modal-sync-secrets REF=ns/name@ver ENV=dev"
+	@echo "  make modal-logs REF=ns/name@ver ENV=dev"
+	@echo ""
+	@echo "  make smoke-local-build               - local HTTP run (newest build)"
+	@echo "  make smoke-local-pinned              - local HTTP run (pinned registry)"
+	@echo "  make smoke-modal ENV=dev             - modal HTTP run"
+	@echo ""
 
-# --- Tests ---
+# ---- Tools preflight --------------------------------------------------------
+.PHONY: tools-check
+tools-check:
+	@command -v jq >/dev/null || { echo "❌ jq missing"; exit 1; }
+	@command -v yq >/dev/null || { echo "❌ yq missing"; exit 1; }
+	@echo "✅ Required tools available (jq, yq)"
+
+# ---- Dev setup --------------------------------------------------------------
+.PHONY: setup-dev
+setup-dev:
+	@$(PY) --version
+	@$(PIP) install -U pip
+	@$(PIP) install -r requirements-dev.txt
+
+# ---- Tests ------------------------------------------------------------------
+.PHONY: test-unit
 test-unit:
-	@echo "DB ENGINE:" && cd code && DJANGO_SETTINGS_MODULE=backend.settings.unittest python -c "from django.conf import settings; print(settings.DATABASES['default']['ENGINE'])"
-	cd code && DJANGO_SETTINGS_MODULE=backend.settings.unittest python -m pytest -q -m "unit and not integration and not requires_postgres"
+	$(call guard_collect,$(MARK_EXPR_UNIT))
+	@PYTHONPATH=$(CODE_DIR) DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) TEST_LANE=pr LOG_STREAM=stderr JSON_LOGS=1 \
+	$(PY) -m pytest -m '$(MARK_EXPR_UNIT)'
 
-test-acceptance:
-	$(MAKE) compose-up
-	$(MAKE) wait-db
-	cd code && DJANGO_SETTINGS_MODULE=backend.settings.test python manage.py migrate --noinput
-	@echo "DB ENGINE:" && cd code && DJANGO_SETTINGS_MODULE=backend.settings.test python -c "from django.conf import settings; print(settings.DATABASES['default']['ENGINE'])"
-	cd code && DJANGO_SETTINGS_MODULE=backend.settings.test python -m pytest -q -m "ledger_acceptance or requires_postgres"
+.PHONY: test-contracts
+test-contracts:
+	$(call guard_collect,$(MARK_EXPR_CONTRACTS))
+	@PYTHONPATH=$(CODE_DIR) DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) TEST_LANE=pr LOG_STREAM=stderr JSON_LOGS=1 \
+	$(PY) -m pytest -m '$(MARK_EXPR_CONTRACTS)'
 
-# PR lane: same tests, but exercise current source by forcing local builds
-test-acceptance-pr:
-	$(MAKE) compose-up
-	$(MAKE) wait-db
-	cd code && DJANGO_SETTINGS_MODULE=backend.settings.test python manage.py migrate --noinput
-	@echo "DB ENGINE:" && cd code && DJANGO_SETTINGS_MODULE=backend.settings.test python -c "from django.conf import settings; print(settings.DATABASES['default']['ENGINE'])"
-	cd code && RUN_PROCESSOR_FORCE_BUILD=1 DJANGO_SETTINGS_MODULE=backend.settings.test python -m pytest -q -m "ledger_acceptance or requires_postgres"
+# Core parametric integration: TARGET=local (default) or modal; BUILD=1 for local builds
+.PHONY: test-integration
+test-integration:
+	$(call guard_collect,$(MARK_EXPR_INTEGRATION))
+	@PYTHONPATH=$(CODE_DIR) DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) TEST_LANE=pr \
+	RUN_TARGET=$(if $(TARGET),$(TARGET),local) \
+	$(if $(filter modal,$(TARGET)),MODAL_ENVIRONMENT=$(ENV),) \
+	$(if $(filter 1,$(BUILD)),BUILD=1,BUILD=0) \
+	LOG_STREAM=stderr JSON_LOGS=1 \
+	$(PY) -m pytest -m '$(MARK_EXPR_INTEGRATION)'
 
-test-property:
-	@echo "DB ENGINE:" && cd code && DJANGO_SETTINGS_MODULE=backend.settings.unittest python -c "from django.conf import settings; print(settings.DATABASES['default']['ENGINE'])"
-	cd code && DJANGO_SETTINGS_MODULE=backend.settings.unittest python -m pytest -q ../tests/property
+# Explicit aliases following smoke pattern
+.PHONY: integration-local
+integration-local-pinned:
+	@$(MAKE) test-integration TARGET=local BUILD=0
 
-test-all:
-	cd code && DJANGO_SETTINGS_MODULE=backend.settings.unittest pytest -q
+.PHONY: integration-local-build
+integration-local-build:
+	@$(MAKE) test-integration TARGET=local BUILD=1
 
-# --- Docs as contracts ---
-docs-export:
-	cd code && python manage.py docs_export --out ../docs/_generated --erd --api --schemas
+.PHONY: integration-modal
+integration-modal:
+	$(call require,ENV)
+	@$(MAKE) test-integration TARGET=modal ENV=$(ENV)
 
-docs-drift-check: docs-export
-	git diff --exit-code -- docs/_generated
+.PHONY: test-smoke
+test-smoke:
+	$(call guard_collect,$(MARK_EXPR_SMOKE))
+	@PYTHONPATH=$(CODE_DIR) DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) TEST_LANE=staging LOG_STREAM=stderr JSON_LOGS=1 \
+	$(PY) -m pytest -m '$(MARK_EXPR_SMOKE)'
 
-docs:
-	$(MAKE) docs-drift-check
-	make -C docs html
+# ---- Build / Push / Pin -----------------------------------------------------
+.PHONY: build-processor
+build-processor:
+	$(call require,REF)
+	@cd $(CODE_DIR); DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) \
+	$(PY) manage.py build_processor --ref $(REF) --json | jq .
 
-# --- Linting ---
-lint-ref-resolver:
-	@! rg -n "replace\('/','_'\)" code/apps/core | rg -v "processors/resolver.py" || \
-	 (echo "✗ Ref mapping must go through processors/resolver.py"; exit 1)
+.PHONY: push-processor
+push-processor:
+	$(call require,REF)
+	$(call require,TARGET)
+	@cd $(CODE_DIR); DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) \
+	$(PY) manage.py push_processor --ref $(REF) --target "$(TARGET)" --json | jq .
 
-# --- CI/CD Helpers ---
-ci-get-image-ref:
-	@set -euo pipefail; \
-	if [ ! -f "scripts/ci/get_image_ref.py" ]; then \
-		echo "ERROR: scripts/ci/get_image_ref.py not found" >&2; \
-		exit 1; \
-	fi; \
-	python scripts/ci/get_image_ref.py
+.PHONY: pin-processor
+pin-processor:
+	$(call require,REF)
+	$(call require,OCI)
+	@cd $(CODE_DIR); DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) \
+	$(PY) manage.py pin_processor --ref $(REF) --oci "$(OCI)" --json | jq .
 
-ci-pin-processor:
-	@set -euo pipefail; \
-	if [ $$# -ne 3 ]; then \
-		echo "Usage: make ci-pin-processor PROCESSOR=<name> IMAGE_BASE=<base> DIGEST=<digest>" >&2; \
-		echo "Example: make ci-pin-processor PROCESSOR=llm_litellm IMAGE_BASE=ghcr.io/owner/llm-litellm DIGEST=sha256:abc123..." >&2; \
-		exit 1; \
-	fi; \
-	if [ ! -f "scripts/ci/pin_processor.py" ]; then \
-		echo "ERROR: scripts/ci/pin_processor.py not found" >&2; \
-		exit 1; \
-	fi; \
-	python scripts/ci/pin_processor.py "$(PROCESSOR)" "$(IMAGE_BASE)" "$(DIGEST)"
+# ---- Modal control ----------------------------------------------------------
+.PHONY: modal-deploy
+modal-deploy:
+	$(call require,REF)
+	$(call require,ENV)
+	$(call require,OCI)
+	@cd $(CODE_DIR); DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) MODAL_ENVIRONMENT=$(ENV) \
+	$(PY) manage.py modalctl deploy --ref $(REF) --env $(ENV) --oci "$(OCI)" --json | jq .
 
-# --- Dead Code Detection ---
-# --- Coverage (unit-only, hermetic, SQLite) ---
-# Produces coverage.xml/json at repo root for diff-cover.
-COVERAGE_ENV = COVERAGE_RCFILE=../.coveragerc COVERAGE_FILE=../.coverage
+.PHONY: modal-sync-secrets
+modal-sync-secrets:
+	$(call require,REF)
+	$(call require,ENV)
+	@cd $(CODE_DIR); DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) MODAL_ENVIRONMENT=$(ENV) \
+	$(PY) manage.py modalctl sync-secrets --ref $(REF) --env $(ENV) --json | jq .
 
-test-coverage:
-	cd code && $(COVERAGE_ENV) coverage erase
-	# Sanity: show which DB engine we're about to test with
-	@echo "DB ENGINE:" && cd code && DJANGO_SETTINGS_MODULE=backend.settings.unittest python -c "from django.conf import settings; print(settings.DATABASES['default']['ENGINE'])"
-	cd code && DJANGO_SETTINGS_MODULE=backend.settings.unittest $(COVERAGE_ENV) coverage run -m pytest -q -m "unit and not integration and not requires_postgres"
-	cd code && $(COVERAGE_ENV) coverage xml -o ../coverage.xml
-	cd code && $(COVERAGE_ENV) coverage json -o ../coverage.json
-	cd code && $(COVERAGE_ENV) coverage report
+.PHONY: modal-logs
+modal-logs:
+	$(call require,REF)
+	$(call require,ENV)
+	@cd $(CODE_DIR); DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) MODAL_ENVIRONMENT=$(ENV) \
+	$(PY) manage.py modalctl logs --ref $(REF) --env $(ENV)
 
-# Static dead-code check with allowlist (to handle dynamic usage)
-deadcode:
-	vulture code code/vulture_whitelist.py --min-confidence 80 --exclude "*/migrations/*" > vulture_report.txt || true
-	python scripts/ci/vulture_gate.py vulture_report.txt
+# ---- Smoke (HTTP-first via orchestrator; transport set by RUN_TARGET) ----
+JSON_INPUT    ?= {"schema":"v1","params":{"model":"gpt-4o-mini","messages":[{"role":"user","content":"smoke"}]}}
+WRITE_PREFIX  ?= /tmp/outputs/{execution_id}/
+REF           ?= llm/litellm@1
+ENV           ?= dev     # used by modal smoke
 
-# Import graph reachability: fails if a module isn't reachable from entrypoints
-# NOTE: Disabled for Django code due to dynamic loading false positives
-import-graph:
-	cd code && python ../tests/tools/check_import_reachability.py
+# Core, parametric local smoke: BUILD=1 uses newest local build; BUILD=0 uses pinned
+.PHONY: smoke-local
+smoke-local:
+	@cd $(CODE_DIR); DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) \
+	RUN_TARGET=local \
+	$(PY) manage.py run_processor \
+	  --ref "$(REF)" \
+	  --adapter local \
+	  $(if $(filter 1,$(BUILD)),--build,) \
+	  --mode mock \
+	  --write-prefix "$(WRITE_PREFIX)" \
+	  --inputs-json '$(JSON_INPUT)' \
+	  --json | jq .
 
-# Import reachability for pure Python modules only (libs, processors)
-import-graph-pure:
-	python scripts/ci/reachability_pure_python.py
+# Friendly aliases
+.PHONY: smoke-local-build
+smoke-local-build:
+	@$(MAKE) smoke-local BUILD=1 REF="$(REF)"
 
-# Unused deps / missing imports
-deps-lint:
-	deptry code
+.PHONY: smoke-local-pinned
+smoke-local-pinned:
+	@$(MAKE) smoke-local BUILD=0 REF="$(REF)"
 
-# Convenience meta target used in PR checks
-lint-deadcode: deadcode import-graph-pure deps-lint
+# Modal smoke (unchanged; build flag ignored by adapter)
+.PHONY: smoke-modal
+smoke-modal:
+	@cd $(CODE_DIR); DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) \
+	RUN_TARGET=modal MODAL_ENVIRONMENT=$(ENV) \
+	$(PY) manage.py run_processor \
+	  --ref "$(REF)" \
+	  --adapter modal \
+	  --mode mock \
+	  --write-prefix "$(WRITE_PREFIX)" \
+	  --inputs-json '$(JSON_INPUT)' \
+	  --json | jq .
 
-# --- Pre-commit Hooks ---
-precommit-install:
-	python -m pip install -U pre-commit ruff
-	pre-commit install
+# ---- Service lifecycle -----------------------------------------------------
+.PHONY: services-up
+services-up:
+	@docker compose --profile full up -d
+	@echo "✅ Test services started (postgres, redis, minio)"
 
-format:
-	ruff check --fix .
-	ruff format .
+.PHONY: services-down
+services-down:
+	@docker compose down
+	@echo "✅ Test services stopped"
 
-# --- Mutation Testing ---
-# Reset mutation testing database
-mutmut-reset:
-	cd code && mutmut reset
-
-# Run mutation testing (heavy - use sparingly)
-mutmut-run:
-	cd code && mutmut run --paths-to-mutate apps/core/adapters/,apps/core/utils/ --tests-dir ../tests/ --runner "python -m pytest -x" --max-mutations 20
-
-# Show mutation testing results
-mutmut-results:
-	cd code && mutmut show
+.PHONY: services-status
+services-status:
+	@docker compose ps

@@ -5,7 +5,7 @@ from unittest import mock
 
 import pytest
 
-from libs.runtime_common.mode import resolve_mode, is_mock, is_real, ModeSafetyError
+from libs.runtime_common.envelope import resolve_mode, is_mock, is_real, ModeSafetyError
 
 
 class TestModeSystem:
@@ -58,13 +58,11 @@ class TestModeSystem:
         assert is_mock(mode)
 
     @mock.patch.dict(os.environ, {"CI": "true"})
-    def test_ci_safety_blocks_real_mode(self):
-        """Test that real mode is blocked when CI=true."""
+    def test_ci_allows_real_mode(self):
+        """Test that real mode works even in CI environment now."""
         inputs = {"mode": "real"}
-        with pytest.raises(ModeSafetyError) as exc_info:
-            resolve_mode(inputs)
-        assert "ERR_CI_SAFETY" in str(exc_info.value)
-        assert "Real mode is blocked in CI environments" in str(exc_info.value)
+        mode = resolve_mode(inputs)
+        assert mode.value == "real"
 
     @mock.patch.dict(os.environ, {"CI": "true"})
     def test_ci_allows_mock_mode(self):

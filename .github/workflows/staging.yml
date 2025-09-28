@@ -1,0 +1,152 @@
+name: Staging Lane
+
+on:
+  push:
+    branches: [ staging ]
+    paths:
+      - "code/**"
+      - "code/apps/core/processors/**"  # NEW source of truth for pins
+      - ".github/workflows/staging.yml"
+      - "Makefile"
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MODAL_ENVIRONMENT: staging
+
+jobs:
+  build_and_pin:
+    name: Build & Pin (multi-arch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write  # commit pins to staging
+      packages: write  # push GHCR
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3           # NEW: login to GHCR
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Build & Pin (staging owns pins)
+        run: make build-and-pin
+      - name: Commit pin updates to staging (if any)
+        run: |
+          git config user.name "pin-bot"
+          git config user.email "pin-bot@users.noreply.github.com"
+          if ! git diff --quiet; then
+            git add -A
+            git commit -m "pin: update processor digests (staging)"
+            git push
+          fi
+
+  sync-secrets-staging:
+    name: Sync secrets to Modal (staging)
+    needs: build_and_pin
+    runs-on: ubuntu-latest
+    env:
+      MODAL_ENVIRONMENT: staging
+      DJANGO_SETTINGS_MODULE: backend.settings.unittest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Install Modal CLI
+        run: pip install modal-client
+      - name: Sync secrets to Modal (staging)
+        env:
+          # Modal authentication
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          # Expose GitHub secrets as process environment variables
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        working-directory: code
+        run: |
+          python manage.py sync_modal_secrets --env staging --fail-on-missing
+
+  acceptance_pinned:
+    name: Acceptance (pinned digests)
+    needs: sync-secrets-staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DJANGO_SETTINGS_MODULE: backend.settings.unittest
+      LOG_STREAM: stderr
+      TEST_LANE: supplychain
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Acceptance (pinned, mock, hermetic)
+        run: make test-acceptance-dev
+
+  deploy:
+    name: Deploy to Modal (staging)
+    needs: [acceptance_pinned, sync-secrets-staging]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DJANGO_SETTINGS_MODULE: backend.settings.unittest
+      MODAL_ENABLED: "true"
+      MODAL_ENVIRONMENT: staging
+      BRANCH: ${{ github.ref_name }}
+      USER: ${{ github.actor }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Deploy functions (digest-only via modalctl)
+        run: make deploy-staging   # wraps: python manage.py modalctl deploy --ref … --env staging --oci <pinned>
+
+  post_deploy_checks:
+    name: Smoke + Negative probe + Drift
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DJANGO_SETTINGS_MODULE: backend.settings.unittest
+      MODAL_ENABLED: "true"
+      MODAL_ENVIRONMENT: staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Smoke tests (timeout protected)
+        run: make smoke-staging
+      - name: Negative probe (mode=real → ERR_MISSING_SECRET)
+        run: make negative-probe-staging
+      - name: Drift audit (deployed vs pinned)
+        run: make drift-audit
+
+  release_pr_to_main:
+    name: "Open PR: staging -> main"
+    needs: post_deploy_checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create/Update PR to main
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: promote/staging-to-main
+          base: main
+          title: "Promote staging -> main"
+          body: "Pins and code validated on staging. Ready for production."
+          commit-message: "chore: promote staging -> main"
+          labels: release

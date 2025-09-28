@@ -5,7 +5,7 @@ Property-based tests for budget invariants:
 """
 
 import pytest
-from django.test import TestCase, TransactionTestCase
+from django.test import TransactionTestCase
 from django.db import transaction, IntegrityError
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import random
@@ -14,7 +14,6 @@ import uuid
 from apps.plans.models import Plan
 
 
-@pytest.mark.property
 class TestBudgetProperties(TransactionTestCase):
     """Property-based tests for budget invariants."""
 

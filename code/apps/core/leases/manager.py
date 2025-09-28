@@ -147,10 +147,10 @@ class LeaseManager:
         handle = self.acquire(plan_id, selectors, reason=reason)
 
         class _Ctx:
-            def __enter__(self_nonlocal):
+            def __enter__(_):
                 return handle
 
-            def __exit__(self_nonlocal, exc_type, exc, _tb):
+            def __exit__(_, _exc_type, exc, _tb):
                 self.release(handle)
 
         return _Ctx()

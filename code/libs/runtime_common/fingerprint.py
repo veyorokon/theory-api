@@ -1,7 +1,18 @@
 import os
 import platform
+import sys
 from typing import Dict, Iterable, List
 from .hashing import blake3_hex
+
+
+def env_fingerprint() -> str:
+    frags = {
+        "os": platform.system(),
+        "arch": platform.machine(),
+        "py": ".".join(map(str, sys.version_info[:3])),
+        "cpu": platform.processor() or "unknown",
+    }
+    return "|".join(f"{k}:{frags[k]}" for k in sorted(frags))
 
 
 def compose_env_fingerprint(**kv) -> str:
@@ -104,3 +115,42 @@ def compose_env_fingerprint_extended(
     else:
         parts.append("env=[]")
     return ",".join(parts)
+
+
+SAFE_PASSTHROUGH = {
+    "PYTHONPATH",
+    "DJANGO_SETTINGS_MODULE",
+    "LOG_STREAM",
+    "TEST_LANE",
+    "CI",
+    "LANE",
+    "MODAL_ENVIRONMENT",
+    "APP_REV",
+}
+
+SECRET_PREFIXES = ("OPENAI_", "REPLICATE_", "ANTHROPIC_", "AZURE_OPENAI_", "GOOGLE_")
+
+
+def build_clean_env(base: dict[str, str] | None = None, *, allow_secrets: bool = False) -> dict[str, str]:
+    """
+    Return a deterministic child env for subprocesses:
+    - Always passes core plumbing vars.
+    - Strips known secret prefixes unless allow_secrets=True.
+    - Carries PATH so Python can spawn children.
+    """
+    src = dict(base or os.environ)
+    out = {"PATH": src.get("PATH", ""), "PYTHONHASHSEED": src.get("PYTHONHASHSEED", "0")}
+
+    # Always pass through safe vars
+    for k in SAFE_PASSTHROUGH:
+        if k in src:
+            out[k] = src[k]
+
+    if allow_secrets:
+        # Include all secrets when explicitly allowed
+        for k, v in src.items():
+            if k.startswith(SECRET_PREFIXES):
+                out[k] = v
+
+    # Note: secrets are stripped by default (when allow_secrets=False)
+    return out

@@ -1,0 +1,1 @@
+read the agents/prompts/engineer.md. this is your persona for the rest of the chat. adopt the persona and all insturctions in it perfectly. you will message in the format and reason in the format outlined. without exception

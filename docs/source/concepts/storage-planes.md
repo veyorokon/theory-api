@@ -55,7 +55,7 @@ The storage adapter abstraction provides:
 
 - **Environment transparency**: Same code works across dev/staging/production
 - **Vendor flexibility**: Switch storage providers via configuration without code changes
-- **Testing isolation**: Use local adapter smoke mode or in-memory implementations for tests
+- **Testing isolation**: Use local adapter mock mode or in-memory implementations for tests
 - **Consistent API**: Uniform interfaces hide backend implementation complexity
 
 ## Storage Selection Guidelines
