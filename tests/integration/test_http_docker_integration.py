@@ -1,6 +1,7 @@
 """HTTP Docker integration tests for processor containers."""
 
 import json
+import os
 import subprocess
 import tempfile
 import time
@@ -56,6 +57,8 @@ class TestHTTPDockerIntegration:
                     "8000:8000",
                     "-v",
                     f"{artifacts_dir}:/artifacts:rw",
+                    "--user",
+                    f"{os.getuid()}:{os.getgid()}",
                     "-e",
                     "IMAGE_DIGEST=sha256:test123",
                     image_tag,
