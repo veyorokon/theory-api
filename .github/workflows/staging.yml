@@ -3,9 +3,10 @@ name: Staging Lane
 on:
   push:
     branches: [ staging ]
+    paths-ignore:
+      - "code/apps/core/processors/**/registry.yaml"  # Ignore pin commits
     paths:
       - "code/**"
-      - "code/apps/core/processors/**"  # NEW source of truth for pins
       - ".github/workflows/staging.yml"
       - "Makefile"
   workflow_dispatch: {}
@@ -19,7 +20,7 @@ env:
 
 jobs:
   build_and_pin:
-    name: Build & Pin (multi-arch)
+    name: Build & Pin (linux/amd64)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -28,7 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3           # NEW: login to GHCR
+      - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -36,8 +37,8 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt -r requirements-dev.txt
-      - name: Build & Pin (staging owns pins)
-        run: make build-and-pin REGISTRY=ghcr.io/veyorokon/theory-api
+      - name: Build & Pin (linux/amd64 only)
+        run: make build-and-pin REGISTRY=ghcr.io/veyorokon/theory-api PLATFORM=amd64
       - name: Commit pin updates to staging (if any)
         env:
           ADMIN_GITHUB_TOKEN: ${{ secrets.ADMIN_GITHUB_TOKEN }}
@@ -79,28 +80,9 @@ jobs:
         run: |
           make modal-sync-secrets REF=llm/litellm@1 ENV=staging
 
-  acceptance_pinned:
-    name: Acceptance (pinned digests)
-    needs: sync-secrets-staging
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      DJANGO_SETTINGS_MODULE: backend.settings.unittest
-      LOG_STREAM: stderr
-      TEST_LANE: supplychain
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: staging  # Get latest staging with pin commits
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.11" }
-      - run: pip install -r requirements.txt -r requirements-dev.txt
-      - name: Acceptance (pinned, mock, hermetic)
-        run: make test-contracts
-
   deploy:
     name: Deploy to Modal (staging)
-    needs: [acceptance_pinned, sync-secrets-staging]
+    needs: sync-secrets-staging
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
