@@ -5,7 +5,7 @@ build:
 image:
   default_platform: amd64
   platforms:
-    amd64: ghcr.io/test/repo@sha256:9cb6eaa8509a7650a89d7a31040cb094321e688804048a3845a5fc1da7b75cae
+    amd64: ghcr.io/test/repo@sha256:d544381abe5c1537d6761c8a191ffc1723c28cd267c4207b3f9f6b27bcdec0b4
     arm64: ghcr.io/owner/repo/llm-litellm@sha256:REPLACE_ARM64
 inputs:
   $schema: https://json-schema.org/draft-07/schema#

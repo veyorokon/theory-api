@@ -38,6 +38,10 @@ help:
 	@echo "  make integration-modal ENV=dev       - integration via modal adapter"
 	@echo "  make test-smoke                      - post-deploy smoke (modal-only)"
 	@echo ""
+	@echo "  make services-up                     - start test services (postgres, redis, minio)"
+	@echo "  make services-down                   - stop test services"
+	@echo "  make services-status                 - show test services status"
+	@echo ""
 	@echo "  make build-processor REF=ns/name@ver - build local image"
 	@echo "  make push-processor REF=ns/name@ver TARGET=ghcr.io/you/repo:tag"
 	@echo "  make pin-processor REF=ns/name@ver OCI=ghcr.io/...@sha256:..."
@@ -91,7 +95,7 @@ test-integration:
 
 # Explicit aliases following smoke pattern
 .PHONY: integration-local
-integration-local:
+integration-local-pinned:
 	@$(MAKE) test-integration TARGET=local BUILD=0
 
 .PHONY: integration-local-build
@@ -194,3 +198,18 @@ smoke-modal:
 	  --write-prefix "$(WRITE_PREFIX)" \
 	  --inputs-json '$(JSON_INPUT)' \
 	  --json | jq .
+
+# ---- Service lifecycle -----------------------------------------------------
+.PHONY: services-up
+services-up:
+	@docker compose --profile full up -d
+	@echo "✅ Test services started (postgres, redis, minio)"
+
+.PHONY: services-down
+services-down:
+	@docker compose down
+	@echo "✅ Test services stopped"
+
+.PHONY: services-status
+services-status:
+	@docker compose ps

@@ -136,8 +136,13 @@ def no_network():
         yield
 
 
-# ---------- Docker check ----------
-def _docker_available() -> bool:
+# ---------- Test services provisioning ----------
+@pytest.fixture(scope="session", autouse=True)
+def test_services():
+    """Start all test services once per session."""
+    import time
+
+    # Ensure Docker is available
     try:
         subprocess.run(
             ["docker", "version"],
@@ -145,15 +150,45 @@ def _docker_available() -> bool:
             stderr=subprocess.PIPE,
             check=True,
         )
-        return True
     except Exception:
-        return False
-
-
-@pytest.fixture(scope="session")
-def require_docker():
-    if not _docker_available():
         pytest.skip("Docker not available")
+
+    # Start all services with full profile
+    try:
+        subprocess.run(
+            ["docker", "compose", "--profile", "full", "up", "-d"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        # Quick check that services are running
+        result = subprocess.run(
+            ["docker", "compose", "ps", "--services"],
+            capture_output=True,
+            text=True,
+        )
+        running_services = set(result.stdout.strip().split("\n")) if result.stdout.strip() else set()
+        expected_services = {"postgres", "redis", "minio"}
+
+        if not expected_services.issubset(running_services):
+            pytest.fail(f"Expected services {expected_services} not all running. Found: {running_services}")
+
+    except subprocess.CalledProcessError as e:
+        pytest.fail(f"Failed to start test services: {e}")
+
+    yield
+
+    # Clean up services
+    try:
+        subprocess.run(
+            ["docker", "compose", "down"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError:
+        pass  # Best effort cleanup
 
 
 # ---------- Lane fixtures ----------
