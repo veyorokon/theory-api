@@ -151,7 +151,7 @@ jobs:
             gh pr create \
               --base main \
               --head staging \
-              --title "Release #${{ github.run_id }}: Promote staging -> main" \
+              --title "Release: Promote staging -> main" \
               --body "## 🚀 Production Release
 
           This PR promotes validated changes from staging to main for production deployment.
@@ -167,9 +167,13 @@ jobs:
           - **Workflow**: [View run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
           ---
-          Ready for production deployment. Please review and merge to deploy." \
-              --label "release" \
-              --label "production"
+
+          **⚠️ Action Required:** Add a release label to set version:
+          - \`release:patch\` - for bug fixes (1.0.0 → 1.0.1)
+          - \`release:minor\` - for new features (1.0.0 → 1.1.0)
+          - \`release:major\` - for breaking changes (1.0.0 → 2.0.0)
+
+          Version will be created automatically when label is added."
 
             echo "✅ PR created successfully"
           else
