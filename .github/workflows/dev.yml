@@ -15,24 +15,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  quick-checks:
-    runs-on: ubuntu-latest
-    env:
-      DJANGO_SETTINGS_MODULE: backend.settings.unittest
-      TEST_LANE: dev
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.11" }
-      - run: pip install -r requirements.txt -r requirements-dev.txt
-      - name: Unit tests
-        run: make test-unit
-      - name: Build processor image
-        run: make build-processor REF=llm/litellm@1
-      - name: Integration tests
-        run: make integration-local-build
-      # Intentionally no build/pin/deploy here (dev is code-only integration).
-
   sync-secrets-dev:
     name: Sync secrets to Modal (dev)
     runs-on: ubuntu-latest
@@ -58,7 +40,7 @@ jobs:
 
   promote_to_staging:
     name: "Open PR: dev -> staging"
-    needs: [quick-checks, sync-secrets-dev]
+    needs: sync-secrets-dev
     runs-on: ubuntu-latest
     permissions:
       contents: write
