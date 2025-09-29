@@ -7,7 +7,8 @@ import pytest
 from pathlib import Path
 
 
-@pytest.mark.contracts
+@pytest.mark.integration
+@pytest.mark.requires_docker
 def test_console_purity_with_json_flag():
     """Contract: HTTP-first processors write clean JSON to stdout, structured logs to stderr."""
 
@@ -65,7 +66,8 @@ def test_console_purity_with_json_flag():
                     pass
 
 
-@pytest.mark.contracts
+@pytest.mark.integration
+@pytest.mark.requires_docker
 def test_no_json_flag_allows_mixed_output():
     """Contract: Without --json flag, mixed output is allowed."""
 

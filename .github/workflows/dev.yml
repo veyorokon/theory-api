@@ -55,3 +55,58 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           make modal-sync-secrets REF=llm/litellm@1 ENV=dev
+
+  promote_to_staging:
+    name: "Open PR: dev -> staging"
+    needs: [quick-checks, sync-secrets-dev]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history for branch operations
+      - name: Create PR from dev to staging
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Check if PR already exists for this dev SHA
+          EXISTING_PR=$(gh pr list --base staging --head dev --state open --json number --jq '.[0].number' || echo "")
+
+          if [ -z "$EXISTING_PR" ]; then
+            echo "Creating new PR from dev to staging"
+            gh pr create \
+              --base staging \
+              --head dev \
+              --title "Promote: dev -> staging" \
+              --body "## 🚀 Staging Promotion
+
+          This PR promotes validated changes from dev to staging for build and deployment.
+
+          ### Validation Status
+          - ✅ **Unit tests**: All tests passed
+          - ✅ **Build verification**: Processor image built successfully
+          - ✅ **Integration tests**: Local integration tests passed
+          - ✅ **Secret sync**: Dev environment secrets synced
+
+          ### Dev Info
+          - **Run ID**: ${{ github.run_id }}
+          - **SHA**: ${{ github.sha }}
+          - **Workflow**: [View run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+          ---
+
+          **Ready for staging build and deployment.**"
+
+            echo "✅ PR created successfully"
+          else
+            echo "⚠️ PR #$EXISTING_PR already exists from dev to staging"
+            echo "Updating existing PR with latest run info"
+
+            gh pr comment $EXISTING_PR --body "## Updated from Run #${{ github.run_id }}
+
+          - **SHA**: ${{ github.sha }}
+          - **Workflow**: [View run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          - **Status**: ✅ All validations passed"
+          fi
