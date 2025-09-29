@@ -133,14 +133,3 @@ jobs:
           **Release**: [View release](https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.version }})
 
           This PR is now ready for review and merge to deploy to production."
-
-      - name: Set success status check
-        env:
-          GH_TOKEN: ${{ secrets.ADMIN_GITHUB_TOKEN }}
-        run: |
-          gh api repos/${{ github.repository }}/statuses/${{ github.event.pull_request.head.sha }} \
-            --method POST \
-            --field state=success \
-            --field target_url="https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.version }}" \
-            --field description="Version ${{ steps.version.outputs.version }} created successfully" \
-            --field context="version-created"
