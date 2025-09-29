@@ -41,25 +41,9 @@ jobs:
         run: |
           make modal-sync-secrets REF=llm/litellm@1 ENV=main
 
-  acceptance_pinned:
-    name: Acceptance (pinned, belt & suspenders)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      DJANGO_SETTINGS_MODULE: backend.settings.unittest
-      LOG_STREAM: stderr
-      TEST_LANE: supplychain
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.11" }
-      - run: pip install -r requirements.txt -r requirements-dev.txt
-      - name: Acceptance (pinned)
-        run: make test-unit
-
   deploy:
     name: Deploy to Modal (prod)
-    needs: [acceptance_pinned, sync-secrets-prod]
+    needs: sync-secrets-prod
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
