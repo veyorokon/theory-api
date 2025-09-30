@@ -17,8 +17,7 @@ RUN pip install --no-cache-dir \
     "uvicorn[standard]>=0.30" \
     "pydantic>=2.8" \
     "jsonschema>=4.22" \
-    "requests>=2.32" \
-    "litellm>=1.43.0"
+    "requests>=2.32"
 
 # Make arbitrary UID runs safe (bind-mounts deletable by host user)
 RUN mkdir -p /artifacts /work /home/app && chmod -R 0777 /artifacts /work /home/app
@@ -28,4 +27,4 @@ EXPOSE 8000
 CMD ["uvicorn", "app.ws:app", "--host", "0.0.0.0", "--port", "8000"]
 
 HEALTHCHECK --interval=10s --timeout=3s --retries=5 \
-    CMD curl -sf http://localhost:8000/healthz || exit 1
+  CMD curl -sf http://localhost:8000/healthz || exit 1

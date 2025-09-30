@@ -22,17 +22,3 @@ DEFAULT_FILE_STORAGE_BUCKET = environ_setting("AWS_STORAGE_BUCKET_NAME")
 # Django file storage
 DEFAULT_FILE_STORAGE = "apps.storage.backends.VendorNeutralStorage"
 MEDIA_URL = f"https://{DEFAULT_FILE_STORAGE_BUCKET}.s3.{AWS_S3_REGION_NAME}.amazonaws.com/"
-
-# Redis settings
-REDIS_URL = environ_setting("REDIS_URL")
-
-# Cache settings
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.redis.RedisCache",
-        "LOCATION": REDIS_URL,
-        "OPTIONS": {
-            "CLIENT_CLASS": "django_redis.client.DefaultClient",
-        },
-    }
-}

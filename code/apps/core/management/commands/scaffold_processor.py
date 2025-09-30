@@ -9,7 +9,7 @@ REF_RE = re.compile(r"^(?P<ns>[a-z0-9_\-]+)/(?P<name>[a-z0-9_\-]+)@(?P<ver>[0-9]
 
 
 class Command(BaseCommand):
-    help = "Scaffold a container-first HTTP processor (FastAPI /run)."
+    help = "Scaffold a container-first WS processor (FastAPI WebSocket /run + presigned PUT uploads)."
 
     def add_arguments(self, parser):
         parser.add_argument("--ref", required=True, help="ns/name@ver (e.g., llm/litellm@1)")
@@ -20,8 +20,7 @@ class Command(BaseCommand):
         parser.add_argument("--memory", type=int, default=2, help="Memory (GiB)")
         parser.add_argument("--timeout", type=int, default=600, help="Timeout seconds")
         parser.add_argument("--gpu", default="", help="GPU type (e.g., a10g) or empty")
-        parser.add_argument("--port", type=int, default=8000, help="Container HTTP port")
-        parser.add_argument("--with-stream", action="store_true", help="Also scaffold /run-stream SSE")
+        parser.add_argument("--port", type=int, default=8000, help="Container WS/HTTP port")
         parser.add_argument("--force", action="store_true", help="Overwrite existing files")
 
     def handle(self, *args, **opts):
@@ -40,7 +39,6 @@ class Command(BaseCommand):
         secrets = [s.strip() for s in (opts["secrets"] or "").split(",") if s.strip()]
         cpu, memory_gb, timeout_s, gpu = opts["cpu"], int(opts["memory"]), int(opts["timeout"]), (opts["gpu"] or None)
         port = int(opts["port"])
-        with_stream = bool(opts["with_stream"])
 
         if proc_dir.exists() and not force:
             raise CommandError(f"{proc_dir} already exists (use --force to overwrite).")
@@ -57,17 +55,18 @@ class Command(BaseCommand):
 
         self._write(app_dir / "__init__.py", "")
         self._write(app_dir / "logging.py", LOGGING_PY)
-        self._write(app_dir / "receipts.py", RECEIPTS_PY)
+        self._write(app_dir / "types.py", TYPES_PY)
+        self._write(app_dir / "run_registry.py", RUN_REGISTRY_PY)
+        self._write(app_dir / "uploader.py", UPLOADER_PY)
         self._write(app_dir / "handler.py", self._render_handler_py(template))
-        self._write(app_dir / "http.py", self._render_http_py(port, with_stream))
+        self._write(app_dir / "ws.py", self._render_ws_py(port))
 
         if state == "stateful":
-            self._write(app_dir / "state.py", self._render_state_py(template))
+            self._write(app_dir / "state.py", STATEFUL_PY)
         else:
-            # Empty placeholder to keep imports safe if someone flips later
             self._write(app_dir / "state.py", "STATE = {}\n")
 
-        self.stdout.write(self.style.SUCCESS(f"Scaffolded processor at {proc_dir}"))
+        self.stdout.write(self.style.SUCCESS(f"Scaffolded WS processor at {proc_dir}"))
 
     def _write(self, path: pathlib.Path, content: str):
         path.write_text(textwrap.dedent(content).lstrip(), encoding="utf-8")
@@ -78,19 +77,16 @@ class Command(BaseCommand):
         extra_pip = ""
         if template == "llm":
             extra_pip = ' \\\n    "litellm>=1.43.0"'
-
         return f"""
         FROM python:3.11-slim
 
         ENV PYTHONDONTWRITEBYTECODE=1 \\
-            PYTHONUNBUFFERED=1
+            PYTHONUNBUFFERED=1 \\
+            TZ=UTC \\
+            LC_ALL=C.UTF-8
 
         RUN apt-get update && apt-get install -y --no-install-recommends \\
-            curl \\
-            ca-certificates \\
-            build-essential \\
-            gcc \\
-            g++ \\
+            curl ca-certificates build-essential gcc g++ \\
             && rm -rf /var/lib/apt/lists/*
 
         WORKDIR /work
@@ -100,12 +96,15 @@ class Command(BaseCommand):
             "fastapi>=0.114" \\
             "uvicorn[standard]>=0.30" \\
             "pydantic>=2.8" \\
-            "jsonschema>=4.22"{extra_pip}
+            "jsonschema>=4.22" \\
+            "requests>=2.32"{extra_pip}
 
+        # Make arbitrary UID runs safe (bind-mounts deletable by host user)
+        RUN mkdir -p /artifacts /work /home/app && chmod -R 0777 /artifacts /work /home/app
+        ENV HOME=/home/app XDG_CACHE_HOME=/home/app/.cache HF_HOME=/home/app/.cache/huggingface
 
         EXPOSE {port}
-        # NOTE: We do NOT run uvicorn when used with Modal @asgi_app(); but for local docker run, this CMD is handy.
-        CMD ["uvicorn", "app.http:app", "--host", "0.0.0.0", "--port", "{port}"]
+        CMD ["uvicorn", "app.ws:app", "--host", "0.0.0.0", "--port", "{port}"]
 
         HEALTHCHECK --interval=10s --timeout=3s --retries=5 \\
           CMD curl -sf http://localhost:{port}/healthz || exit 1
@@ -123,7 +122,6 @@ class Command(BaseCommand):
         secrets: list[str],
         template: str,
     ) -> str:
-        # Minimal JSON Schema tailored per template (can extend later)
         if template == "llm":
             inputs_schema = {
                 "$schema": "https://json-schema.org/draft-07/schema#",
@@ -155,6 +153,10 @@ class Command(BaseCommand):
                     },
                 },
             }
+            outputs = [
+                {"path": "text/response.txt", "mime": "text/plain", "description": "LLM response"},
+                {"path": "metadata.json", "mime": "application/json", "description": "Execution metadata"},
+            ]
         else:
             inputs_schema = {
                 "$schema": "https://json-schema.org/draft-07/schema#",
@@ -162,12 +164,9 @@ class Command(BaseCommand):
                 "type": "object",
                 "additionalProperties": True,
             }
+            outputs = [{"path": "metadata.json", "mime": "application/json", "description": "Execution metadata"}]
 
-        outputs = [{"path": "metadata.json", "mime": "application/json", "description": "Execution metadata"}]
-        if template == "llm":
-            outputs.insert(0, {"path": "text/response.txt", "mime": "text/plain", "description": "LLM response"})
-
-        yaml = {
+        yaml_obj = {
             "ref": f"{ns}/{name}@{ver}",
             "build": {"context": ".", "dockerfile": "Dockerfile", "port": 8000},
             "image": {
@@ -182,29 +181,29 @@ class Command(BaseCommand):
                 "timeout_s": int(timeout_s),
                 "gpu": (gpu or None),
             },
+            "api": {"protocol": "ws", "path": "/run", "healthz": "/healthz"},
             "secrets": {"required": secrets},
             "inputs": inputs_schema,
             "outputs": outputs,
         }
-        import yaml as _yaml  # pyyaml is already in your project; if not, change to json.dumps
+        import yaml as _yaml
 
-        return _yaml.dump(yaml, sort_keys=False)
+        return _yaml.dump(yaml_obj, sort_keys=False)
 
     def _render_handler_py(self, template: str) -> str:
-        # LLM template mock/real; generic just echoes inputs
         if template == "llm":
             body = """
-            import os
-            from typing import Any, Dict, List
-            from .receipts import write_outputs_and_receipts
-            from .logging import info
+            import os, io, json
+            from typing import Any, Dict, Callable, Optional
+            from .uploader import put_object, ensure_outputs_json
 
-            def entry(payload: Dict[str, Any]) -> Dict[str, Any]:
-                # Basic shape checks (envelope-level)
-                execution_id = str(payload.get("execution_id", "")).strip()
-                mode = str(payload.get("mode", "mock")).strip()
-                write_prefix = str(payload.get("write_prefix", "")).strip()
+            # entry(payload, emit) -> envelope
+            def entry(payload: Dict[str, Any], emit: Optional[Callable[[Dict], None]] = None) -> Dict[str, Any]:
+                execution_id = str(payload.get("execution_id","")).strip()
+                mode = str(payload.get("mode","mock")).strip()
+                write_prefix = str(payload.get("write_prefix","")).strip()
                 inputs = payload.get("inputs") or {}
+                put_urls: Dict[str, str] = (payload.get("put_urls") or {})
 
                 if not execution_id:
                     return {"status":"error","execution_id":"","error":{"code":"ERR_INPUTS","message":"missing execution_id"},"meta":{}}
@@ -212,131 +211,132 @@ class Command(BaseCommand):
                     write_prefix = write_prefix.replace("{execution_id}", execution_id)
 
                 params = (inputs or {}).get("params") or {}
-                messages: List[Dict[str, str]] = params.get("messages") or []
+                messages = params.get("messages") or []
                 model = params.get("model") or "gpt-4o-mini"
 
-                # Mock path is hermetic (no secrets)
+                if emit: emit({"kind":"Event","content":{"phase":"started"}})
+
                 if mode == "mock":
                     text = f"Mock response: {messages[-1]['content'][:64] if messages else ''}"
+                    if emit:
+                        for chunk in text.split():
+                            emit({"kind":"Token","content":{"text": chunk + " "}})
                 else:
-                    # Real path: secrets required
-                    api_key = os.environ.get("OPENAI_API_KEY")
+                    api_key = os.getenv("OPENAI_API_KEY")
                     if not api_key:
                         return {"status":"error","execution_id":execution_id,"error":{"code":"ERR_MISSING_SECRET","message":"OPENAI_API_KEY missing"},"meta":{}}
-
-                    # Lazy import with defensive fallback
                     try:
                         import litellm
-                        resp = litellm.completion(model=model, messages=messages)
-                        text = resp.choices[0].message.get("content") if hasattr(resp, "choices") else str(resp)
-                    except ImportError:
-                        return {"status":"error","execution_id":execution_id,"error":{"code":"ERR_RUNTIME","message":"litellm not installed in image"},"meta":{}}
+                        resp = litellm.completion(model=model, messages=messages, stream=True)
+                        parts = []
+                        for ev in resp:
+                            delta = getattr(ev.choices[0].delta, "content", "") if hasattr(ev.choices[0], "delta") else ""
+                            if delta:
+                                parts.append(delta)
+                                if emit: emit({"kind":"Token","content":{"text": delta}})
+                        text = "".join(parts)
                     except Exception as e:
-                        return {"status":"error","execution_id":execution_id,"error":{"code":"ERR_PROVIDER","message":f"{type(e).__name__}: {e}"},"meta":{}}
+                        return {"status":"error","execution_id":execution_id,"error":{"code":"ERR_PROVIDER","message":str(e)},"meta":{}}
 
-                # Strict digest validation
-                image_digest = os.environ.get("IMAGE_DIGEST")
+                image_digest = os.getenv("IMAGE_DIGEST")
                 if not image_digest:
-                    return {"status":"error","execution_id":execution_id,"error":{"code":"ERR_IMAGE_DIGEST_MISSING","message":"IMAGE_DIGEST env var not set"},"meta":{}}
+                    return {"status":"error","execution_id":execution_id,"error":{"code":"ERR_IMAGE_DIGEST_MISSING","message":"IMAGE_DIGEST not set"},"meta":{}}
 
-                meta = {
-                    "env_fingerprint": f"cpu:1;memory:2Gi",
-                    "model": model,
-                    "image_digest": image_digest
+                etags = {}
+                reply_key = "outputs/text/response.txt"
+                if reply_key not in put_urls:
+                    return {"status":"error","execution_id":execution_id,"error":{"code":"ERR_UPLOAD_PLAN","message":f"missing put_url for {reply_key}"},"meta":{}}
+                try:
+                    etags[reply_key] = put_object(put_urls[reply_key], io.BytesIO(text.encode("utf-8")), content_type="text/plain")
+                except Exception as e:
+                    return {"status":"error","execution_id":execution_id,"error":{"code":"ERR_UPLOAD","message":f"Failed to upload {reply_key}: {str(e)}"},"meta":{}}
+
+                # outputs.json LAST
+                index_key = "outputs.json"
+                outputs_list = [ {"path": f"{write_prefix}outputs/text/response.txt"} ]
+                index_bytes = ensure_outputs_json(outputs_list)
+                if index_key not in put_urls:
+                    return {"status":"error","execution_id":execution_id,"error":{"code":"ERR_UPLOAD_PLAN","message":f"missing put_url for {index_key}"},"meta":{}}
+                try:
+                    etags[index_key] = put_object(put_urls[index_key], io.BytesIO(index_bytes), content_type="application/json")
+                except Exception as e:
+                    return {"status":"error","execution_id":execution_id,"error":{"code":"ERR_UPLOAD","message":f"Failed to upload {index_key}: {str(e)}"},"meta":{}}
+
+                meta = {"env_fingerprint":"cpu:1;memory:2Gi","image_digest":image_digest,"model":model,"proof":{"etag_map":etags}}
+                if emit: emit({"kind":"Event","content":{"phase":"completed"}})
+                return {
+                    "status":"success",
+                    "execution_id": execution_id,
+                    "outputs": outputs_list,
+                    "index_path": f"{write_prefix}{index_key}",
+                    "meta": meta
                 }
-
-                info("handler.llm.ok", execution_id=execution_id, write_prefix=write_prefix)
-                return write_outputs_and_receipts(
-                    execution_id=execution_id,
-                    write_prefix=write_prefix,
-                    meta=meta,
-                    outputs=[("text/response.txt", text)]
-                )
             """
         else:
             body = """
-            from typing import Any, Dict
-            from .receipts import write_outputs_and_receipts
-            from .logging import info
+            import os, io, json
+            from typing import Any, Dict, Callable, Optional
+            from .uploader import put_object, ensure_outputs_json
 
-            def entry(payload: Dict[str, Any]) -> Dict[str, Any]:
-                execution_id = str(payload.get("execution_id", "")).strip()
-                mode = str(payload.get("mode", "mock")).strip()
-                write_prefix = str(payload.get("write_prefix", "")).strip()
+            def entry(payload: Dict[str, Any], emit: Optional[Callable[[Dict], None]] = None) -> Dict[str, Any]:
+                execution_id = str(payload.get("execution_id","")).strip()
+                mode = str(payload.get("mode","mock")).strip()
+                write_prefix = str(payload.get("write_prefix","")).strip()
                 inputs = payload.get("inputs") or {}
+                put_urls: Dict[str, str] = (payload.get("put_urls") or {})
 
                 if not execution_id:
                     return {"status":"error","execution_id":"","error":{"code":"ERR_INPUTS","message":"missing execution_id"},"meta":{}}
                 if "{execution_id}" in write_prefix:
                     write_prefix = write_prefix.replace("{execution_id}", execution_id)
 
-                # Strict digest validation
-                image_digest = os.environ.get("IMAGE_DIGEST")
+                image_digest = os.getenv("IMAGE_DIGEST")
                 if not image_digest:
-                    return {"status":"error","execution_id":execution_id,"error":{"code":"ERR_IMAGE_DIGEST_MISSING","message":"IMAGE_DIGEST env var not set"},"meta":{}}
+                    return {"status":"error","execution_id":execution_id,"error":{"code":"ERR_IMAGE_DIGEST_MISSING","message":"IMAGE_DIGEST not set"},"meta":{}}
 
-                # Echo implementation (mock/real both allowed, no secrets)
-                meta = {
-                    "env_fingerprint": "cpu:1;memory:2Gi",
-                    "image_digest": image_digest
-                }
-                text = f"ok mode={mode} inputs={inputs!r}"
+                payload_json = json.dumps({"mode":mode,"inputs":inputs}, ensure_ascii=False)
+                if emit:
+                    emit({"kind":"Event","content":{"phase":"started"}})
+                    emit({"kind":"Log","content":{"msg":"processing","bytes":len(payload_json)}})
 
-                info("handler.generic.ok", execution_id=execution_id, write_prefix=write_prefix)
-                return write_outputs_and_receipts(
-                    execution_id=execution_id,
-                    write_prefix=write_prefix,
-                    meta=meta,
-                    outputs=[("metadata.json", text)]
-                )
-            """
-        return f"""
-        {body}
-        """
-
-    def _render_http_py(self, port: int, with_stream: bool) -> str:
-        stream_block = ""
-        if with_stream:
-            stream_block = """
-            from fastapi import BackgroundTasks
-            from fastapi.responses import StreamingResponse
-
-            @app.post("/run-stream")
-            async def run_stream(req: Request, background: BackgroundTasks):
-                # Same guards as /run for content-type and JSON
-                ct = (req.headers.get("content-type") or "").lower().split(";")[0]
-                if ct != "application/json":
-                    info("http.run.error", reason="unsupported_media_type")
-                    return JSONResponse(_err("", "ERR_INPUTS", "Content-Type must be application/json"), status_code=415)
+                etags = {}
+                meta_key = "outputs/metadata.json"
+                if meta_key not in put_urls:
+                    return {"status":"error","execution_id":execution_id,"error":{"code":"ERR_UPLOAD_PLAN","message":f"missing put_url for {meta_key}"},"meta":{}}
                 try:
-                    payload = await req.json()
-                except Exception:
-                    info("http.run.error", reason="invalid_json")
-                    return JSONResponse(_err("", "ERR_INPUTS", "Invalid JSON body"), status_code=400)
+                    etags[meta_key] = put_object(put_urls[meta_key], io.BytesIO(payload_json.encode("utf-8")), content_type="application/json")
+                except Exception as e:
+                    return {"status":"error","execution_id":execution_id,"error":{"code":"ERR_UPLOAD","message":f"Failed to upload {meta_key}: {str(e)}"},"meta":{}}
 
-                eid = str(payload.get("execution_id","")).strip()
-                if not eid:
-                    return JSONResponse(_err("", "ERR_INPUTS", "missing execution_id"), status_code=400)
+                index_key = "outputs.json"
+                outputs_list = [ {"path": f"{write_prefix}{meta_key}"} ]
+                index_bytes = ensure_outputs_json(outputs_list)
+                if index_key not in put_urls:
+                    return {"status":"error","execution_id":execution_id,"error":{"code":"ERR_UPLOAD_PLAN","message":f"missing put_url for {index_key}"},"meta":{}}
+                try:
+                    etags[index_key] = put_object(put_urls[index_key], io.BytesIO(index_bytes), content_type="application/json")
+                except Exception as e:
+                    return {"status":"error","execution_id":execution_id,"error":{"code":"ERR_UPLOAD","message":f"Failed to upload {index_key}: {str(e)}"},"meta":{}}
 
-                info("http.stream.start", execution_id=eid)
-
-                def gen():
-                    import time, json as _json
-                    for i in range(3):
-                        time.sleep(0.25)
-                        yield f"data: " + _json.dumps({"event":"tick","i":i,"execution_id":eid}) + "\\n\\n"
-                    # Final envelope
-                    env = entry(payload)
-                    yield "data: " + json.dumps(env) + "\\n\\n"
-
-                return StreamingResponse(gen(), media_type="text/event-stream")
+                meta = {"env_fingerprint":"cpu:1;memory:2Gi","image_digest":image_digest,"proof":{"etag_map":etags}}
+                if emit: emit({"kind":"Event","content":{"phase":"completed"}})
+                return {
+                    "status":"success",
+                    "execution_id": execution_id,
+                    "outputs": outputs_list,
+                    "index_path": f"{write_prefix}{index_key}",
+                    "meta": meta
+                }
             """
+        return f"""{body}"""
 
-        return f"""
-        import json, time
-        from json import JSONDecodeError
-        from fastapi import FastAPI, Request
-        from fastapi.responses import JSONResponse
+    def _render_ws_py(self, port: int) -> str:
+        return """
+        import asyncio, time, json, uuid
+        from typing import Any, Dict, Callable, Optional
+        from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+        from .types import ConnectionRole, RunState
+        from .run_registry import registry
         from .handler import entry
         from .logging import info
 
@@ -344,63 +344,89 @@ class Command(BaseCommand):
 
         @app.get("/healthz")
         def healthz():
-            return {{"ok": True}}
+            return {"ok": True}
 
-        def _err(eid: str, code: str, msg: str):
-            return {{"status":"error","execution_id":eid,"error":{{"code":code,"message":msg}},"meta":{{}}}}
+        @app.websocket("/run")
+        async def run_ws(ws: WebSocket):
+            await ws.accept(subprotocol="theory.run.v1")
+            connection_id = f"conn-{int(time.time()*1000)}"
+            execution_id: Optional[str] = None
+            role: Optional[ConnectionRole] = None
 
-        @app.post("/run")
-        async def run(req: Request) -> JSONResponse:
-            start = time.monotonic()
-            ct = (req.headers.get("content-type") or "").lower().split(";")[0]
-            if ct != "application/json":
-                info("http.run.error", reason="unsupported_media_type")
-                return JSONResponse(_err("", "ERR_INPUTS", "Content-Type must be application/json"), status_code=415)
             try:
-                payload = await req.json()
-            except JSONDecodeError:
-                info("http.run.error", reason="invalid_json")
-                return JSONResponse(_err("", "ERR_INPUTS", "Invalid JSON body"), status_code=400)
+                # First frame must be RunOpen
+                msg = await ws.receive_json()
+                if not isinstance(msg, dict) or msg.get("kind") != "RunOpen":
+                    await ws.close(code=1002); return
+                content = msg.get("content") or {}
+                role_s = str(content.get("role","")).lower()
+                execution_id = str(content.get("execution_id","")).strip()
+                payload = content.get("payload") or {}
 
-            eid = str(payload.get("execution_id","")).strip()
-            if not eid:
-                return JSONResponse(_err("", "ERR_INPUTS", "missing execution_id"), status_code=400)
+                if role_s not in ("client","controller","observer") or not execution_id:
+                    await ws.close(code=1008); return
+                role = ConnectionRole[role_s.upper()]
 
-            info("http.run.start", execution_id=eid)
-            env = entry(payload)
-            info("http.run.settle", execution_id=eid, status=env.get("status"), elapsed_ms=int((time.monotonic()-start)*1000))
-            return JSONResponse(env)
+                # TODO: verify ticket claims here (execution_id, scopes)
 
-        {stream_block}
+                # Register connection
+                run = await registry.get_or_create(execution_id)
+                await registry.add_connection(execution_id, connection_id, ws, role)
+                await ws.send_json({"kind":"Ack","content":{"execution_id":execution_id}})
+
+                # Client role may start the run if not running
+                if role is ConnectionRole.CLIENT and run.state == RunState.PENDING:
+                    await registry.update_state(execution_id, RunState.RUNNING)
+                    info("ws.run.start", execution_id=execution_id)
+
+                    async def fanout(ev: Dict[str, Any]):  # async bridge
+                        await registry.emit(execution_id, ev)
+
+                    # Run entry in thread; capture emitted events via queueing
+                    loop = asyncio.get_running_loop()
+                    def emit_sync(ev: Dict[str, Any]):
+                        loop.call_soon_threadsafe(asyncio.create_task, fanout(ev))
+
+                    start = time.monotonic()
+                    try:
+                        env = await loop.run_in_executor(None, entry, payload, emit_sync)
+                        await registry.update_state(execution_id, RunState.COMPLETED)
+                        # Fanout terminal result to ALL
+                        await registry.emit(execution_id, {"kind":"RunResult","content": env})
+                        await ws.send_json({"kind":"RunResult","content": env})
+                        info("ws.run.settle", execution_id=execution_id, status=env.get("status"), elapsed_ms=int((time.monotonic()-start)*1000))
+                    except asyncio.CancelledError:
+                        await registry.update_state(execution_id, RunState.PREEMPTED)
+                        term = {"status":"error","execution_id":execution_id,"error":{"code":"ERR_PREEMPTED","message":"cancelled"}, "meta":{}}
+                        await registry.emit(execution_id, {"kind":"RunResult","content": term})
+                        await ws.send_json({"kind":"RunResult","content": term})
+                    except Exception as e:
+                        await registry.update_state(execution_id, RunState.ERROR)
+                        term = {"status":"error","execution_id":execution_id,"error":{"code":"ERR_RUNTIME","message":str(e)}, "meta":{}}
+                        await registry.emit(execution_id, {"kind":"RunResult","content": term})
+                        await ws.send_json({"kind":"RunResult","content": term})
+
+                # If controller, read control frames; observers just park
+                if role is ConnectionRole.CONTROLLER:
+                    while True:
+                        m = await ws.receive_json()
+                        if m.get("kind") == "control":
+                            await registry.apply_control(execution_id, connection_id, m.get("content") or {})
+                else:
+                    # keep-alive loop; fanout is handled by registry
+                    while True:
+                        await asyncio.sleep(30)
+
+            except WebSocketDisconnect:
+                pass
+            finally:
+                if execution_id:
+                    await registry.remove_connection(execution_id, connection_id)
+                    await registry.maybe_gc_run(execution_id)
         """
 
-    def _render_state_py(self, template: str) -> str:
-        # A tiny, safe place to hold/prepare heavy state (import-once).
-        # Works locally and under Modal snapshots (Modal config is on the deployment side).
-        return """
-        # Optional stateful module for heavy resources (models, tokenizers, etc.).
-        # Keep imports local inside functions to avoid forcing deps at build time.
-        # Expose a single get_state() so handler can use it when mode="real".
-        import threading
-        _lock = threading.Lock()
-        STATE = { "ready": False, "data": None }
 
-        def warm():
-            # Put heavy init here (e.g., HF model load). Called lazily.
-            # Keep this fast; rely on Modal snapshots to preserve loaded state between runs.
-            STATE["ready"] = True
-            STATE["data"] = {"note": "warmed"}
-
-        def get_state():
-            if not STATE["ready"]:
-                with _lock:
-                    if not STATE["ready"]:
-                        warm()
-            return STATE
-        """
-
-
-# ---------------- Common tiny libs (no external deps) ----------------
+# ---------------- Common tiny libs ----------------
 
 LOGGING_PY = r"""
 import json, os, sys, time
@@ -412,60 +438,195 @@ def info(event: str, **fields):
     json.dump(rec, _stream(), separators=(",",":"), sort_keys=False); _stream().write("\n"); _stream().flush()
 """
 
-RECEIPTS_PY = r"""
-import json, os, pathlib
-from typing import Dict, List, Tuple
+TYPES_PY = r"""
+from enum import Enum, auto
 
-def _ensure_dir(p: str): pathlib.Path(p).mkdir(parents=True, exist_ok=True)
+class ConnectionRole(Enum):
+    CLIENT = auto()
+    CONTROLLER = auto()
+    OBSERVER = auto()
 
-def write_outputs_and_receipts(
-    execution_id: str,
-    write_prefix: str,
-    meta: Dict,
-    outputs: List[Tuple[str, str]],   # [(relpath, text_content)]
-) -> Dict:
-    # Normalize write_prefix
-    if "{execution_id}" in write_prefix:
-        write_prefix = write_prefix.replace("{execution_id}", execution_id)
-    if not write_prefix.endswith("/"):
-        write_prefix += "/"
+class RunState(Enum):
+    PENDING = auto()
+    RUNNING = auto()
+    PAUSED = auto()
+    PREEMPTED = auto()
+    COMPLETED = auto()
+    ERROR = auto()
+"""
 
-    out_dir = os.path.join(write_prefix, "outputs")
-    _ensure_dir(out_dir)
+RUN_REGISTRY_PY = r"""
+import asyncio, time
+from typing import Dict, Set, Optional, Any
+from .types import ConnectionRole, RunState
+from .logging import info
 
-    # Write payload outputs
-    rel_paths = []
-    for rel, content in outputs:
-        abs_path = os.path.join(out_dir, rel)
-        pathlib.Path(os.path.dirname(abs_path)).mkdir(parents=True, exist_ok=True)
-        with open(abs_path, "w", encoding="utf-8") as f:
-            f.write(content)
-        rel_paths.append(os.path.join(write_prefix, "outputs", rel))
+class Run:
+    __slots__ = ("eid","state","conns","budgets","fanout_q","fanout_task")
+    def __init__(self, eid: str):
+        self.eid = eid
+        self.state = RunState.PENDING
+        self.conns: Dict[ConnectionRole, Set[Any]] = {ConnectionRole.CLIENT:set(), ConnectionRole.CONTROLLER:set(), ConnectionRole.OBSERVER:set()}
+        self.budgets = {"tokens": None, "time_s": None}
+        self.fanout_q: asyncio.Queue = asyncio.Queue(maxsize=2048)
+        self.fanout_task: Optional[asyncio.Task] = None
 
-    # Write outputs index
-    index_path = os.path.join(write_prefix, "outputs.json")
-    with open(index_path, "w", encoding="utf-8") as f:
-        json.dump({"outputs":[{"path": p} for p in rel_paths]}, f, indent=2)
+class RunRegistry:
+    def __init__(self):
+        self._runs: Dict[str, Run] = {}
+        self._lock = asyncio.Lock()
 
-    # Dual receipts (identical)
-    receipt = {
-        "execution_id": execution_id,
-        "index_path": index_path,
-        "meta": meta,
-    }
-    # Local receipt
-    with open(os.path.join(write_prefix, "receipt.json"), "w", encoding="utf-8") as f:
-        json.dump(receipt, f, indent=2)
-    # Global determinism receipt (use write_prefix, not hardcoded /artifacts)
-    global_det = os.path.join(write_prefix, "determinism.json")
-    with open(global_det, "w", encoding="utf-8") as f:
-        json.dump(receipt, f, indent=2)
+    async def get_or_create(self, eid: str) -> Run:
+        async with self._lock:
+            run = self._runs.get(eid)
+            if not run:
+                run = Run(eid)
+                self._runs[eid] = run
+                run.fanout_task = asyncio.create_task(self._fanout_loop(run))
+                info("run.registry.open", execution_id=eid)
+            return run
 
-    return {
-        "status": "success",
-        "execution_id": execution_id,
-        "outputs": [{"path": p} for p in rel_paths],
-        "index_path": index_path,
-        "meta": meta,
-    }
+    async def add_connection(self, eid: str, cid: str, ws, role: ConnectionRole):
+        run = await self.get_or_create(eid)
+        run.conns[role].add(ws)
+        info("ws.connect.ok", execution_id=eid, role=role.name.lower(), conns={r.name.lower(): len(s) for r,s in run.conns.items()})
+
+    async def remove_connection(self, eid: str, cid: str):
+        run = self._runs.get(eid)
+        if not run: return
+        for s in run.conns.values():
+            s_copy = set(s)
+            for ws in s_copy:
+                if getattr(ws, "_cid", None) == cid:
+                    s.remove(ws)
+        info("ws.close", execution_id=eid, conns={r.name.lower(): len(s) for r,s in run.conns.items()})
+
+    async def update_state(self, eid: str, state: RunState):
+        run = await self.get_or_create(eid)
+        run.state = state
+
+    async def set_budget(self, eid: str, tokens=None, time_s=None):
+        run = await self.get_or_create(eid)
+        if tokens is not None: run.budgets["tokens"] = tokens
+        if time_s is not None: run.budgets["time_s"] = time_s
+
+    async def emit(self, eid: str, ev: dict):
+        run = await self.get_or_create(eid)
+        # backpressure: drop/squash only noisy token events if queue is full
+        if run.fanout_q.full() and ev.get("kind") == "Token":
+            return
+        await run.fanout_q.put(ev)
+
+    async def fanout_event(self, eid: str, ev: dict):
+        await self.emit(eid, ev)
+
+    async def maybe_gc_run(self, eid: str):
+        run = self._runs.get(eid)
+        if not run: return
+        if all(len(s)==0 for s in run.conns.values()) and run.state in (RunState.COMPLETED, RunState.PREEMPTED, RunState.ERROR):
+            if run.fanout_task:
+                await run.fanout_q.put(None)
+                try:
+                    await asyncio.wait_for(run.fanout_task, timeout=1.0)
+                except Exception:
+                    pass
+            self._runs.pop(eid, None)
+            info("run.registry.close", execution_id=eid)
+
+    async def apply_control(self, eid: str, controller_id: str, content: dict):
+        op = (content.get("op") or "").lower()
+        if op == "preempt":
+            await self._apply_preempt(eid, controller_id, content.get("reason","controller"))
+        elif op == "pause":
+            await self._apply_pause(eid, controller_id)
+        elif op == "resume":
+            await self._apply_resume(eid, controller_id)
+        elif op == "set_budget":
+            await self.set_budget(eid, tokens=content.get("tokens"), time_s=content.get("time_s"))
+            await self.emit(eid, {"kind":"Event","content":{"phase":"budget_updated","by":controller_id,"budgets":(self._runs[eid].budgets if eid in self._runs else {}),"ts": int(time.time()*1000)}})
+        else:
+            await self.emit(eid, {"kind":"Event","content":{"phase":"control_noop","op":op,"by":controller_id,"noop":True,"ts":int(time.time()*1000)}})
+
+    async def _apply_preempt(self, eid: str, controller_id: str, reason: str):
+        run = await self.get_or_create(eid)
+        if run.state in (RunState.PREEMPTED, RunState.COMPLETED, RunState.ERROR):
+            await self.emit(eid, {"kind":"Event","content":{"phase":"preempted","by":controller_id,"reason":reason,"noop":True,"ts":int(time.time()*1000)}})
+            return
+        run.state = RunState.PREEMPTED
+        # Cooperative cancel is handled in the entry runner (orchestrator cancels task)
+        await self.emit(eid, {"kind":"Event","content":{"phase":"preempted","by":controller_id,"reason":reason,"ts":int(time.time()*1000)}})
+
+    async def _apply_pause(self, eid: str, controller_id: str):
+        run = await self.get_or_create(eid)
+        run.state = RunState.PAUSED
+        await self.emit(eid, {"kind":"Event","content":{"phase":"paused","by":controller_id,"ts":int(time.time()*1000)}})
+
+    async def _apply_resume(self, eid: str, controller_id: str):
+        run = await self.get_or_create(eid)
+        run.state = RunState.RUNNING
+        await self.emit(eid, {"kind":"Event","content":{"phase":"resumed","by":controller_id,"ts":int(time.time()*1000)}})
+
+    async def _fanout_loop(self, run: Run):
+        # one loop per run; deliver messages to all sockets
+        while True:
+            ev = await run.fanout_q.get()
+            if ev is None:
+                break
+            dead = []
+            for role_set in run.conns.values():
+                for ws in list(role_set):
+                    try:
+                        await ws.send_json(ev)
+                    except Exception:
+                        dead.append(ws)
+            for ws in dead:
+                for role_set in run.conns.values():
+                    role_set.discard(ws)
+
+registry = RunRegistry()
+"""
+
+UPLOADER_PY = r"""
+import requests, json, io, time
+from typing import List, Dict, Optional
+
+_sess = requests.Session()
+
+def put_object(put_url: str, fp: io.BytesIO, *, content_type: Optional[str] = None, retries: int = 3, timeout: int = 30) -> str:
+    data = fp.getvalue()
+    headers = {}
+    if content_type:
+        headers["Content-Type"] = content_type
+    backoff = 0.2
+    for i in range(retries):
+        r = _sess.put(put_url, data=data, headers=headers, timeout=timeout)
+        if 200 <= r.status_code < 300:
+            return (r.headers.get("ETag") or "").strip('"')
+        if r.status_code in (401, 403) and i < retries - 1:
+            time.sleep(backoff); backoff *= 2
+            continue
+        r.raise_for_status()
+    raise RuntimeError("unreachable")
+
+def ensure_outputs_json(outputs: List[Dict]) -> bytes:
+    outs = sorted(outputs, key=lambda o: o.get("path",""))
+    return json.dumps({"outputs": outs}, ensure_ascii=False, separators=(",",":")).encode("utf-8")
+"""
+
+STATEFUL_PY = r"""
+# Optional warmable cache for heavy state (models, tokenizers, etc.)
+import threading
+_lock = threading.Lock()
+STATE = {"ready": False, "data": None}
+
+def warm():
+    STATE["ready"] = True
+    STATE["data"] = {"note": "warmed"}
+
+def get_state():
+    if not STATE["ready"]:
+        with _lock:
+            if not STATE["ready"]:
+                warm()
+    return STATE
 """

@@ -169,7 +169,7 @@ def test_services():
             text=True,
         )
         running_services = set(result.stdout.strip().split("\n")) if result.stdout.strip() else set()
-        expected_services = {"postgres", "redis", "minio"}
+        expected_services = {"postgres", "minio"}
 
         if not expected_services.issubset(running_services):
             pytest.fail(f"Expected services {expected_services} not all running. Found: {running_services}")

@@ -13,7 +13,7 @@ from typing import Any, Dict, List
 from django.core.management.base import BaseCommand
 from libs.runtime_common.envelope import resolve_mode, ModeSafetyError
 
-from apps.core.orchestrator import run
+# WebSocket orchestrator now used for all processors
 from libs.runtime_common import logging as core_logging
 from libs.runtime_common.logging import bind, clear
 from apps.storage.artifact_store import artifact_store
@@ -242,20 +242,20 @@ class Command(BaseCommand):
             # Extract Modal context from Django settings
             from django.conf import settings
 
-            # Call new orchestrator run function
-            result = run(
+            # Use WebSocket orchestrator (standardized)
+            from apps.core.orchestrator_ws import OrchestratorWS
+
+            orch = OrchestratorWS(default_bucket="default")
+
+            result = orch.invoke(
                 ref=options["ref"],
-                adapter=options["adapter"],
                 mode=options["mode"],
                 inputs=inputs_json,
-                write_prefix=options["write_prefix"],
-                expected_oci=None,  # Could extract from adapter_opts if needed
-                timeout_s=options.get("timeout", 600),
                 build=options.get("build", False),
-                extra={"execution_id": execution_id},
-                env=getattr(settings, "MODAL_ENVIRONMENT", None),
-                branch=getattr(settings, "MODAL_BRANCH", None),
-                user=getattr(settings, "MODAL_USER", None),
+                stream=False,  # For CLI, we want final result only
+                timeout_s=options.get("timeout", 600),
+                execution_id=execution_id,
+                write_prefix=options["write_prefix"],
             )
 
             # Download outputs if requested

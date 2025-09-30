@@ -1,10 +1,10 @@
 """
 Test settings for theory_api project.
 
-Uses PostgreSQL and Redis via docker-compose for acceptance/property tests.
+Uses PostgreSQL via docker-compose for acceptance/property tests.
 """
 
-from .base import *  # noqa
+from .development import *  # noqa
 import os
 from urllib.parse import urlparse
 
@@ -20,14 +20,6 @@ DATABASES = {
         "PASSWORD": parsed.password,
         "HOST": parsed.hostname,
         "PORT": parsed.port or 5432,
-    }
-}
-
-# Override channel layers to use Redis for testing
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {"hosts": [(os.getenv("TEST_REDIS_HOST", "127.0.0.1"), int(os.getenv("TEST_REDIS_PORT", "6379")))]},
     }
 }
 

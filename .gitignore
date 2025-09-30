@@ -30,6 +30,9 @@ MANIFEST
 *.manifest
 *.spec
 
+# MinIO local data
+minio_data/
+
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt

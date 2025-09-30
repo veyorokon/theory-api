@@ -72,14 +72,14 @@ class ArtifactStore:
 
     def presign(self, world_path: str, ttl_s: int = 3600) -> str:
         """
-        Generate presigned URL for WorldPath.
+        Generate presigned URL for downloading from WorldPath.
 
         Args:
             world_path: World path to presign
             ttl_s: Time-to-live in seconds
 
         Returns:
-            Presigned URL
+            Presigned download URL
 
         Raises:
             ValueError: If world_path is invalid
@@ -89,6 +89,29 @@ class ArtifactStore:
 
         # Generate presigned URL
         return self._service.get_file_url(key=canonical_path, bucket="default", expires_in=ttl_s)
+
+    def presign_upload(self, world_path: str, ttl_s: int = 3600, content_type: str | None = None) -> str:
+        """
+        Generate presigned URL for uploading to WorldPath.
+
+        Args:
+            world_path: World path to presign for upload
+            ttl_s: Time-to-live in seconds
+            content_type: Optional content type to enforce
+
+        Returns:
+            Presigned upload URL
+
+        Raises:
+            ValueError: If world_path is invalid
+        """
+        # Canonicalize and validate path
+        canonical_path = canon_path_facet_root(world_path)
+
+        # Generate presigned upload URL
+        return self._service.get_upload_url(
+            key=canonical_path, bucket="default", expires_in=ttl_s, content_type=content_type
+        )
 
     def exists(self, world_path: str) -> bool:
         """

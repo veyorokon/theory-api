@@ -51,7 +51,6 @@ LOCAL_APPS = [
 ]
 THIRD_PARTY_APPS = [
     "rest_framework",
-    "channels",
 ]
 DJANGO_APPS = [
     "django.contrib.admin",
@@ -145,15 +144,6 @@ STATIC_URL = "static/"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# Channels / Channel layers (Redis)
-REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-CHANNELS_REDIS_URL = os.environ.get("CHANNELS_REDIS_URL") or REDIS_URL
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {"hosts": [CHANNELS_REDIS_URL]},
-    }
-}
 
 LLM_SETTINGS = {
     "default_model": os.environ.get("LLM_MODEL_DEFAULT", "openai/gpt-4o-mini"),

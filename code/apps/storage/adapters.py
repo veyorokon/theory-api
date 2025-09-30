@@ -1,4 +1,5 @@
 import logging
+from datetime import timedelta
 from typing import Dict, Any, BinaryIO
 
 import boto3
@@ -15,13 +16,17 @@ class MinIOAdapter(StorageInterface):
     """MinIO storage adapter for local development"""
 
     def __init__(self):
+        # Use canonical hostname for both connections and presigning
+        presign_endpoint = getattr(settings, "STORAGE_PRESIGN_ENDPOINT", "localhost:9000")
+        secure = getattr(settings, "STORAGE_PRESIGN_SECURE", False)
+
         self.client = Minio(
-            endpoint=getattr(settings, "MINIO_ENDPOINT", "localhost:9000"),
+            endpoint=presign_endpoint,
             access_key=getattr(settings, "MINIO_ACCESS_KEY", "minioadmin"),
             secret_key=getattr(settings, "MINIO_SECRET_KEY", "minioadmin"),
-            secure=getattr(settings, "MINIO_USE_HTTPS", False),
+            secure=secure,
         )
-        self.base_url = f"{'https' if getattr(settings, 'MINIO_USE_HTTPS', False) else 'http'}://{getattr(settings, 'MINIO_ENDPOINT', 'localhost:9000')}"
+        self.base_url = f"{'https' if secure else 'http'}://{presign_endpoint}"
 
     def upload_file(
         self,
@@ -70,9 +75,23 @@ class MinIOAdapter(StorageInterface):
 
     def get_file_url(self, key: str, bucket: str, expires_in: int = 3600) -> str:
         try:
-            return self.client.presigned_get_object(bucket, key, expires=expires_in)
+            return self.client.presigned_get_object(bucket, key, expires=timedelta(seconds=expires_in))
         except S3Error as e:
             logger.error(f"MinIO presigned URL error: {e}")
+            raise
+
+    def get_upload_url(
+        self, key: str, bucket: str, expires_in: int = 3600, content_type: str | None = None, audience: str = "host"
+    ) -> str:
+        try:
+            # Ensure bucket exists
+            if not self.client.bucket_exists(bucket):
+                self.client.make_bucket(bucket)
+
+            # Use canonical hostname - same client for all contexts
+            return self.client.presigned_put_object(bucket, key, expires=timedelta(seconds=expires_in))
+        except S3Error as e:
+            logger.error(f"MinIO presigned PUT URL error: {e}")
             raise
 
     def file_exists(self, key: str, bucket: str) -> bool:
@@ -162,6 +181,20 @@ class S3Adapter(StorageInterface):
             )
         except Exception as e:
             logger.error(f"S3 presigned URL error: {e}")
+            raise
+
+    def get_upload_url(
+        self, key: str, bucket: str, expires_in: int = 3600, content_type: str | None = None, audience: str = "host"
+    ) -> str:
+        try:
+            params = {"Bucket": bucket, "Key": key}
+            if content_type:
+                params["ContentType"] = content_type
+
+            # For S3, audience doesn't affect the URL (always publicly accessible)
+            return self.client.generate_presigned_url("put_object", Params=params, ExpiresIn=expires_in)
+        except Exception as e:
+            logger.error(f"S3 presigned PUT URL error: {e}")
             raise
 
     def file_exists(self, key: str, bucket: str) -> bool:
