@@ -96,3 +96,24 @@ def _registry_path(ref: str) -> Path:
     # .../code/apps/core/utils/adapters.py -> .../code
     root = Path(__file__).resolve().parents[3]
     return root / "apps" / "core" / "processors" / f"{ns}_{name}" / "registry.yaml"
+
+
+def _get_modal_web_url(app_name: str, function_name: str = "fastapi_app") -> str:
+    """Get Modal deployment web URL for a deployed app and function."""
+    try:
+        import modal  # type: ignore
+    except Exception as e:  # pragma: no cover
+        raise RuntimeError(f"Modal SDK import failed: {e}") from e
+
+    try:
+        # Use Function.from_name to access deployed function directly
+        fn = modal.Function.from_name(app_name, function_name)
+        # Use get_web_url() method (web_url property is deprecated)
+        url = fn.get_web_url() if hasattr(fn, "get_web_url") else fn.web_url  # type: ignore[attr-defined]
+    except Exception as e:
+        raise RuntimeError(f"Modal function lookup failed for {app_name}:{function_name}: {e}") from e
+
+    if not url:
+        raise RuntimeError(f"Modal function has no web_url: {app_name}:{function_name}")
+
+    return url

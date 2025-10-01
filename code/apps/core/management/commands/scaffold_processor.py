@@ -9,7 +9,7 @@ REF_RE = re.compile(r"^(?P<ns>[a-z0-9_\-]+)/(?P<name>[a-z0-9_\-]+)@(?P<ver>[0-9]
 
 
 class Command(BaseCommand):
-    help = "Scaffold a container-first WS processor (FastAPI WebSocket /run + presigned PUT uploads)."
+    help = "Scaffold a container-first WS processor (FastAPI WebSocket /run + presigned PUT + process-per-run)."
 
     def add_arguments(self, parser):
         parser.add_argument("--ref", required=True, help="ns/name@ver (e.g., llm/litellm@1)")
@@ -59,6 +59,7 @@ class Command(BaseCommand):
         self._write(app_dir / "run_registry.py", RUN_REGISTRY_PY)
         self._write(app_dir / "uploader.py", UPLOADER_PY)
         self._write(app_dir / "handler.py", self._render_handler_py(template))
+        self._write(app_dir / "worker.py", WORKER_PY)
         self._write(app_dir / "ws.py", self._render_ws_py(port))
 
         if state == "stateful":
@@ -155,7 +156,6 @@ class Command(BaseCommand):
             }
             outputs = [
                 {"path": "text/response.txt", "mime": "text/plain", "description": "LLM response"},
-                {"path": "metadata.json", "mime": "application/json", "description": "Execution metadata"},
             ]
         else:
             inputs_schema = {
@@ -197,8 +197,8 @@ class Command(BaseCommand):
             from typing import Any, Dict, Callable, Optional
             from .uploader import put_object, ensure_outputs_json
 
-            # entry(payload, emit) -> envelope
-            def entry(payload: Dict[str, Any], emit: Optional[Callable[[Dict], None]] = None) -> Dict[str, Any]:
+            # entry(payload, emit, ctrl) -> envelope
+            def entry(payload: Dict[str, Any], emit: Optional[Callable[[Dict], None]] = None, ctrl=None) -> Dict[str, Any]:
                 execution_id = str(payload.get("execution_id","")).strip()
                 mode = str(payload.get("mode","mock")).strip()
                 write_prefix = str(payload.get("write_prefix","")).strip()
@@ -220,6 +220,8 @@ class Command(BaseCommand):
                     text = f"Mock response: {messages[-1]['content'][:64] if messages else ''}"
                     if emit:
                         for chunk in text.split():
+                            if ctrl and getattr(ctrl, "is_set", lambda: False)():
+                                break
                             emit({"kind":"Token","content":{"text": chunk + " "}})
                 else:
                     api_key = os.getenv("OPENAI_API_KEY")
@@ -230,6 +232,8 @@ class Command(BaseCommand):
                         resp = litellm.completion(model=model, messages=messages, stream=True)
                         parts = []
                         for ev in resp:
+                            if ctrl and getattr(ctrl, "is_set", lambda: False)():
+                                break
                             delta = getattr(ev.choices[0].delta, "content", "") if hasattr(ev.choices[0], "delta") else ""
                             if delta:
                                 parts.append(delta)
@@ -278,7 +282,7 @@ class Command(BaseCommand):
             from typing import Any, Dict, Callable, Optional
             from .uploader import put_object, ensure_outputs_json
 
-            def entry(payload: Dict[str, Any], emit: Optional[Callable[[Dict], None]] = None) -> Dict[str, Any]:
+            def entry(payload: Dict[str, Any], emit: Optional[Callable[[Dict], None]] = None, ctrl=None) -> Dict[str, Any]:
                 execution_id = str(payload.get("execution_id","")).strip()
                 mode = str(payload.get("mode","mock")).strip()
                 write_prefix = str(payload.get("write_prefix","")).strip()
@@ -332,12 +336,12 @@ class Command(BaseCommand):
 
     def _render_ws_py(self, port: int) -> str:
         return """
-        import asyncio, time, json, uuid
-        from typing import Any, Dict, Callable, Optional
+        import asyncio, time, json, os
+        from typing import Any, Dict, Optional
         from fastapi import FastAPI, WebSocket, WebSocketDisconnect
         from .types import ConnectionRole, RunState
         from .run_registry import registry
-        from .handler import entry
+        from .worker import spawn_worker
         from .logging import info
 
         app = FastAPI()
@@ -348,6 +352,7 @@ class Command(BaseCommand):
 
         @app.websocket("/run")
         async def run_ws(ws: WebSocket):
+            # One supervisor process per container; one worker process per execution
             await ws.accept(subprotocol="theory.run.v1")
             connection_id = f"conn-{int(time.time()*1000)}"
             execution_id: Optional[str] = None
@@ -367,53 +372,73 @@ class Command(BaseCommand):
                     await ws.close(code=1008); return
                 role = ConnectionRole[role_s.upper()]
 
-                # TODO: verify ticket claims here (execution_id, scopes)
-
                 # Register connection
                 run = await registry.get_or_create(execution_id)
                 await registry.add_connection(execution_id, connection_id, ws, role)
                 await ws.send_json({"kind":"Ack","content":{"execution_id":execution_id}})
 
-                # Client role may start the run if not running
+                # Client starts the run (if not running)
                 if role is ConnectionRole.CLIENT and run.state == RunState.PENDING:
                     await registry.update_state(execution_id, RunState.RUNNING)
                     info("ws.run.start", execution_id=execution_id)
 
-                    async def fanout(ev: Dict[str, Any]):  # async bridge
-                        await registry.emit(execution_id, ev)
+                    # Spawn worker process with an IPC queue + cancel event
+                    proc, events_q, cancel_ev = spawn_worker(payload)
+                    await registry.bind_worker(execution_id, proc, cancel_ev)
 
-                    # Run entry in thread; capture emitted events via queueing
-                    loop = asyncio.get_running_loop()
-                    def emit_sync(ev: Dict[str, Any]):
-                        loop.call_soon_threadsafe(asyncio.create_task, fanout(ev))
+                    # Pump worker events → all listeners; capture terminal envelope
+                    async def pump():
+                        try:
+                            loop = asyncio.get_running_loop()
+                            while True:
+                                ev = await loop.run_in_executor(None, events_q.get)  # blocking get
+                                if ev is None:
+                                    break
+                                # If terminal result, update state
+                                if ev.get("kind") == "RunResult":
+                                    status = (ev.get("content") or {}).get("status")
+                                    new_state = RunState.COMPLETED if status == "success" else RunState.ERROR
+                                    await registry.update_state(execution_id, new_state)
+                                await registry.emit(execution_id, ev)
+                        finally:
+                            try:
+                                proc.join(timeout=0.2)
+                            except Exception:
+                                pass
 
-                    start = time.monotonic()
-                    try:
-                        env = await loop.run_in_executor(None, entry, payload, emit_sync)
-                        await registry.update_state(execution_id, RunState.COMPLETED)
-                        # Fanout terminal result to ALL
-                        await registry.emit(execution_id, {"kind":"RunResult","content": env})
-                        await ws.send_json({"kind":"RunResult","content": env})
-                        info("ws.run.settle", execution_id=execution_id, status=env.get("status"), elapsed_ms=int((time.monotonic()-start)*1000))
-                    except asyncio.CancelledError:
-                        await registry.update_state(execution_id, RunState.PREEMPTED)
-                        term = {"status":"error","execution_id":execution_id,"error":{"code":"ERR_PREEMPTED","message":"cancelled"}, "meta":{}}
-                        await registry.emit(execution_id, {"kind":"RunResult","content": term})
-                        await ws.send_json({"kind":"RunResult","content": term})
-                    except Exception as e:
-                        await registry.update_state(execution_id, RunState.ERROR)
-                        term = {"status":"error","execution_id":execution_id,"error":{"code":"ERR_RUNTIME","message":str(e)}, "meta":{}}
-                        await registry.emit(execution_id, {"kind":"RunResult","content": term})
-                        await ws.send_json({"kind":"RunResult","content": term})
+                    pump_task = asyncio.create_task(pump())
 
-                # If controller, read control frames; observers just park
+                    # Also watch for cancellation via registry (controller-driven)
+                    async def watch_cancel():
+                        # The registry flips cancel_ev; worker cooperatively exits; after grace, supervisor escalates
+                        grace_s = 5
+                        while True:
+                            await asyncio.sleep(0.25)
+                            st = (await registry.state(execution_id))
+                            if st in (RunState.PREEMPTED, RunState.COMPLETED, RunState.ERROR):
+                                break
+                        # If preempted, give worker grace then terminate if alive
+                        if st == RunState.PREEMPTED and proc.is_alive():
+                            try:
+                                proc.terminate()
+                            except Exception:
+                                pass
+                            await asyncio.sleep(grace_s)
+                            if proc.is_alive():
+                                try:
+                                    proc.kill()
+                                except Exception:
+                                    pass
+
+                    asyncio.create_task(watch_cancel())
+
+                # Controllers read control frames; observers just keep the socket open
                 if role is ConnectionRole.CONTROLLER:
                     while True:
                         m = await ws.receive_json()
                         if m.get("kind") == "control":
                             await registry.apply_control(execution_id, connection_id, m.get("content") or {})
                 else:
-                    # keep-alive loop; fanout is handled by registry
                     while True:
                         await asyncio.sleep(30)
 
@@ -457,12 +482,14 @@ class RunState(Enum):
 
 RUN_REGISTRY_PY = r"""
 import asyncio, time
-from typing import Dict, Set, Optional, Any
+from typing import Dict, Set, Optional, Any, Tuple
+from multiprocessing.process import BaseProcess
+from multiprocessing.synchronize import Event as MpEvent
 from .types import ConnectionRole, RunState
 from .logging import info
 
 class Run:
-    __slots__ = ("eid","state","conns","budgets","fanout_q","fanout_task")
+    __slots__ = ("eid","state","conns","budgets","fanout_q","fanout_task","proc","cancel_ev")
     def __init__(self, eid: str):
         self.eid = eid
         self.state = RunState.PENDING
@@ -470,6 +497,8 @@ class Run:
         self.budgets = {"tokens": None, "time_s": None}
         self.fanout_q: asyncio.Queue = asyncio.Queue(maxsize=2048)
         self.fanout_task: Optional[asyncio.Task] = None
+        self.proc: Optional[BaseProcess] = None
+        self.cancel_ev: Optional[MpEvent] = None
 
 class RunRegistry:
     def __init__(self):
@@ -486,8 +515,14 @@ class RunRegistry:
                 info("run.registry.open", execution_id=eid)
             return run
 
+    async def state(self, eid: str) -> RunState:
+        r = await self.get_or_create(eid)
+        return r.state
+
     async def add_connection(self, eid: str, cid: str, ws, role: ConnectionRole):
         run = await self.get_or_create(eid)
+        # annotate connection id for GC
+        setattr(ws, "_cid", cid)
         run.conns[role].add(ws)
         info("ws.connect.ok", execution_id=eid, role=role.name.lower(), conns={r.name.lower(): len(s) for r,s in run.conns.items()})
 
@@ -495,10 +530,9 @@ class RunRegistry:
         run = self._runs.get(eid)
         if not run: return
         for s in run.conns.values():
-            s_copy = set(s)
-            for ws in s_copy:
+            for ws in list(s):
                 if getattr(ws, "_cid", None) == cid:
-                    s.remove(ws)
+                    s.discard(ws)
         info("ws.close", execution_id=eid, conns={r.name.lower(): len(s) for r,s in run.conns.items()})
 
     async def update_state(self, eid: str, state: RunState):
@@ -510,9 +544,13 @@ class RunRegistry:
         if tokens is not None: run.budgets["tokens"] = tokens
         if time_s is not None: run.budgets["time_s"] = time_s
 
+    async def bind_worker(self, eid: str, proc: BaseProcess, cancel_ev: MpEvent):
+        run = await self.get_or_create(eid)
+        run.proc = proc
+        run.cancel_ev = cancel_ev
+
     async def emit(self, eid: str, ev: dict):
         run = await self.get_or_create(eid)
-        # backpressure: drop/squash only noisy token events if queue is full
         if run.fanout_q.full() and ev.get("kind") == "Token":
             return
         await run.fanout_q.put(ev)
@@ -535,36 +573,33 @@ class RunRegistry:
 
     async def apply_control(self, eid: str, controller_id: str, content: dict):
         op = (content.get("op") or "").lower()
+        run = await self.get_or_create(eid)
+
         if op == "preempt":
-            await self._apply_preempt(eid, controller_id, content.get("reason","controller"))
+            # mark state
+            run.state = RunState.PREEMPTED
+            # signal worker cooperatively
+            if run.cancel_ev:
+                try:
+                    run.cancel_ev.set()
+                except Exception:
+                    pass
+            await self.emit(eid, {"kind":"Event","content":{"phase":"preempted","by":controller_id,"ts":int(time.time()*1000)}})
+
         elif op == "pause":
-            await self._apply_pause(eid, controller_id)
+            run.state = RunState.PAUSED
+            await self.emit(eid, {"kind":"Event","content":{"phase":"paused","by":controller_id,"ts":int(time.time()*1000)}})
+
         elif op == "resume":
-            await self._apply_resume(eid, controller_id)
+            run.state = RunState.RUNNING
+            await self.emit(eid, {"kind":"Event","content":{"phase":"resumed","by":controller_id,"ts":int(time.time()*1000)}})
+
         elif op == "set_budget":
-            await self.set_budget(eid, tokens=content.get("tokens"), time_s=content.get("time_s"))
-            await self.emit(eid, {"kind":"Event","content":{"phase":"budget_updated","by":controller_id,"budgets":(self._runs[eid].budgets if eid in self._runs else {}),"ts": int(time.time()*1000)}})
+            if "tokens" in content: run.budgets["tokens"] = content["tokens"]
+            if "time_s" in content: run.budgets["time_s"] = content["time_s"]
+            await self.emit(eid, {"kind":"Event","content":{"phase":"budget_updated","by":controller_id,"budgets":run.budgets,"ts":int(time.time()*1000)}})
         else:
             await self.emit(eid, {"kind":"Event","content":{"phase":"control_noop","op":op,"by":controller_id,"noop":True,"ts":int(time.time()*1000)}})
-
-    async def _apply_preempt(self, eid: str, controller_id: str, reason: str):
-        run = await self.get_or_create(eid)
-        if run.state in (RunState.PREEMPTED, RunState.COMPLETED, RunState.ERROR):
-            await self.emit(eid, {"kind":"Event","content":{"phase":"preempted","by":controller_id,"reason":reason,"noop":True,"ts":int(time.time()*1000)}})
-            return
-        run.state = RunState.PREEMPTED
-        # Cooperative cancel is handled in the entry runner (orchestrator cancels task)
-        await self.emit(eid, {"kind":"Event","content":{"phase":"preempted","by":controller_id,"reason":reason,"ts":int(time.time()*1000)}})
-
-    async def _apply_pause(self, eid: str, controller_id: str):
-        run = await self.get_or_create(eid)
-        run.state = RunState.PAUSED
-        await self.emit(eid, {"kind":"Event","content":{"phase":"paused","by":controller_id,"ts":int(time.time()*1000)}})
-
-    async def _apply_resume(self, eid: str, controller_id: str):
-        run = await self.get_or_create(eid)
-        run.state = RunState.RUNNING
-        await self.emit(eid, {"kind":"Event","content":{"phase":"resumed","by":controller_id,"ts":int(time.time()*1000)}})
 
     async def _fanout_loop(self, run: Run):
         # one loop per run; deliver messages to all sockets
@@ -629,4 +664,43 @@ def get_state():
             if not STATE["ready"]:
                 warm()
     return STATE
+"""
+
+WORKER_PY = r"""
+# Separate process that executes entry(...) and relays events over IPC.
+from __future__ import annotations
+import os, sys, traceback
+from typing import Any, Dict, Callable
+from multiprocessing import get_context
+
+# Local imports are safe here (we run inside the container)
+from .handler import entry
+
+def _emit_to_q(q):
+    def _emit(ev: Dict[str, Any]):
+        # Defensive: ensure small JSON-able dicts (large media goes via PUT)
+        if isinstance(ev, dict) and "kind" in ev:
+            q.put(ev)
+    return _emit
+
+def _run(payload: Dict[str, Any], q, cancel_ev):
+    try:
+        env = entry(payload, emit=_emit_to_q(q), ctrl=cancel_ev)
+        q.put({"kind":"RunResult","content": env})
+    except Exception as e:
+        # Never raise; always finalize with error envelope
+        q.put({"kind":"RunResult","content":{
+            "status":"error",
+            "execution_id": str(payload.get("execution_id","")),
+            "error": {"code":"ERR_RUNTIME","message": f"{type(e).__name__}: {e}"},
+            "meta": {}
+        }})
+
+def spawn_worker(payload: Dict[str, Any]):
+    mp = get_context("spawn")
+    q = mp.Queue(maxsize=2048)
+    cancel_ev = mp.Event()
+    proc = mp.Process(target=_run, args=(payload, q, cancel_ev), daemon=True)
+    proc.start()
+    return proc, q, cancel_ev
 """

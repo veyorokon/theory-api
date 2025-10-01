@@ -116,7 +116,18 @@
 }
 ```
 
-### HTTP contract
+### Transport Contracts
+
+#### WebSocket Contract (Standard)
+
+* `GET /healthz` → `{"ok": true}` (200) [HTTP - unchanged]
+* `WebSocket /run` → subprotocol: `theory.run.v1`
+  - First frame: `{"kind":"RunOpen","content":{"role":"client","execution_id":"<uuid>","payload":{...}}}`
+  - Events: `{"kind":"Token|Frame|Log|Event","content":{...}}`
+  - Final: `{"kind":"RunResult","content":<envelope>}`
+  - Connection close codes: 1002 (protocol error), 1008 (invalid payload)
+
+#### HTTP Contract (Legacy - Deprecation Path)
 
 * `GET /healthz` → `{"ok": true}` (200)
 * `POST /run` → always 200 with envelope (success or contractual error)
@@ -154,11 +165,14 @@ Emit concise, structured events with `ts, level, event, target, ref, execution_i
 
 ```
 {"event":"adapter.selected","target":"local","ref":"ns/name@ver"}
-{"event":"adapter.url.resolve","target":"modal","ref":"ns/name@ver","url":"https://…"}
+{"event":"adapter.url.resolve","target":"modal","ref":"ns/name@ver","url":"wss://…"}
 {"event":"adapter.container.start","image":"ghcr.io/…@sha256:…","port":18000}
 {"event":"adapter.health.ok","ms":420}
-{"event":"adapter.run.ok","http_status":200,"ms":2450}
-{"event":"adapter.run.error","code":"ERR_HEALTH","ms":15000}
+{"event":"ws.connect.start","ws_url":"wss://…/run"}
+{"event":"ws.connect.ok","subprotocol":"theory.run.v1"}
+{"event":"ws.run.start","execution_id":"…"}
+{"event":"ws.run.settle","status":"success","ms":2450}
+{"event":"ws.connect.error","code":"ERR_WS_TIMEOUT","ms":15000}
 {"event":"http.run.start","execution_id":"…"}
 {"event":"http.run.settle","status":"success","ms":2450}
 ```
@@ -168,6 +182,31 @@ Emit concise, structured events with `ts, level, event, target, ref, execution_i
 ---
 
 ## Minimal Orchestrator Flow
+
+### WebSocket (Standard)
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant O as Orchestrator
+  participant A as Adapter (Transport only)
+  participant P as Processor WS App
+  participant S as Storage (write_prefix)
+  O->>A: select (adapter="local"|"modal") + payload + presigned PUTs
+  A->>P: GET /healthz
+  P-->>A: 200 {"ok": true}
+  A->>P: WebSocket /run (subprotocol: theory.run.v1)
+  A->>P: {"kind":"RunOpen","content":{"role":"client",...}}
+  P-->>A: {"kind":"Ack","content":{...}}
+  P->>P: process + emit events
+  P->>S: PUT artifacts via presigned URLs
+  P-->>A: {"kind":"RunResult","content":<envelope>}
+  A-->>O: final envelope
+  O->>O: validate invariants (schema, paths, determinism, drift)
+  O-->>Caller: final envelope (stdout if CLI)
+```
+
+### HTTP (Legacy)
 
 ```mermaid
 sequenceDiagram
@@ -221,22 +260,47 @@ sequenceDiagram
 ## Example CLI (generic)
 
 ```bash
-# Local transport
-RUN_TARGET=local python manage.py run_processor \
+# Local transport - JSON input options (mutually exclusive)
+python manage.py run_processor \
   --ref ns/name@ver \
+  --adapter local \
   --mode mock \
   --write-prefix "/tmp/{execution_id}/" \
   --inputs-json '{"schema":"v1","params":{...}}' \
   --json
 
 # Cloud transport
-RUN_TARGET=modal MODAL_ENVIRONMENT=dev python manage.py run_processor \
+python manage.py run_processor \
   --ref ns/name@ver \
+  --adapter modal \
   --mode mock \
   --write-prefix "/tmp/{execution_id}/" \
-  --inputs-json '{"schema":"v1","params":{...}}' \
+  --inputs-file request.json \
   --json
+
+# Stdin input (CI/CD friendly)
+python manage.py run_processor \
+  --ref ns/name@ver \
+  --adapter local \
+  --inputs - \
+  --json <<'EOF'
+{
+  "schema": "v1",
+  "params": {
+    "messages": [{"role": "user", "content": "test"}]
+  }
+}
+EOF
 ```
+
+### JSON Input Options (mutually exclusive)
+
+- `--inputs-json JSON` - Direct JSON input (recommended, no escaping)
+- `--inputs-file PATH` - Read JSON from file (version control friendly)
+- `--inputs -` - Read JSON from stdin (heredoc/pipe friendly)
+- `--inputs-jsonstr JSON` - Legacy escaped string format (deprecated)
+
+**Benefits:** No shell escaping, IDE syntax highlighting, CI/CD templates, better error messages.
 
 ---
 
@@ -246,8 +310,9 @@ RUN_TARGET=modal MODAL_ENVIRONMENT=dev python manage.py run_processor \
 
 * **Adapters kept:**
 
-  * **LocalHTTPAdapter**: resolves image from embedded `registry.yaml`, starts container (conditional platform flag for ARM host if needed), sets `IMAGE_DIGEST` when known, health budget + stderr tail; maps `ERR_IMAGE_NOT_FOUND` / `ERR_HEALTH`.
-  * **ModalHTTPAdapter**: uses **Modal SDK** `App.lookup(...).function("http").web_url` (no string concat), health check, run, maps `ERR_ENDPOINT_MISSING`. Performs drift upgrade to `ERR_REGISTRY_MISMATCH` when `expected_oci` provided.
+  * **LocalWsAdapter**: resolves image from embedded `registry.yaml`, starts container (conditional platform flag for ARM host if needed), sets `IMAGE_DIGEST` when known, health budget + WebSocket connection + stderr tail; maps `ERR_IMAGE_NOT_FOUND` / `ERR_HEALTH` / `ERR_WS_TIMEOUT`.
+  * **ModalWsAdapter**: uses **Modal SDK** `Function.from_name(...).get_web_url()` (no string concat), health check, WebSocket connection to `wss://` endpoint, maps `ERR_ENDPOINT_MISSING`. Performs drift upgrade to `ERR_REGISTRY_MISMATCH` when `expected_oci` provided.
+  * **Legacy HTTP adapters**: Maintained during deprecation period for backward compatibility.
 
 * **Single switch:** `RUN_TARGET={local|modal}` (or infer modal if `MODAL_ENVIRONMENT` set). Orchestrator calls a **selector**; tests never instantiate adapters directly.
 
@@ -256,7 +321,7 @@ RUN_TARGET=modal MODAL_ENVIRONMENT=dev python manage.py run_processor \
 * **Supply-chain:** Staging/main lanes deploy by **pinned digest**. Envelope includes `meta.image_digest` when available; adapters fail closed on mismatch only when `expected_oci` provided.
 
 * **Observability minimum set:**
-  `adapter.selected`, `adapter.url.resolve` (modal), `adapter.container.start` (local), `adapter.health.ok|error`, `adapter.run.ok|error`, `http.run.start|settle`, `error.*` — NDJSON on stderr.
+  `adapter.selected`, `adapter.url.resolve` (modal), `adapter.container.start` (local), `adapter.health.ok|error`, `ws.connect.start|ok|error`, `ws.run.start|settle`, `http.run.start|settle` (legacy), `error.*` — NDJSON on stderr.
 
 ---
 

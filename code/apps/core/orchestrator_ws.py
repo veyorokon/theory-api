@@ -72,6 +72,7 @@ class OrchestratorWS:
         execution_id: str | None = None,
         write_prefix: str | None = None,
         world_facet: str = "artifacts",  # usually "artifacts"
+        adapter: str = "local",  # "local" | "modal"
     ) -> Dict[str, Any] | Iterator[Dict[str, Any]]:
         """
         Returns:
@@ -105,11 +106,11 @@ class OrchestratorWS:
         # Guard against outputs duplication
         assert not wprefix.rstrip("/").endswith("/outputs"), f"write_prefix must not contain '/outputs': {wprefix}"
 
-        # 3) Choose lane: build vs pinned
+        # 3) Choose lane: build vs pinned, and target adapter
         if build:
-            image_ref, expected_digest, target = self._lane_build(ref, reg)
+            image_ref, expected_digest, target = self._lane_build(ref, reg, adapter)
         else:
-            image_ref, expected_digest, target = self._lane_pinned(ref, reg)
+            image_ref, expected_digest, target = self._lane_pinned(ref, reg, adapter)
 
         # 4) Prepare presigned PUTs for durability (declared outputs + outputs.json)
         put_urls = self._prepare_put_urls(wprefix, outputs_decl)
@@ -152,41 +153,60 @@ class OrchestratorWS:
 
     # ---------- Lanes ----------
 
-    def _lane_build(self, ref: str, reg: Dict[str, Any]) -> Tuple[str, str | None, str]:
+    def _lane_build(self, ref: str, reg: Dict[str, Any], adapter: str) -> Tuple[str, str | None, str]:
         """
         Build-from-source lane: returns (image_ref, expected_digest, target)
-          - image_ref: local built tag (theory-local/ns-name:build-<ts>)
-          - expected_digest: None (we do not enforce digest against registry in build lane)
-          - target: "local"
+          - For local: image_ref is local built tag, target="local"
+          - For modal: not supported in build lane, should fail
         """
+        if adapter == "modal":
+            raise OrchestratorWsError("Modal adapter does not support build lane. Use --build=false for pinned lane.")
+
         image_ref = _get_newest_build_tag(ref)  # should return the built tag
         expected_digest = None  # do not enforce registry digest in build lane
         return image_ref, expected_digest, "local"
 
-    def _lane_pinned(self, ref: str, reg: Dict[str, Any]) -> Tuple[str, str | None, str]:
+    def _lane_pinned(self, ref: str, reg: Dict[str, Any], adapter: str) -> Tuple[str, str | None, str]:
         """
         Pinned lane: returns (image_ref_or_base_url, expected_digest, target)
-          - For local pinned: use registry digest to select image
-          - For Modal (when available): return base_url + expected_digest
-        For now, we fallback to local pinned using the registry-based image selection.
+          - For local pinned: use registry digest to select image, target="local"
+          - For Modal: return modal base URL + expected_digest, target="modal"
         """
-        # For now, use local pinned lane with registry digest
-        # This mirrors the existing local adapter pattern
-        try:
-            from apps.core.utils.adapters import _get_newest_build_tag, _normalize_digest
+        if adapter == "modal":
+            # For Modal, we need to resolve the base URL from deployment
+            try:
+                from apps.core.utils.adapters import _normalize_digest
 
-            image_ref = _get_newest_build_tag(ref)
+                # Extract expected digest from registry
+                image = reg.get("image") or {}
+                platforms = image.get("platforms") or {}
+                default_platform = self._host_platform()
+                registry_digest = platforms.get(default_platform)
+                expected_digest = _normalize_digest(registry_digest)
 
-            # Extract expected digest from registry
-            image = reg.get("image") or {}
-            platforms = image.get("platforms") or {}
-            default_platform = self._host_platform()
-            registry_digest = platforms.get(default_platform)
-            expected_digest = _normalize_digest(registry_digest)
+                # Resolve Modal base URL from deployed app
+                base_url = self._resolve_modal_base_url(ref)
 
-            return image_ref, expected_digest, "local"
-        except Exception as e:
-            raise OrchestratorWsError(f"Could not resolve pinned image for {ref}: {e}")
+                return base_url, expected_digest, "modal"
+            except Exception as e:
+                raise OrchestratorWsError(f"Could not resolve Modal deployment for {ref}: {e}")
+        else:
+            # Local pinned lane with registry digest
+            try:
+                from apps.core.utils.adapters import _get_newest_build_tag, _normalize_digest
+
+                image_ref = _get_newest_build_tag(ref)
+
+                # Extract expected digest from registry
+                image = reg.get("image") or {}
+                platforms = image.get("platforms") or {}
+                default_platform = self._host_platform()
+                registry_digest = platforms.get(default_platform)
+                expected_digest = _normalize_digest(registry_digest)
+
+                return image_ref, expected_digest, "local"
+            except Exception as e:
+                raise OrchestratorWsError(f"Could not resolve pinned image for {ref}: {e}")
 
     # ---------- Presigned PUT helpers ----------
 
@@ -276,3 +296,25 @@ class OrchestratorWS:
         import platform
 
         return "arm64" if platform.machine().lower() in ("arm64", "aarch64") else "amd64"
+
+    def _resolve_modal_base_url(self, ref: str) -> str:
+        """Resolve Modal deployment web URL for a processor ref."""
+        from apps.core.management.commands._modal_common import modal_app_name, _guess_user, _guess_branch
+        from apps.core.utils.adapters import _get_modal_web_url
+        from django.conf import settings
+
+        # Get Modal context from Django settings or environment
+        env = getattr(settings, "MODAL_ENVIRONMENT", "dev")
+        user = getattr(settings, "MODAL_USER", None) or _guess_user()
+        branch = getattr(settings, "MODAL_BRANCH", None) or _guess_branch()
+
+        # Generate the canonical app name
+        if env == "dev":
+            app_name = modal_app_name(ref, env=env, branch=branch, user=user)
+        else:
+            app_name = modal_app_name(ref, env=env)
+
+        # Resolve the web URL from Modal deployment
+        base_url = _get_modal_web_url(app_name, "fastapi_app")
+
+        return base_url

@@ -1,64 +1,64 @@
-ref: llm/litellm@1
+api:
+  healthz: /healthz
+  path: /run
+  protocol: ws
 build:
   context: .
   dockerfile: Dockerfile
   port: 8000
 image:
   platforms:
-    amd64: ghcr.io/owner/repo/llm-litellm@sha256:REPLACE_AMD64
+    amd64: ghcr.io/veyorokon/theory-api/llm-litellm@sha256:72577f1045fc494d682cb255e05d41dc736f463167e1b6a7ce6d102f6035e2a3
     arm64: ghcr.io/owner/repo/llm-litellm@sha256:REPLACE_ARM64
-runtime:
-  cpu: '1'
-  memory_gb: 2
-  timeout_s: 600
-  gpu: null
-api:
-  protocol: ws
-  path: /run
-  healthz: /healthz
-secrets:
-  required:
-  - OPENAI_API_KEY
 inputs:
   $schema: https://json-schema.org/draft-07/schema#
-  title: llm/litellm inputs v1
-  type: object
   additionalProperties: false
-  required:
-  - schema
-  - params
   properties:
-    schema:
-      const: v1
     params:
-      type: object
       additionalProperties: false
-      required:
-      - messages
       properties:
-        model:
-          type: string
         messages:
-          type: array
-          minItems: 1
           items:
-            type: object
-            required:
-            - role
-            - content
             properties:
+              content:
+                minLength: 1
+                type: string
               role:
                 enum:
                 - user
                 - system
                 - assistant
-              content:
-                type: string
-                minLength: 1
+            required:
+            - role
+            - content
+            type: object
+          minItems: 1
+          type: array
+        model:
+          type: string
+      required:
+      - messages
+      type: object
+    schema:
+      const: v1
+  required:
+  - schema
+  - params
+  title: llm/litellm inputs v1
+  type: object
 outputs:
-- path: text/response.txt
+- description: LLM response
   mime: text/plain
-  description: LLM response
-- path: metadata.json
+  path: text/response.txt
+- description: Execution metadata
   mime: application/json
-  description: Execution metadata
+  path: metadata.json
+ref: llm/litellm@1
+runtime:
+  cpu: '1'
+  gpu: null
+  memory_gb: 2
+  timeout_s: 600
+secrets:
+  required:
+  - OPENAI_API_KEY

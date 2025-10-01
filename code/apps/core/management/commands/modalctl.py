@@ -136,7 +136,7 @@ def _script_deploy(app_name: str, oci: str) -> str:
     def fastapi_app():
         # Import the FastAPI app from the image at runtime
         # so Modal runs it directly as an ASGI application.
-        from app.http import app as fastapi_app
+        from app.ws import app as fastapi_app
         return fastapi_app
     """)
 
