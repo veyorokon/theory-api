@@ -28,6 +28,29 @@ def environ_setting(name, default=None, isNoneAllowed=False):
     return os.environ.get(name, default)
 
 
+def env(name, default=None, required=False, cast=str):
+    """
+    Fetch setting from environment with optional type casting.
+
+    Args:
+        name: Environment variable name
+        default: Default value if not set
+        required: Raise ImproperlyConfigured if not set and no default
+        cast: Type to cast value to (str, bool, int, etc.)
+    """
+    v = os.getenv(name, default)
+    if required and v is None:
+        from django.core.exceptions import ImproperlyConfigured
+
+        raise ImproperlyConfigured(f"The {name} ENVVAR is not set.")
+
+    if v is not None and cast is not str:
+        if cast is bool:
+            return str(v).lower() in ("1", "true", "t", "yes", "y", "on")
+        return cast(v)
+    return v
+
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, BASE_DIR)
@@ -146,9 +169,34 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 
 LLM_SETTINGS = {
-    "default_model": os.environ.get("LLM_MODEL_DEFAULT", "openai/gpt-4o-mini"),
-    "api_base": os.environ.get("LLM_API_BASE", ""),
+    "default_model": env("LLM_MODEL_DEFAULT", "openai/gpt-4o-mini"),
+    "api_base": env("LLM_API_BASE", ""),
 }
+
+# Storage configuration (12-factor pattern)
+STORAGE_BACKEND = env("STORAGE_BACKEND", "minio")
+ARTIFACTS_BUCKET = env("ARTIFACTS_BUCKET", "theory-artifacts-dev")
+ARTIFACTS_REGION = env("ARTIFACTS_REGION", "us-east-1")
+ARTIFACTS_PREFIX = env("ARTIFACTS_PREFIX", "artifacts/")
+
+if not ARTIFACTS_PREFIX.endswith("/"):
+    ARTIFACTS_PREFIX += "/"
+
+STORAGE = {
+    "BACKEND": STORAGE_BACKEND,
+    "BUCKET": ARTIFACTS_BUCKET,
+    "REGION": ARTIFACTS_REGION,
+    "PREFIX": ARTIFACTS_PREFIX,
+    "MINIO": {
+        "ENDPOINT": env("MINIO_STORAGE_ENDPOINT", "minio.local:9000"),
+        "ACCESS_KEY": env("MINIO_STORAGE_ACCESS_KEY", "minioadmin"),
+        "SECRET_KEY": env("MINIO_STORAGE_SECRET_KEY", "minioadmin"),
+        "USE_HTTPS": env("MINIO_STORAGE_USE_HTTPS", "false", cast=bool),
+    },
+}
+
+# Django file storage backend
+DEFAULT_FILE_STORAGE = "apps.storage.backends.VendorNeutralStorage"
 
 # Feature flags
 # Modal adapter gating comes from Django settings (not raw env var). Map env→setting here.

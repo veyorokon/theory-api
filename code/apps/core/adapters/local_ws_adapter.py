@@ -82,7 +82,7 @@ class LocalWsAdapter(BaseWsAdapter):
             "--network",
             "theory_api_app_network",
             "--add-host",
-            "localhost:host-gateway",
+            "minio.local:host-gateway",
         ]
 
         # Add all environment variables from run_env

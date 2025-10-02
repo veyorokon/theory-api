@@ -33,14 +33,8 @@ class StorageInterface(ABC):
         pass
 
     @abstractmethod
-    def get_upload_url(
-        self, key: str, bucket: str, expires_in: int = 3600, content_type: str | None = None, audience: str = "host"
-    ) -> str:
-        """Get a presigned URL for uploading a file
-
-        Args:
-            audience: The context where the URL will be used ("host", "container", "modal")
-        """
+    def get_upload_url(self, key: str, bucket: str, expires_in: int = 3600, content_type: str | None = None) -> str:
+        """Get a presigned URL for uploading a file"""
         pass
 
     @abstractmethod
