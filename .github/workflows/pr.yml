@@ -31,7 +31,6 @@ jobs:
 
   integration:
     runs-on: ubuntu-latest
-    needs: unit
     env:
       DJANGO_SETTINGS_MODULE: backend.settings.unittest
       TEST_LANE: pr
@@ -47,7 +46,6 @@ jobs:
 
   contracts:
     runs-on: ubuntu-latest
-    needs: integration
     timeout-minutes: 20
     env:
       DJANGO_SETTINGS_MODULE: backend.settings.unittest
