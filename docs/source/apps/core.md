@@ -116,11 +116,21 @@ paths_overlap("/artifacts/out", "/artifacts/out/frames")  # True
 paths_overlap("/artifacts/foo", "/artifacts/foobar")      # False
 ```
 
-## Processor Interface Contract (HTTP-first)
+## Processor Interface Contract (WebSocket-first)
 
 Processors are stateless containers exposing a FastAPI service with one contract. Adapters are transport-only.
 
-### HTTP Endpoints
+### Transport Endpoints
+
+#### WebSocket Endpoints (Standard)
+
+- `GET /healthz` → `{ "ok": true }` [HTTP - unchanged]
+- `WebSocket /run` → subprotocol: `theory.run.v1`
+  - Connection lifecycle: `RunOpen` → events → `RunResult`
+  - Streaming execution with real-time events and final envelope
+  - Bidirectional control plane for execution management
+
+#### HTTP Endpoints (Legacy - Deprecation Path)
 
 - `GET /healthz` → `{ "ok": true }`
 - `POST /run` → synchronous execution, returns canonical envelope JSON
@@ -210,7 +220,7 @@ outputs:
 
 **Local Adapter (Docker → HTTP):**
 - Start container by digest (host arch → platform)
-- Poll `/healthz`, then `POST /run` (or `/run-stream` for SSE)
+- Poll `/healthz`, then WebSocket `/run` with `theory.run.v1` subprotocol (or legacy `POST /run`)
 - Validate envelope; enforce index discipline; optional digest drift check
 
 **Modal Adapter (Web endpoint → HTTP):**

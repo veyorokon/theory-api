@@ -1,7 +1,7 @@
 """Integration tests for llm_litellm mock mode testing."""
 
 import pytest
-from apps.core.orchestrator import run as orch_run
+from tests.helpers import invoke_processor
 
 
 pytestmark = [pytest.mark.integration, pytest.mark.requires_docker]
@@ -24,14 +24,13 @@ class TestLiteLLMMock:
         }
 
         # Execute processor via orchestrator
-        envelope = orch_run(
-            adapter="local",
+        envelope = invoke_processor(
             ref="llm/litellm@1",
-            mode="mock",
             inputs=inputs,
-            write_prefix="/artifacts/outputs/litellm-mock/{execution_id}/",
-            expected_oci=None,
+            mode="mock",
             build=True,
+            write_prefix="/artifacts/outputs/litellm-mock/{execution_id}/",
+            adapter="local",
         )
 
         assert envelope["status"] == "success"
@@ -52,14 +51,13 @@ class TestLiteLLMMock:
         }
 
         # Execute processor via orchestrator
-        envelope = orch_run(
-            adapter="local",
+        envelope = invoke_processor(
             ref="llm/litellm@1",
-            mode="mock",
             inputs=inputs,
-            write_prefix="/artifacts/outputs/litellm-ci/{execution_id}/",
-            expected_oci=None,
+            mode="mock",
             build=True,
+            write_prefix="/artifacts/outputs/litellm-ci/{execution_id}/",
+            adapter="local",
         )
 
         # Should succeed without network access in mock mode

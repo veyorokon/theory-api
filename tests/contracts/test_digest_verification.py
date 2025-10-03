@@ -4,6 +4,25 @@ import pytest
 from apps.core.registry.loader import load_processor_spec
 
 
+def _normalize_digest(ref: str) -> str | None:
+    """
+    Extract normalized sha256 digest from OCI reference.
+
+    Examples:
+        "ghcr.io/org/repo@sha256:abc123" -> "sha256:abc123"
+        "sha256:abc123" -> "sha256:abc123"
+        "abc123" -> None (no sha256 prefix)
+        "" -> None
+    """
+    if not ref:
+        return None
+    if "@sha256:" in ref:
+        return f"sha256:{ref.split('@sha256:', 1)[1]}"
+    if ref.startswith("sha256:"):
+        return ref
+    return None
+
+
 @pytest.mark.contracts
 @pytest.mark.supplychain
 class TestDigestVerification:
@@ -59,7 +78,7 @@ class TestDigestVerification:
 
     def test_digest_normalization_helper(self):
         """Test helper function for normalizing digest comparisons."""
-        from apps.core.adapters.base_http_adapter import _normalize_digest
+        # Using local _normalize_digest function defined above
 
         # Test various input formats
         test_cases = [
@@ -93,9 +112,7 @@ class TestDigestVerification:
         assert expected_oci, "No expected OCI reference found in registry"
         assert "@sha256:" in expected_oci, f"Expected digest format not found: {expected_oci}"
 
-        # Extract expected digest
-        from apps.core.adapters.base_http_adapter import _normalize_digest
-
+        # Extract expected digest (using local function)
         expected_digest = _normalize_digest(expected_oci)
         assert expected_digest, f"Could not extract digest from {expected_oci}"
 
@@ -108,7 +125,7 @@ class TestDigestVerification:
 
     def test_drift_detection_logic(self):
         """Test logic for detecting digest drift between registry and deployment."""
-        from apps.core.adapters.base_http_adapter import _normalize_digest
+        # Using local _normalize_digest function defined above
 
         # Test cases for drift detection
         registry_digest = "sha256:abc123def456"

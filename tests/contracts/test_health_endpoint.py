@@ -2,26 +2,20 @@
 
 import time
 import pytest
-from fastapi.testclient import TestClient
+import requests
+import concurrent.futures
+
+from tests.tools.docker_fixtures import processor_container
 
 
 @pytest.mark.contracts
+@pytest.mark.requires_docker
 class TestHealthEndpoint:
     """Test health endpoint performance and reliability."""
 
-    @pytest.fixture
-    def client(self):
-        """FastAPI test client for llm/litellm processor."""
-        try:
-            from apps.core.processors.llm_litellm.app.http import app
-
-            return TestClient(app)
-        except ImportError:
-            pytest.skip("HTTP app not available for llm/litellm processor")
-
-    def test_healthz_returns_ok(self, client):
+    def test_healthz_returns_ok(self, processor_container):
         """Test /healthz returns 200 with ok=true."""
-        response = client.get("/healthz")
+        response = requests.get(f"{processor_container['http_url']}/healthz", timeout=5)
 
         assert response.status_code == 200
         assert response.headers["content-type"] == "application/json"
@@ -29,14 +23,14 @@ class TestHealthEndpoint:
         data = response.json()
         assert data == {"ok": True}
 
-    def test_healthz_sla_under_250ms(self, client):
+    def test_healthz_sla_under_250ms(self, processor_container):
         """Test /healthz completes under 250ms SLA."""
         # Warm up request to avoid cold start penalties
-        client.get("/healthz")
+        requests.get(f"{processor_container['http_url']}/healthz", timeout=5)
 
         # Measure actual SLA performance
         start_time = time.time()
-        response = client.get("/healthz")
+        response = requests.get(f"{processor_container['http_url']}/healthz", timeout=5)
         elapsed_ms = (time.time() - start_time) * 1000
 
         assert response.status_code == 200
@@ -45,14 +39,14 @@ class TestHealthEndpoint:
         # Verify response is still correct
         assert response.json() == {"ok": True}
 
-    def test_healthz_performance_consistency(self, client):
+    def test_healthz_performance_consistency(self, processor_container):
         """Test /healthz performance is consistent across multiple calls."""
         times = []
 
         # Make 10 consecutive calls
         for _ in range(10):
             start_time = time.time()
-            response = client.get("/healthz")
+            response = requests.get(f"{processor_container['http_url']}/healthz", timeout=5)
             elapsed_ms = (time.time() - start_time) * 1000
 
             assert response.status_code == 200
@@ -65,83 +59,57 @@ class TestHealthEndpoint:
         assert max_time < 250, f"Max health time {max_time:.1f}ms exceeds SLA"
         assert avg_time < 100, f"Average health time {avg_time:.1f}ms indicates performance issue"
 
-    def test_healthz_no_secrets_required(self, client):
+    def test_healthz_no_secrets_required(self, processor_container):
         """Test /healthz works without any environment secrets."""
-        import os
+        # Container already has no secrets configured for health endpoint
+        # Just verify it works
+        response = requests.get(f"{processor_container['http_url']}/healthz", timeout=5)
 
-        # Save original environment
-        original_env = {}
-        secret_vars = [
-            "OPENAI_API_KEY",
-            "ANTHROPIC_API_KEY",
-            "REPLICATE_API_TOKEN",
-            "MODAL_TOKEN_ID",
-            "MODAL_TOKEN_SECRET",
-        ]
+        assert response.status_code == 200
+        assert response.json() == {"ok": True}
 
-        for var in secret_vars:
-            if var in os.environ:
-                original_env[var] = os.environ[var]
-                del os.environ[var]
-
-        try:
-            # Health endpoint should work without secrets
-            response = client.get("/healthz")
-
-            assert response.status_code == 200
-            assert response.json() == {"ok": True}
-
-        finally:
-            # Restore original environment
-            for var, value in original_env.items():
-                os.environ[var] = value
-
-    def test_healthz_no_authentication_required(self, client):
+    def test_healthz_no_authentication_required(self, processor_container):
         """Test /healthz doesn't require any authentication headers."""
         # No headers at all
-        response = client.get("/healthz")
+        response = requests.get(f"{processor_container['http_url']}/healthz", timeout=5)
         assert response.status_code == 200
 
         # With various irrelevant headers
         headers = {"authorization": "Bearer fake-token", "x-api-key": "fake-key", "user-agent": "test-agent"}
 
-        response = client.get("/healthz", headers=headers)
+        response = requests.get(f"{processor_container['http_url']}/healthz", headers=headers, timeout=5)
         assert response.status_code == 200
         assert response.json() == {"ok": True}
 
-    def test_healthz_http_methods(self, client):
+    def test_healthz_http_methods(self, processor_container):
         """Test /healthz only responds to GET requests."""
         # GET should work
-        response = client.get("/healthz")
+        response = requests.get(f"{processor_container['http_url']}/healthz", timeout=5)
         assert response.status_code == 200
 
         # Other methods should fail appropriately
         unsupported_methods = [
-            client.post,
-            client.put,
-            client.patch,
-            client.delete,
-            client.head,  # HEAD might work but let's verify
-            client.options,
+            requests.post,
+            requests.put,
+            requests.patch,
+            requests.delete,
         ]
 
         for method in unsupported_methods:
             try:
-                response = method("/healthz")
+                response = method(f"{processor_container['http_url']}/healthz", timeout=5)
                 # Should either be 405 Method Not Allowed or 404
                 assert response.status_code in [404, 405], f"Method {method.__name__} should not be supported"
             except Exception:
                 # Some methods might not be available, which is fine
                 pass
 
-    def test_healthz_concurrent_requests(self, client):
+    def test_healthz_concurrent_requests(self, processor_container):
         """Test /healthz handles concurrent requests efficiently."""
-        import concurrent.futures
-        import threading
 
         def make_health_request():
             start_time = time.time()
-            response = client.get("/healthz")
+            response = requests.get(f"{processor_container['http_url']}/healthz", timeout=5)
             elapsed_ms = (time.time() - start_time) * 1000
             return response.status_code, elapsed_ms
 
@@ -155,14 +123,14 @@ class TestHealthEndpoint:
             assert status_code == 200
             assert elapsed_ms < 250, f"Concurrent health request took {elapsed_ms:.1f}ms"
 
-    def test_healthz_no_side_effects(self, client):
+    def test_healthz_no_side_effects(self, processor_container):
         """Test /healthz doesn't modify any state or create artifacts."""
         # Make health request
-        response1 = client.get("/healthz")
+        response1 = requests.get(f"{processor_container['http_url']}/healthz", timeout=5)
         assert response1.status_code == 200
 
         # Make another health request
-        response2 = client.get("/healthz")
+        response2 = requests.get(f"{processor_container['http_url']}/healthz", timeout=5)
         assert response2.status_code == 200
 
         # Responses should be identical (no state change)

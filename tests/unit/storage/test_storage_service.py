@@ -201,11 +201,18 @@ class StorageAdapterConfigurationTests(TestCase):
     """Tests for adapter configuration and initialization"""
 
     @override_settings(
-        STORAGE_BACKEND="minio",
-        MINIO_ENDPOINT="localhost:9000",
-        MINIO_ACCESS_KEY="testkey",
-        MINIO_SECRET_KEY="testsecret",
-        MINIO_USE_HTTPS=False,
+        STORAGE={
+            "BACKEND": "minio",
+            "BUCKET": "test-bucket",
+            "REGION": "us-east-1",
+            "PREFIX": "artifacts/",
+            "MINIO": {
+                "ENDPOINT": "localhost:9000",
+                "ACCESS_KEY": "testkey",
+                "SECRET_KEY": "testsecret",
+                "USE_HTTPS": False,
+            },
+        }
     )
     @patch("apps.storage.adapters.Minio")
     def test_minio_adapter_configuration(self, mock_minio):
@@ -219,11 +226,15 @@ class StorageAdapterConfigurationTests(TestCase):
         )
 
     @override_settings(
-        STORAGE_BACKEND="s3",
-        AWS_ACCESS_KEY_ID="test_key",
-        AWS_SECRET_ACCESS_KEY="test_secret",
-        AWS_S3_REGION_NAME="us-west-2",
+        STORAGE={
+            "BACKEND": "s3",
+            "BUCKET": "test-s3-bucket",
+            "REGION": "us-west-2",
+            "PREFIX": "artifacts/",
+            "MINIO": {},
+        }
     )
+    @patch.dict("os.environ", {"AWS_ACCESS_KEY_ID": "test_key", "AWS_SECRET_ACCESS_KEY": "test_secret"})
     @patch("apps.storage.adapters.boto3")
     def test_s3_adapter_configuration(self, mock_boto3):
         """Test S3 adapter uses correct configuration"""

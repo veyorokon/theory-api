@@ -25,3 +25,12 @@ repos:
         require_serial: true
         pass_filenames: false
         always_run: true
+
+      - id: unit-tests
+        name: unit tests (fast hermetic checks)
+        entry: make test-unit
+        language: system
+        files: '\.py$'
+        require_serial: true
+        pass_filenames: false
+        always_run: true

@@ -61,7 +61,8 @@ fixable = ["ALL"]
 unfixable = []
 
 [tool.ruff.lint.per-file-ignores]
-"*/tests/*" = ["F401", "F811", "N806"]  # Allow unused imports and redefinitions in tests
+"tests/*" = ["F401", "F811", "N806"]  # Allow unused imports and redefinitions in tests
+"tests/**/*" = ["F401", "F811", "N806"]  # Allow unused imports and redefinitions in all test subdirs
 "*/migrations/*" = ["ALL"]  # Skip all linting for migrations
 "*/admin.py" = ["F401"]  # Allow unused imports in Django admin
 "*/apps.py" = ["F401"]  # Allow unused imports in Django app config

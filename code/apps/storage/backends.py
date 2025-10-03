@@ -13,7 +13,10 @@ class VendorNeutralStorage(Storage):
     """
 
     def __init__(self, bucket_name=None):
-        self.bucket_name = bucket_name or getattr(settings, "DEFAULT_FILE_STORAGE_BUCKET", "media")
+        if bucket_name is None:
+            storage = getattr(settings, "STORAGE", {})
+            bucket_name = storage.get("BUCKET", "media")
+        self.bucket_name = bucket_name
 
     def _open(self, name, mode="rb"):
         try:

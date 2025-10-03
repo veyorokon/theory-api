@@ -1,11 +1,15 @@
+api:
+  healthz: /healthz
+  path: /run
+  protocol: ws
 build:
   context: .
   dockerfile: Dockerfile
   port: 8000
 image:
   platforms:
-    amd64: ghcr.io/veyorokon/theory-api/llm-litellm@sha256:a29215195c3faf178ac3717588e7c95de820cc3b51426a391e68e001607df050
-    arm64: ghcr.io/owner/repo/llm-litellm@sha256:REPLACE_ARM64
+    amd64: ghcr.io/veyorokon/theory-api/llm-litellm@sha256:793b743059164562a96773c72641e0b709c1027513e5b914bf6c78097fe5b309
+    arm64: ghcr.io/test/repo@sha256:2c323ec50f80cc8c962c2a386425caec2842c311c466ac29844ed51400c23919
 inputs:
   $schema: https://json-schema.org/draft-07/schema#
   additionalProperties: false
@@ -46,9 +50,6 @@ outputs:
 - description: LLM response
   mime: text/plain
   path: text/response.txt
-- description: Execution metadata
-  mime: application/json
-  path: metadata.json
 ref: llm/litellm@1
 runtime:
   cpu: '1'

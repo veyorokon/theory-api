@@ -88,7 +88,15 @@ class TestBuildPushPinWorkflow:
         valid_oci = f"ghcr.io/test/repo@{valid_digest}"
 
         # Mock the registry file location by temporarily replacing it
-        registry_path = Path("code/apps/core/processors/llm_litellm/registry.yaml")
+        registry_path = (
+            Path(__file__).resolve().parents[2]
+            / "code"
+            / "apps"
+            / "core"
+            / "processors"
+            / "llm_litellm"
+            / "registry.yaml"
+        )
         original_content = None
 
         if registry_path.exists():

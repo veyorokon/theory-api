@@ -169,7 +169,7 @@ def test_services():
             text=True,
         )
         running_services = set(result.stdout.strip().split("\n")) if result.stdout.strip() else set()
-        expected_services = {"postgres", "redis", "minio"}
+        expected_services = {"postgres", "minio"}
 
         if not expected_services.issubset(running_services):
             pytest.fail(f"Expected services {expected_services} not all running. Found: {running_services}")
@@ -201,7 +201,7 @@ def pr_lane_env(monkeypatch: pytest.MonkeyPatch, no_network, registry_required_s
     for name in registry_required_secrets:
         monkeypatch.delenv(name, raising=False)
     # Force filesystem (no S3/MinIO) unless a test opts-in
-    for name in ("S3_ENDPOINT_URL", "S3_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"):
+    for name in ("ARTIFACTS_BUCKET", "MINIO_STORAGE_ENDPOINT", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"):
         monkeypatch.delenv(name, raising=False)
     yield
 

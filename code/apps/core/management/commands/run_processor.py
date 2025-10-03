@@ -13,7 +13,7 @@ from typing import Any, Dict, List
 from django.core.management.base import BaseCommand
 from libs.runtime_common.envelope import resolve_mode, ModeSafetyError
 
-from apps.core.orchestrator import run
+# WebSocket orchestrator now used for all processors
 from libs.runtime_common import logging as core_logging
 from libs.runtime_common.logging import bind, clear
 from apps.storage.artifact_store import artifact_store
@@ -35,9 +35,16 @@ class Command(BaseCommand):
         )
         parser.add_argument("--plan", help="Plan key for budget tracking (creates if not exists)")
         parser.add_argument(
-            "--write-prefix", default="/artifacts/outputs/", help="Write prefix for outputs (must end with /)"
+            "--write-prefix",
+            default=None,
+            help="Write prefix for outputs (defaults to /artifacts/outputs/{ref_slug}/{execution_id}/)",
         )
-        parser.add_argument("--inputs-json", default="{}", help="JSON input for processor")
+        # JSON input options (mutually exclusive)
+        inputs_group = parser.add_mutually_exclusive_group()
+        inputs_group.add_argument("--inputs-jsonstr", default="{}", help="JSON input as string (legacy)")
+        inputs_group.add_argument("--inputs-json", help="JSON input (no escaping required)")
+        inputs_group.add_argument("--inputs-file", help="Read JSON input from file")
+        inputs_group.add_argument("--inputs", help="Read JSON from stdin (use '-')")
         parser.add_argument("--adapter-opts-json", help="Optional adapter-specific options as JSON")
         parser.add_argument("--attach", action="append", help="Attach file as name=path (can be used multiple times)")
         parser.add_argument("--json", action="store_true", help="Output JSON response")
@@ -92,6 +99,56 @@ class Command(BaseCommand):
             # Note: will check json flag in caller context
 
         return attachment_map
+
+    def parse_inputs(self, options: Dict[str, Any]) -> Dict[str, Any]:
+        """Parse JSON inputs from various sources with priority handling."""
+        inputs_jsonstr = options.get("inputs_jsonstr", "{}")
+        inputs_json = options.get("inputs_json")
+        inputs_file = options.get("inputs_file")
+        inputs_stdin = options.get("inputs")
+
+        # Determine input source by priority: stdin > file > json > jsonstr
+        try:
+            if inputs_stdin == "-":
+                # Read from stdin
+                json_text = sys.stdin.read()
+                if not json_text.strip():
+                    return json.loads("{}")
+                return json.loads(json_text)
+            elif inputs_file:
+                # Read from file
+                with open(inputs_file, encoding="utf-8") as f:
+                    return json.load(f)
+            elif inputs_json:
+                # Parse direct JSON (no string escaping)
+                return json.loads(inputs_json)
+            else:
+                # Legacy string parsing (with deprecation warning)
+                if inputs_jsonstr != "{}":
+                    import warnings
+
+                    warnings.warn(
+                        "--inputs-jsonstr is deprecated, use --inputs-json for cleaner syntax",
+                        DeprecationWarning,
+                        stacklevel=2,
+                    )
+                return json.loads(inputs_jsonstr)
+        except json.JSONDecodeError as e:
+            # Provide context-specific error messages
+            if inputs_stdin == "-":
+                source = "stdin"
+            elif inputs_file:
+                source = f"file '{inputs_file}'"
+            elif inputs_json:
+                source = "--inputs-json"
+            else:
+                source = "--inputs-jsonstr"
+
+            self.stderr.write(f"Error: Invalid JSON in {source}: {e}")
+            sys.exit(1)
+        except FileNotFoundError as e:
+            self.stderr.write(f"Error: Input file not found: {inputs_file}")
+            sys.exit(1)
 
     def rewrite_attach_references(self, obj: Any, attachment_map: Dict[str, Dict[str, Any]]) -> Any:
         """Recursively rewrite $attach references to $artifact."""
@@ -178,19 +235,15 @@ class Command(BaseCommand):
         )
 
         try:
-            # Require {execution_id} in write prefix for collision prevention
+            # Require {execution_id} in write prefix for collision prevention (if provided)
             write_prefix = options["write_prefix"]
-            if "{execution_id}" not in write_prefix:
+            if write_prefix and "{execution_id}" not in write_prefix:
                 from django.core.management.base import CommandError
 
                 raise CommandError("--write-prefix must include '{execution_id}' to prevent output collisions")
 
-            # Parse inputs
-            try:
-                inputs_json = json.loads(options["inputs_json"])
-            except json.JSONDecodeError as e:
-                self.stderr.write(f"Error: Invalid --inputs-json: {e}")
-                sys.exit(1)
+            # Parse inputs using new helper
+            inputs_json = self.parse_inputs(options)
 
             # Inject mode into inputs if specified
             if options.get("mode"):
@@ -242,20 +295,21 @@ class Command(BaseCommand):
             # Extract Modal context from Django settings
             from django.conf import settings
 
-            # Call new orchestrator run function
-            result = run(
+            # Use WebSocket orchestrator (standardized)
+            from apps.core.orchestrator_ws import OrchestratorWS
+
+            orch = OrchestratorWS()
+
+            result = orch.invoke(
                 ref=options["ref"],
-                adapter=options["adapter"],
                 mode=options["mode"],
                 inputs=inputs_json,
-                write_prefix=options["write_prefix"],
-                expected_oci=None,  # Could extract from adapter_opts if needed
-                timeout_s=options.get("timeout", 600),
                 build=options.get("build", False),
-                extra={"execution_id": execution_id},
-                env=getattr(settings, "MODAL_ENVIRONMENT", None),
-                branch=getattr(settings, "MODAL_BRANCH", None),
-                user=getattr(settings, "MODAL_USER", None),
+                stream=False,  # For CLI, we want final result only
+                timeout_s=options.get("timeout", 600),
+                execution_id=execution_id,
+                write_prefix=options["write_prefix"],
+                adapter=options["adapter"],  # Pass adapter selection to orchestrator
             )
 
             # Download outputs if requested
