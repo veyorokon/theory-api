@@ -205,12 +205,21 @@ smoke-modal:
 # ---- Service lifecycle -----------------------------------------------------
 .PHONY: services-up
 services-up:
-	@docker compose --profile full up -d
-	@echo "✅ Test services started (postgres, redis, minio)"
+	@docker compose -f ci/minio-compose.yml up -d
+	@echo "⏳ Waiting for MinIO to be healthy..."
+	@until docker inspect --format='{{.State.Health.Status}}' theory-ci-minio-1 2>/dev/null | grep -q healthy; do sleep 1; done
+	@echo "⏳ Creating bucket theory-artifacts-dev..."
+	@docker run --rm --network theory_api_app_network \
+		--entrypoint sh quay.io/minio/mc:RELEASE.2024-09-16T17-43-14Z -c ' \
+		mc alias set local http://minio:9000 minioadmin minioadmin >/dev/null; \
+		mc mb --ignore-existing local/theory-artifacts-dev >/dev/null; \
+		echo "✅ Bucket created" \
+	'
+	@echo "✅ Test services started (MinIO)"
 
 .PHONY: services-down
 services-down:
-	@docker compose down
+	@docker compose -f ci/minio-compose.yml down -v
 	@echo "✅ Test services stopped"
 
 .PHONY: services-status
