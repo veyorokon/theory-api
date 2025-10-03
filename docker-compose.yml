@@ -11,7 +11,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres_password
     networks:
-      - app_network
+      - theory_api_app_network
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U postgres -d postgres" ]
       interval: 5s
@@ -32,7 +32,7 @@ services:
       MINIO_ROOT_PASSWORD: minioadmin
     command: server /data --console-address ":9001"
     networks:
-      app_network:
+      theory_api_app_network:
         aliases:
           - minio.local
     healthcheck:
@@ -88,5 +88,5 @@ volumes:
 
 
 networks:
-  app_network:
+  theory_api_app_network:
     driver: bridge
