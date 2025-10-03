@@ -36,8 +36,8 @@ class Command(BaseCommand):
         parser.add_argument("--plan", help="Plan key for budget tracking (creates if not exists)")
         parser.add_argument(
             "--write-prefix",
-            default="/artifacts/outputs/{execution_id}/",
-            help="Write prefix for outputs (must include {execution_id})",
+            default=None,
+            help="Write prefix for outputs (defaults to /artifacts/outputs/{ref_slug}/{execution_id}/)",
         )
         # JSON input options (mutually exclusive)
         inputs_group = parser.add_mutually_exclusive_group()
@@ -235,9 +235,9 @@ class Command(BaseCommand):
         )
 
         try:
-            # Require {execution_id} in write prefix for collision prevention
+            # Require {execution_id} in write prefix for collision prevention (if provided)
             write_prefix = options["write_prefix"]
-            if "{execution_id}" not in write_prefix:
+            if write_prefix and "{execution_id}" not in write_prefix:
                 from django.core.management.base import CommandError
 
                 raise CommandError("--write-prefix must include '{execution_id}' to prevent output collisions")

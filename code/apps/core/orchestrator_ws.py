@@ -80,6 +80,7 @@ class OrchestratorWS:
         adapter: str = "local",  # "local" | "modal"
         platform: str
         | None = None,  # Override platform for digest selection (default: host platform or amd64 for modal)
+        reuse_container: bool = False,  # True => reuse container (integration tests)
     ) -> Dict[str, Any] | Iterator[Dict[str, Any]]:
         """
         Returns:
@@ -97,13 +98,16 @@ class OrchestratorWS:
         outputs_decl = reg.get("outputs") or []
         # 2) Compute execution + prefix
         eid = execution_id or str(uuid.uuid4())
+
+        # Compute ref_slug for storage namespacing: llm/litellm@1 → llm_litellm
+        ref_slug = ref.split("@", 1)[0].replace("/", "_")
+
         if write_prefix:
             wprefix = write_prefix
         else:
-            # Parse ref into canonical namespace/name@version structure
-            ns, name_with_ver = ref.split("/", 1)
-            name, ver = name_with_ver.split("@")
-            wprefix = f"/{world_facet}/{ns}/{name}/{ver}/{eid}/"
+            # Default: /{world_facet}/outputs/{ref_slug}/{execution_id}/
+            # Example: /artifacts/outputs/llm_litellm/abc-123/
+            wprefix = f"/{world_facet}/outputs/{ref_slug}/{eid}/"
 
         if "{execution_id}" in wprefix:
             wprefix = wprefix.replace("{execution_id}", eid)
@@ -145,7 +149,7 @@ class OrchestratorWS:
         }
 
         # 7) Pick adapter (local vs modal)
-        adapter, oci = self._pick_adapter(target, image_ref, expected_digest, reg, env)
+        adapter, oci = self._pick_adapter(target, image_ref, expected_digest, reg, env, reuse_container)
 
         # 7) Invoke over WS
         info("invoke.ws.start", ref=ref, target=target, build=build, eid=eid, write_prefix=wprefix)
@@ -268,7 +272,13 @@ class OrchestratorWS:
     # ---------- Adapter selection ----------
 
     def _pick_adapter(
-        self, target: str, image_ref_or_base: str, expected_digest: str | None, reg: Dict[str, Any], env: Dict[str, str]
+        self,
+        target: str,
+        image_ref_or_base: str,
+        expected_digest: str | None,
+        reg: Dict[str, Any],
+        env: Dict[str, str],
+        reuse_container: bool = False,
     ):
         """
         Returns (adapter_instance, oci_dict)
@@ -278,7 +288,7 @@ class OrchestratorWS:
             def log_fn(event: str, **fields):
                 info(event, **fields)
 
-            adapter = LocalWsAdapter(logger=log_fn)
+            adapter = LocalWsAdapter(logger=log_fn, reuse=reuse_container)
 
             oci = {
                 "image_ref": image_ref_or_base,

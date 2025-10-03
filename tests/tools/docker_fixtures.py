@@ -179,3 +179,62 @@ async def collect_ws_messages(
             break
 
     return messages, None
+
+
+@pytest.fixture(scope="module")
+def reusable_orchestrator(request):
+    """
+    Module-scoped orchestrator with container reuse for integration tests.
+
+    Starts one processor container per module and reuses it across all tests.
+    Per twin's design:
+    - Build image once per module
+    - Pass reuse_container=True to orchestrator.invoke()
+    - Container gets stable name + port (40000+)
+    - Keep alive for entire test module
+    - Cleanup on module teardown
+
+    Returns:
+        Helper function that invokes processor with reuse_container=True
+    """
+    from tests.tools.subprocess_helper import run_manage_py
+    from apps.core.orchestrator_ws import OrchestratorWS
+
+    # Build processor image once per module
+    result = run_manage_py(
+        "build_processor",
+        "--ref",
+        "llm/litellm@1",
+        "--json",
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        pytest.skip(f"Failed to build processor: {result.stderr}")
+
+    def invoke_with_reuse(ref: str, inputs: dict, **kwargs):
+        """Invoke processor with container reuse enabled."""
+        orch = OrchestratorWS()
+        return orch.invoke(
+            ref=ref,
+            inputs=inputs,
+            reuse_container=True,  # Key: enables container reuse
+            **kwargs,
+        )
+
+    yield invoke_with_reuse
+
+    # Cleanup: stop reused containers by label
+    cleanup_result = subprocess.run(
+        ["docker", "ps", "-q", "--filter", "label=com.theory.ref=llm/litellm@1"],
+        capture_output=True,
+        text=True,
+    )
+
+    if cleanup_result.returncode == 0 and cleanup_result.stdout.strip():
+        container_ids = cleanup_result.stdout.strip().split("\n")
+        for cid in container_ids:
+            subprocess.run(["docker", "rm", "-f", cid], capture_output=True)

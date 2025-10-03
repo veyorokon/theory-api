@@ -24,14 +24,11 @@ def ref_to_slug_ver(ref: str) -> tuple[str, str]:
 
 
 def expected_apps(processors_root: Path, env: str) -> list[tuple[str, str, str]]:
-    """Return list of (ref, app_name, func_name) by scanning per-processor registry.yaml."""
+    """Return list of (ref, app_name, func_name) using canonical processor discovery."""
+    from apps.core.registry.loader import list_processor_refs
+
     out: list[tuple[str, str, str]] = []
-    for yml in sorted(processors_root.glob("**/registry.yaml")):
-        try:
-            data = yaml.safe_load(yml.read_text())
-        except Exception:
-            continue
-        ref = data.get("ref") or data.get("name")
+    for ref in list_processor_refs():
         if not isinstance(ref, str) or "@" not in ref:
             continue
         slug, ver = ref_to_slug_ver(ref)

@@ -56,6 +56,36 @@ def get_registry_dir() -> str:
     return str(_root_dir() / "apps" / "core" / "processors")
 
 
+def list_processor_refs() -> List[str]:
+    """List all available processor refs from registry.yaml files.
+
+    Scans apps/core/processors/**/registry.yaml recursively,
+    returns refs like ["llm/litellm@1", "replicate/generic@1"].
+
+    This is the canonical way to discover processors - used by:
+    - LocalWsAdapter for stable port allocation
+    - drift_audit.py for Modal deployment verification
+    - Any other tooling that needs to enumerate processors
+    """
+    processors_dir = _root_dir() / "apps" / "core" / "processors"
+    refs = []
+
+    # Use glob to find all registry.yaml files recursively
+    for registry_path in sorted(processors_dir.glob("**/registry.yaml")):
+        try:
+            import yaml
+
+            with registry_path.open("r", encoding="utf-8") as f:
+                spec = yaml.safe_load(f) or {}
+                ref = spec.get("ref")
+                if ref:
+                    refs.append(ref)
+        except Exception:
+            continue
+
+    return refs
+
+
 def get_secrets_present_for_spec(spec: Dict) -> List[str]:
     """Extract which declared secrets are present in the current environment."""
     secrets = spec.get("secrets") or {}
