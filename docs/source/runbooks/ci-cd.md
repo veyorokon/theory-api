@@ -39,8 +39,13 @@ This runbook captures the three-lane delivery system: PRs build directly from so
 - Trigger: push to `staging` (usually merge-up from `dev`).
 - Steps run serially via `needs`:
   1. **Build & Pin** – Multi-arch (`amd64` + `arm64`) builds for each processor. Digests are written directly back to `staging` via commit `ci(staging): pin processor images`. No bot PRs against other branches.
+     - Build sequence: `make build-processor REF=<ref> PLATFORMS=linux/arm64 && make pin-processor REF=<ref> PLATFORMS=linux/arm64`
+     - Then: `make build-processor REF=<ref> PLATFORMS=linux/amd64 && make pin-processor REF=<ref> PLATFORMS=linux/amd64`
+     - Registry.yaml now contains both platform digests
   2. **Acceptance (pinned)** – Executes `make test-acceptance-dev` with `TEST_LANE=staging`, verifying per-processor registry digests in mock mode (no rebuilds).
-  3. **Deploy Modal (staging)** – Deploys by digest (`modalctl deploy`), runs smoke (`mode=mock`) and a negative probe (`mode=real` expecting `ERR_MISSING_SECRET`).
+     - Orchestrator selects digest based on platform: amd64 for Modal, arm64 for local Mac
+  3. **Deploy Modal (staging)** – Deploys by amd64 digest (`modalctl deploy`), runs smoke (`mode=mock`) and a negative probe (`mode=real` expecting `ERR_MISSING_SECRET`).
+     - Modal always uses amd64 digest from `registry.yaml::image.platforms.amd64`
   4. **Drift Audit** – `python code/scripts/drift_audit.py` fails if deployed digests mismatch the registry.
 - Outcome: staging now owns canonical pins plus a green deployment. Open a release PR from this commit to `main`.
 
@@ -73,6 +78,17 @@ This runbook captures the three-lane delivery system: PRs build directly from so
 ## Secrets & Registry Expectations
 
 - Processor specs (`code/apps/core/processors/**/registry.yaml`) declare platform digests and `secrets.required`.
+- Registry contains both `amd64` and `arm64` digests:
+  ```yaml
+  image:
+    platforms:
+      amd64: ghcr.io/veyorokon/theory-api/llm-litellm@sha256:a4f41889...
+      arm64: ghcr.io/veyorokon/theory-api/llm-litellm@sha256:f41c4e79...
+  ```
+- Orchestrator platform selection:
+  - Modal adapter: always selects `amd64` (Modal runs x86_64)
+  - Local adapter: selects host platform (arm64 on Mac M1/M2, amd64 on x86_64)
+  - Override with `--platform` parameter if needed
 - Staging build job must have package write access to GHCR; production pipelines only need read.
 - Modal secrets pull from branch-scoped GitHub secrets (`OPENAI_API_KEY_STAGING`, `OPENAI_API_KEY_PROD`, etc.).
 - Drift audits compare deployed app metadata with registry digests; treat failures as stop-the-line events.

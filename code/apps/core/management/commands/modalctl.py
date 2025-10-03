@@ -131,7 +131,19 @@ def _script_deploy(app_name: str, oci: str) -> str:
 
     app = modal.App("{app_name}", image=image)
 
-    @app.function(image=image)
+    def cleanup_handler():
+        # Modal exit handler to ensure clean shutdown
+        # Prevents "background threads still running" warnings
+        import asyncio
+        import time
+        print("[modal] Starting cleanup...")
+        time.sleep(0.5)  # Give uvicorn time to shutdown gracefully
+        print("[modal] Cleanup complete")
+
+    @app.function(
+        image=image,
+        container_lifecycle={{"exit_handler": cleanup_handler}}
+    )
     @modal.asgi_app()
     def fastapi_app():
         # Import the FastAPI app from the image at runtime

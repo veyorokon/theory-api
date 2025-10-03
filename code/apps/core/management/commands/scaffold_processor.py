@@ -339,6 +339,7 @@ class Command(BaseCommand):
         import asyncio, time, json, os
         from typing import Any, Dict, Optional
         from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+        from starlette.exceptions import WebSocketException
         from .types import ConnectionRole, RunState
         from .run_registry import registry
         from .worker import spawn_worker
@@ -353,7 +354,15 @@ class Command(BaseCommand):
         @app.websocket("/run")
         async def run_ws(ws: WebSocket):
             # One supervisor process per container; one worker process per execution
-            await ws.accept(subprotocol="theory.run.v1")
+            # Validate subprotocol BEFORE accepting - reject handshake if not offered
+            required = "theory.run.v1"
+            offered = [p.strip() for p in (ws.headers.get("sec-websocket-protocol") or "").split(",") if p.strip()]
+
+            if required not in offered:
+                # Raise before accept() to fail handshake (not post-accept close)
+                raise WebSocketException(code=1002)
+
+            await ws.accept(subprotocol=required)
             connection_id = f"conn-{int(time.time()*1000)}"
             execution_id: Optional[str] = None
             role: Optional[ConnectionRole] = None

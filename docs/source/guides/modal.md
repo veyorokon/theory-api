@@ -35,18 +35,62 @@ Canonical slug: `llm/litellm@1` → `llm-litellm-v1`. Dev env may prefix with `b
 
 ## Deploying Processors
 
-### CI/CD pipeline
+### Multi-Platform Build Pipeline
 
-1) Build & push image; capture amd64 digest
-2) Pin digest into per-processor `registry.yaml`
-3) Deploy by digest; verify deployment digest
+Modal requires amd64 images. Local development on arm64 (Mac M1/M2) requires arm64 images. Build and pin both platforms:
+
+```bash
+# 1. Build arm64 (for local Mac development)
+make build-processor REF=llm/litellm@1 PLATFORMS=linux/arm64
+
+# 2. Pin arm64 digest to registry
+make pin-processor REF=llm/litellm@1 PLATFORMS=linux/arm64
+
+# 3. Build amd64 (for Modal deployment)
+make build-processor REF=llm/litellm@1 PLATFORMS=linux/amd64
+
+# 4. Pin amd64 digest to registry
+make pin-processor REF=llm/litellm@1 PLATFORMS=linux/amd64
+```
+
+After pinning, `registry.yaml` contains both platform digests:
+```yaml
+image:
+  platforms:
+    amd64: ghcr.io/veyorokon/theory-api/llm-litellm@sha256:a4f41889c246f1f0...
+    arm64: ghcr.io/veyorokon/theory-api/llm-litellm@sha256:f41c4e79e5871356...
+```
+
+### Deploy to Modal
+
+```bash
+# Sync required secrets first
+BRANCH=feat/websocket-standardization USER=veyorokon \
+  make modal-sync-secrets REF=llm/litellm@1 ENV=dev
+
+# Deploy by amd64 digest (Modal uses amd64)
+BRANCH=feat/websocket-standardization USER=veyorokon \
+  make modal-deploy REF=llm/litellm@1 ENV=dev OCI="ghcr.io/veyorokon/theory-api/llm-litellm@sha256:a4f41889c246f1f0..."
+
+# Or use modalctl directly
+BRANCH=feat/websocket-standardization USER=veyorokon \
+  python manage.py modalctl deploy \
+    --ref llm/litellm@1 --env dev \
+    --oci "ghcr.io/veyorokon/theory-api/llm-litellm@sha256:a4f41889c246f1f0..."
+```
+
+**Dev environment requires BRANCH and USER** for app naming: `<branch>-<user>-<processor-slug>-vX`
+
+### CI/CD Pipeline
+
+1) Build & push multi-arch images (amd64 + arm64)
+2) Pin both digests into per-processor `registry.yaml`
+3) Deploy by amd64 digest to Modal
+4) Verify deployment digest matches registry
 
 CLI:
 
 ```bash
-# Deploy by digest
-python manage.py modalctl deploy --ref llm/litellm@1 --env dev --oci ghcr.io/...@sha256:...
-
 # Verify pinned digest bound to app
 python manage.py modalctl verify-digest --ref llm/litellm@1 --env dev --oci ghcr.io/...@sha256:...
 

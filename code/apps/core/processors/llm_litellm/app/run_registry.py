@@ -1,12 +1,14 @@
 import asyncio
 import time
-from typing import Dict, Set, Optional, Any
+from typing import Dict, Set, Optional, Any, Tuple
+from multiprocessing.process import BaseProcess
+from multiprocessing.synchronize import Event as MpEvent
 from .types import ConnectionRole, RunState
 from .logging import info
 
 
 class Run:
-    __slots__ = ("eid", "state", "conns", "budgets", "fanout_q", "fanout_task")
+    __slots__ = ("eid", "state", "conns", "budgets", "fanout_q", "fanout_task", "proc", "cancel_ev")
 
     def __init__(self, eid: str):
         self.eid = eid
@@ -19,6 +21,8 @@ class Run:
         self.budgets = {"tokens": None, "time_s": None}
         self.fanout_q: asyncio.Queue = asyncio.Queue(maxsize=2048)
         self.fanout_task: asyncio.Task | None = None
+        self.proc: BaseProcess | None = None
+        self.cancel_ev: MpEvent | None = None
 
 
 class RunRegistry:
@@ -36,8 +40,14 @@ class RunRegistry:
                 info("run.registry.open", execution_id=eid)
             return run
 
+    async def state(self, eid: str) -> RunState:
+        r = await self.get_or_create(eid)
+        return r.state
+
     async def add_connection(self, eid: str, cid: str, ws, role: ConnectionRole):
         run = await self.get_or_create(eid)
+        # annotate connection id for GC
+        ws._cid = cid
         run.conns[role].add(ws)
         info(
             "ws.connect.ok",
@@ -51,10 +61,9 @@ class RunRegistry:
         if not run:
             return
         for s in run.conns.values():
-            s_copy = set(s)
-            for ws in s_copy:
+            for ws in list(s):
                 if getattr(ws, "_cid", None) == cid:
-                    s.remove(ws)
+                    s.discard(ws)
         info("ws.close", execution_id=eid, conns={r.name.lower(): len(s) for r, s in run.conns.items()})
 
     async def update_state(self, eid: str, state: RunState):
@@ -68,9 +77,13 @@ class RunRegistry:
         if time_s is not None:
             run.budgets["time_s"] = time_s
 
+    async def bind_worker(self, eid: str, proc: BaseProcess, cancel_ev: MpEvent):
+        run = await self.get_or_create(eid)
+        run.proc = proc
+        run.cancel_ev = cancel_ev
+
     async def emit(self, eid: str, ev: dict):
         run = await self.get_or_create(eid)
-        # backpressure: drop/squash only noisy token events if queue is full
         if run.fanout_q.full() and ev.get("kind") == "Token":
             return
         await run.fanout_q.put(ev)
@@ -98,14 +111,44 @@ class RunRegistry:
 
     async def apply_control(self, eid: str, controller_id: str, content: dict):
         op = (content.get("op") or "").lower()
+        run = await self.get_or_create(eid)
+
         if op == "preempt":
-            await self._apply_preempt(eid, controller_id, content.get("reason", "controller"))
+            # mark state
+            run.state = RunState.PREEMPTED
+            # signal worker cooperatively
+            if run.cancel_ev:
+                try:
+                    run.cancel_ev.set()
+                except Exception:
+                    pass
+            await self.emit(
+                eid,
+                {
+                    "kind": "Event",
+                    "content": {"phase": "preempted", "by": controller_id, "ts": int(time.time() * 1000)},
+                },
+            )
+
         elif op == "pause":
-            await self._apply_pause(eid, controller_id)
+            run.state = RunState.PAUSED
+            await self.emit(
+                eid,
+                {"kind": "Event", "content": {"phase": "paused", "by": controller_id, "ts": int(time.time() * 1000)}},
+            )
+
         elif op == "resume":
-            await self._apply_resume(eid, controller_id)
+            run.state = RunState.RUNNING
+            await self.emit(
+                eid,
+                {"kind": "Event", "content": {"phase": "resumed", "by": controller_id, "ts": int(time.time() * 1000)}},
+            )
+
         elif op == "set_budget":
-            await self.set_budget(eid, tokens=content.get("tokens"), time_s=content.get("time_s"))
+            if "tokens" in content:
+                run.budgets["tokens"] = content["tokens"]
+            if "time_s" in content:
+                run.budgets["time_s"] = content["time_s"]
             await self.emit(
                 eid,
                 {
@@ -113,7 +156,7 @@ class RunRegistry:
                     "content": {
                         "phase": "budget_updated",
                         "by": controller_id,
-                        "budgets": (self._runs[eid].budgets if eid in self._runs else {}),
+                        "budgets": run.budgets,
                         "ts": int(time.time() * 1000),
                     },
                 },
@@ -132,47 +175,6 @@ class RunRegistry:
                     },
                 },
             )
-
-    async def _apply_preempt(self, eid: str, controller_id: str, reason: str):
-        run = await self.get_or_create(eid)
-        if run.state in (RunState.PREEMPTED, RunState.COMPLETED, RunState.ERROR):
-            await self.emit(
-                eid,
-                {
-                    "kind": "Event",
-                    "content": {
-                        "phase": "preempted",
-                        "by": controller_id,
-                        "reason": reason,
-                        "noop": True,
-                        "ts": int(time.time() * 1000),
-                    },
-                },
-            )
-            return
-        run.state = RunState.PREEMPTED
-        # Cooperative cancel is handled in the entry runner (orchestrator cancels task)
-        await self.emit(
-            eid,
-            {
-                "kind": "Event",
-                "content": {"phase": "preempted", "by": controller_id, "reason": reason, "ts": int(time.time() * 1000)},
-            },
-        )
-
-    async def _apply_pause(self, eid: str, controller_id: str):
-        run = await self.get_or_create(eid)
-        run.state = RunState.PAUSED
-        await self.emit(
-            eid, {"kind": "Event", "content": {"phase": "paused", "by": controller_id, "ts": int(time.time() * 1000)}}
-        )
-
-    async def _apply_resume(self, eid: str, controller_id: str):
-        run = await self.get_or_create(eid)
-        run.state = RunState.RUNNING
-        await self.emit(
-            eid, {"kind": "Event", "content": {"phase": "resumed", "by": controller_id, "ts": int(time.time() * 1000)}}
-        )
 
     async def _fanout_loop(self, run: Run):
         # one loop per run; deliver messages to all sockets

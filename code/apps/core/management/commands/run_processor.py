@@ -298,7 +298,7 @@ class Command(BaseCommand):
             # Use WebSocket orchestrator (standardized)
             from apps.core.orchestrator_ws import OrchestratorWS
 
-            orch = OrchestratorWS(default_bucket="default")
+            orch = OrchestratorWS()
 
             result = orch.invoke(
                 ref=options["ref"],

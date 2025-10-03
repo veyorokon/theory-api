@@ -14,19 +14,30 @@ import requests
 
 
 @pytest.fixture(scope="module")
-def processor_container():
+def processor_container(request):
     """
     Start processor container for tests (module-scoped for performance).
 
     Returns dict with:
-        - ws_url: WebSocket URL (ws://localhost:8000)
-        - http_url: HTTP URL (http://localhost:8000)
+        - ws_url: WebSocket URL (ws://localhost:<port>)
+        - http_url: HTTP URL (http://localhost:<port>)
         - artifacts_dir: Host path to artifacts
         - container_id: Docker container ID
 
     Note: Module-scoped to share expensive container startup (~10-30s) across tests.
+    Each module gets a unique port to avoid conflicts when running in parallel.
     """
     from tests.tools.subprocess_helper import run_manage_py
+    import socket
+    import hashlib
+
+    # Generate unique port from module name (8000-8999 range)
+    module_name = request.module.__name__
+    port_hash = int(hashlib.md5(module_name.encode()).hexdigest()[:4], 16)
+    host_port = 8000 + (port_hash % 1000)
+
+    # Generate unique container name from module name + timestamp
+    container_name = f"test-{module_name.replace('.', '-').replace('_', '-')}-{int(time.time() * 1000)}"
 
     # Build processor image
     result = run_manage_py(
@@ -47,8 +58,6 @@ def processor_container():
     image_tag = build_info["image_tag"]
 
     # Check MinIO is running
-    import socket
-
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(1)
@@ -64,16 +73,16 @@ def processor_container():
     artifacts_dir = Path(tmp_dir) / "artifacts"
     artifacts_dir.mkdir(parents=True)
 
-    # Start container with MinIO storage configuration
+    # Start container with MinIO storage configuration on unique port
     container_result = subprocess.run(
         [
             "docker",
             "run",
             "-d",
             "--name",
-            f"test-contract-processor-{int(time.time())}",
+            container_name,
             "-p",
-            "8000:8000",
+            f"{host_port}:8000",
             "-v",
             f"{artifacts_dir}:/artifacts:rw",
             "--user",
@@ -108,10 +117,10 @@ def processor_container():
     container_id = container_result.stdout.strip()
 
     try:
-        # Wait for health check
+        # Wait for health check on the dynamically assigned port
         for _ in range(30):
             try:
-                response = requests.get("http://localhost:8000/healthz", timeout=1)
+                response = requests.get(f"http://localhost:{host_port}/healthz", timeout=1)
                 if response.status_code == 200:
                     break
             except requests.RequestException:
@@ -124,16 +133,21 @@ def processor_container():
             pytest.skip("Container failed to become ready")
 
         yield {
-            "ws_url": "ws://localhost:8000",
-            "http_url": "http://localhost:8000",
+            "ws_url": f"ws://localhost:{host_port}",
+            "http_url": f"http://localhost:{host_port}",
             "artifacts_dir": artifacts_dir,
             "container_id": container_id,
         }
 
     finally:
-        # Cleanup
-        subprocess.run(["docker", "stop", container_id], capture_output=True, timeout=10)
-        subprocess.run(["docker", "rm", container_id], capture_output=True)
+        # Cleanup - try graceful stop, then force kill if needed
+        try:
+            subprocess.run(["docker", "stop", container_id], capture_output=True, timeout=10)
+        except subprocess.TimeoutExpired:
+            # Force kill if graceful stop times out
+            subprocess.run(["docker", "kill", container_id], capture_output=True)
+        finally:
+            subprocess.run(["docker", "rm", "-f", container_id], capture_output=True)
 
 
 async def collect_ws_messages(

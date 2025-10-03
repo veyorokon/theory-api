@@ -1,6 +1,6 @@
 # tests/integration/adapters/test_local_index_path_contract.py
 import pytest
-from apps.core.orchestrator import run as orch_run
+from tests.helpers import invoke_processor
 from tests.tools.asserts import assert_success_envelope, assert_index_under_prefix
 
 
@@ -13,14 +13,13 @@ def test_local_adapter_index_path_under_prefix(tmp_write_prefix):
     }
 
     # Execute via orchestrator with build=True (PR lane behavior)
-    envelope = orch_run(
-        adapter="local",
+    envelope = invoke_processor(
         ref="llm/litellm@1",
-        mode="mock",
         inputs=inputs,
-        write_prefix=tmp_write_prefix,
-        expected_oci=None,
+        mode="mock",
         build=True,
+        write_prefix=tmp_write_prefix,
+        adapter="local",
     )
 
     assert_success_envelope(envelope)

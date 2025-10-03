@@ -8,8 +8,8 @@ build:
   port: 8000
 image:
   platforms:
-    amd64: ghcr.io/veyorokon/theory-api/llm-litellm@sha256:72577f1045fc494d682cb255e05d41dc736f463167e1b6a7ce6d102f6035e2a3
-    arm64: ghcr.io/owner/repo/llm-litellm@sha256:REPLACE_ARM64
+    amd64: ghcr.io/veyorokon/theory-api/llm-litellm@sha256:793b743059164562a96773c72641e0b709c1027513e5b914bf6c78097fe5b309
+    arm64: ghcr.io/veyorokon/theory-api/llm-litellm@sha256:f41c4e79e5871356b68cea7991dd2fb5d614e92a40474088de254e1cc54a70f7
 inputs:
   $schema: https://json-schema.org/draft-07/schema#
   additionalProperties: false
@@ -50,9 +50,6 @@ outputs:
 - description: LLM response
   mime: text/plain
   path: text/response.txt
-- description: Execution metadata
-  mime: application/json
-  path: metadata.json
 ref: llm/litellm@1
 runtime:
   cpu: '1'

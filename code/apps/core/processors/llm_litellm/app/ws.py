@@ -1,12 +1,13 @@
 import asyncio
 import time
 import json
-import uuid
-from typing import Any, Dict, Callable, Optional
+import os
+from typing import Any, Dict, Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from starlette.exceptions import WebSocketException
 from .types import ConnectionRole, RunState
 from .run_registry import registry
-from .handler import entry
+from .worker import spawn_worker
 from .logging import info
 
 app = FastAPI()
@@ -19,10 +20,20 @@ def healthz():
 
 @app.websocket("/run")
 async def run_ws(ws: WebSocket):
-    await ws.accept(subprotocol="theory.run.v1")
+    # One supervisor process per container; one worker process per execution
+    # Validate subprotocol BEFORE accepting - reject handshake if not offered
+    required = "theory.run.v1"
+    offered = [p.strip() for p in (ws.headers.get("sec-websocket-protocol") or "").split(",") if p.strip()]
+
+    if required not in offered:
+        # Raise before accept() to fail handshake (not post-accept close)
+        raise WebSocketException(code=1002)
+
+    await ws.accept(subprotocol=required)
     connection_id = f"conn-{int(time.time() * 1000)}"
     execution_id: str | None = None
     role: ConnectionRole | None = None
+    background_tasks: list[asyncio.Task] = []
 
     try:
         # First frame must be RunOpen
@@ -40,75 +51,93 @@ async def run_ws(ws: WebSocket):
             return
         role = ConnectionRole[role_s.upper()]
 
-        # TODO: verify ticket claims here (execution_id, scopes)
-
         # Register connection
         run = await registry.get_or_create(execution_id)
         await registry.add_connection(execution_id, connection_id, ws, role)
         await ws.send_json({"kind": "Ack", "content": {"execution_id": execution_id}})
 
-        # Client role may start the run if not running
+        # Client starts the run (if not running)
         if role is ConnectionRole.CLIENT and run.state == RunState.PENDING:
             await registry.update_state(execution_id, RunState.RUNNING)
             info("ws.run.start", execution_id=execution_id)
 
-            async def fanout(ev: Dict[str, Any]):  # async bridge
-                await registry.emit(execution_id, ev)
+            # Spawn worker process with an IPC queue + cancel event
+            proc, events_q, cancel_ev = spawn_worker(payload)
+            await registry.bind_worker(execution_id, proc, cancel_ev)
 
-            # Run entry in thread; capture emitted events via queueing
-            loop = asyncio.get_running_loop()
+            # Pump worker events → all listeners; capture terminal envelope
+            async def pump():
+                try:
+                    loop = asyncio.get_running_loop()
+                    while True:
+                        ev = await loop.run_in_executor(None, events_q.get)  # blocking get
+                        if ev is None:
+                            break
+                        # If terminal result, update state
+                        if ev.get("kind") == "RunResult":
+                            status = (ev.get("content") or {}).get("status")
+                            new_state = RunState.COMPLETED if status == "success" else RunState.ERROR
+                            await registry.update_state(execution_id, new_state)
+                        await registry.emit(execution_id, ev)
+                finally:
+                    try:
+                        proc.join(timeout=0.2)
+                    except Exception:
+                        pass
 
-            def emit_sync(ev: Dict[str, Any]):
-                loop.call_soon_threadsafe(asyncio.create_task, fanout(ev))
+            pump_task = asyncio.create_task(pump())
+            background_tasks.append(pump_task)
 
-            start = time.monotonic()
-            try:
-                env = await loop.run_in_executor(None, entry, payload, emit_sync)
-                await registry.update_state(execution_id, RunState.COMPLETED)
-                # Fanout terminal result to ALL
-                await registry.emit(execution_id, {"kind": "RunResult", "content": env})
-                await ws.send_json({"kind": "RunResult", "content": env})
-                info(
-                    "ws.run.settle",
-                    execution_id=execution_id,
-                    status=env.get("status"),
-                    elapsed_ms=int((time.monotonic() - start) * 1000),
-                )
-            except asyncio.CancelledError:
-                await registry.update_state(execution_id, RunState.PREEMPTED)
-                term = {
-                    "status": "error",
-                    "execution_id": execution_id,
-                    "error": {"code": "ERR_PREEMPTED", "message": "cancelled"},
-                    "meta": {},
-                }
-                await registry.emit(execution_id, {"kind": "RunResult", "content": term})
-                await ws.send_json({"kind": "RunResult", "content": term})
-            except Exception as e:
-                await registry.update_state(execution_id, RunState.ERROR)
-                term = {
-                    "status": "error",
-                    "execution_id": execution_id,
-                    "error": {"code": "ERR_RUNTIME", "message": str(e)},
-                    "meta": {},
-                }
-                await registry.emit(execution_id, {"kind": "RunResult", "content": term})
-                await ws.send_json({"kind": "RunResult", "content": term})
+            # Also watch for cancellation via registry (controller-driven)
+            async def watch_cancel():
+                # The registry flips cancel_ev; worker cooperatively exits; after grace, supervisor escalates
+                grace_s = 5
+                while True:
+                    await asyncio.sleep(0.25)
+                    st = await registry.state(execution_id)
+                    if st in (RunState.PREEMPTED, RunState.COMPLETED, RunState.ERROR):
+                        break
+                # If preempted, give worker grace then terminate if alive
+                if st == RunState.PREEMPTED and proc.is_alive():
+                    try:
+                        proc.terminate()
+                    except Exception:
+                        pass
+                    await asyncio.sleep(grace_s)
+                    if proc.is_alive():
+                        try:
+                            proc.kill()
+                        except Exception:
+                            pass
 
-        # If controller, read control frames; observers just park
+            cancel_task = asyncio.create_task(watch_cancel())
+            background_tasks.append(cancel_task)
+
+        # Controllers read control frames; observers just keep the socket open
         if role is ConnectionRole.CONTROLLER:
             while True:
                 m = await ws.receive_json()
                 if m.get("kind") == "control":
                     await registry.apply_control(execution_id, connection_id, m.get("content") or {})
         else:
-            # keep-alive loop; fanout is handled by registry
             while True:
                 await asyncio.sleep(30)
 
     except WebSocketDisconnect:
         pass
     finally:
+        # Cancel all background tasks with timeout
+        for task in background_tasks:
+            if not task.done():
+                task.cancel()
+
+        # Wait for tasks to complete cancellation (with timeout)
+        if background_tasks:
+            try:
+                await asyncio.wait_for(asyncio.gather(*background_tasks, return_exceptions=True), timeout=2.0)
+            except TimeoutError:
+                pass  # Tasks didn't cancel cleanly, but we tried
+
         if execution_id:
             await registry.remove_connection(execution_id, connection_id)
             await registry.maybe_gc_run(execution_id)

@@ -14,6 +14,8 @@ import websockets
 from websockets.exceptions import ConnectionClosedError
 
 from tests.tools.subprocess_helper import run_manage_py
+from tests.tools.docker_fixtures import processor_container
+from tests.helpers import build_ws_payload
 
 
 pytestmark = [pytest.mark.integration, pytest.mark.requires_docker]
@@ -21,83 +23,6 @@ pytestmark = [pytest.mark.integration, pytest.mark.requires_docker]
 
 class TestWebSocketDockerIntegration:
     """Test WebSocket processors running in Docker containers."""
-
-    @pytest.fixture(scope="class")
-    def processor_container(self):
-        """Start processor container and return its WebSocket URL."""
-        # Build processor image first
-        result = run_manage_py(
-            "build_processor",
-            "--ref",
-            "llm/litellm@1",
-            "--json",
-            capture_output=True,
-            text=True,
-            timeout=300,
-            check=False,
-        )
-
-        if result.returncode != 0:
-            pytest.skip(f"Failed to build processor: {result.stderr}")
-
-        build_info = json.loads(result.stdout)
-        image_tag = build_info["image_tag"]
-
-        # Start container with temp artifacts volume
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            artifacts_dir = Path(tmp_dir) / "artifacts"
-            artifacts_dir.mkdir()
-
-            container_result = subprocess.run(
-                [
-                    "docker",
-                    "run",
-                    "-d",
-                    "--name",
-                    "test-ws-processor",
-                    "-p",
-                    "8000:8000",
-                    "-v",
-                    f"{artifacts_dir}:/artifacts:rw",
-                    "--user",
-                    f"{os.getuid()}:{os.getgid()}",
-                    "-e",
-                    "IMAGE_DIGEST=sha256:test123",
-                    image_tag,
-                ],
-                capture_output=True,
-                text=True,
-            )
-
-            if container_result.returncode != 0:
-                pytest.skip(f"Failed to start container: {container_result.stderr}")
-
-            container_id = container_result.stdout.strip()
-
-            try:
-                # Wait for container to be ready (health check)
-                for _ in range(30):
-                    try:
-                        response = requests.get("http://localhost:8000/healthz", timeout=1)
-                        if response.status_code == 200:
-                            break
-                    except requests.RequestException:
-                        pass
-                    time.sleep(1)
-                else:
-                    pytest.skip("Container failed to become ready")
-
-                yield {
-                    "ws_url": "ws://localhost:8000",
-                    "http_url": "http://localhost:8000",
-                    "artifacts_dir": artifacts_dir,
-                    "container_id": container_id,
-                }
-
-            finally:
-                # Cleanup container
-                subprocess.run(["docker", "stop", container_id], capture_output=True)
-                subprocess.run(["docker", "rm", container_id], capture_output=True)
 
     def test_healthz_endpoint_still_http(self, processor_container):
         """Test /healthz endpoint remains HTTP."""
@@ -126,24 +51,18 @@ class TestWebSocketDockerIntegration:
         ws_url = processor_container["ws_url"]
         artifacts_dir = processor_container["artifacts_dir"]
         execution_id = "test-ws-integration-123"
+        write_prefix = f"/artifacts/outputs/{execution_id}/"
 
-        payload = {
-            "kind": "RunOpen",
-            "content": {
-                "role": "client",
-                "execution_id": execution_id,
-                "payload": {
-                    "execution_id": execution_id,
-                    "write_prefix": f"/artifacts/outputs/{execution_id}/",
-                    "schema": "v1",
-                    "mode": "mock",
-                    "inputs": {
-                        "schema": "v1",
-                        "params": {"messages": [{"role": "user", "content": "WebSocket integration test"}]},
-                    },
-                },
+        payload = build_ws_payload(
+            ref="llm/litellm@1",
+            execution_id=execution_id,
+            write_prefix=write_prefix,
+            mode="mock",
+            inputs={
+                "schema": "v1",
+                "params": {"messages": [{"role": "user", "content": "WebSocket integration test"}]},
             },
-        }
+        )
 
         uri = f"{ws_url}/run"
 
@@ -172,6 +91,9 @@ class TestWebSocketDockerIntegration:
                 assert envelope is not None, "Expected RunResult frame not received"
 
                 # Validate envelope
+                if envelope["status"] != "success":
+                    error_info = envelope.get("error", {})
+                    pytest.fail(f"Processor returned error: {error_info.get('code')} - {error_info.get('message')}")
                 assert envelope["status"] == "success"
                 assert envelope["execution_id"] == execution_id
                 assert "outputs" in envelope
@@ -209,23 +131,16 @@ class TestWebSocketDockerIntegration:
         ws_url = processor_container["ws_url"]
         execution_id = "test-ws-streaming-456"
 
-        payload = {
-            "kind": "RunOpen",
-            "content": {
-                "role": "client",
-                "execution_id": execution_id,
-                "payload": {
-                    "execution_id": execution_id,
-                    "write_prefix": f"/artifacts/outputs/{execution_id}/",
-                    "schema": "v1",
-                    "mode": "mock",
-                    "inputs": {
-                        "schema": "v1",
-                        "params": {"messages": [{"role": "user", "content": "streaming events test"}]},
-                    },
-                },
+        payload = build_ws_payload(
+            ref="llm/litellm@1",
+            execution_id=execution_id,
+            write_prefix=f"/artifacts/outputs/{execution_id}/",
+            mode="mock",
+            inputs={
+                "schema": "v1",
+                "params": {"messages": [{"role": "user", "content": "streaming events test"}]},
             },
-        }
+        )
 
         uri = f"{ws_url}/run"
 
@@ -282,20 +197,13 @@ class TestWebSocketDockerIntegration:
 
         # Make a simple WebSocket request to generate logs
         async def make_ws_request():
-            payload = {
-                "kind": "RunOpen",
-                "content": {
-                    "role": "client",
-                    "execution_id": "test-logging-789",
-                    "payload": {
-                        "execution_id": "test-logging-789",
-                        "write_prefix": "/artifacts/outputs/test-logging-789/",
-                        "schema": "v1",
-                        "mode": "mock",
-                        "inputs": {"schema": "v1", "params": {"messages": [{"role": "user", "content": "log test"}]}},
-                    },
-                },
-            }
+            payload = build_ws_payload(
+                ref="llm/litellm@1",
+                execution_id="test-logging-789",
+                write_prefix="/artifacts/outputs/test-logging-789/",
+                mode="mock",
+                inputs={"schema": "v1", "params": {"messages": [{"role": "user", "content": "log test"}]}},
+            )
 
             uri = f"{ws_url}/run"
             async with websockets.connect(uri, subprotocols=["theory.run.v1"]) as websocket:
@@ -342,23 +250,16 @@ class TestWebSocketDockerIntegration:
 
         async def make_ws_request(i):
             execution_id = f"concurrent-ws-{i}"
-            payload = {
-                "kind": "RunOpen",
-                "content": {
-                    "role": "client",
-                    "execution_id": execution_id,
-                    "payload": {
-                        "execution_id": execution_id,
-                        "write_prefix": f"/artifacts/outputs/{execution_id}/",
-                        "schema": "v1",
-                        "mode": "mock",
-                        "inputs": {
-                            "schema": "v1",
-                            "params": {"messages": [{"role": "user", "content": f"concurrent test {i}"}]},
-                        },
-                    },
+            payload = build_ws_payload(
+                ref="llm/litellm@1",
+                execution_id=execution_id,
+                write_prefix=f"/artifacts/outputs/{execution_id}/",
+                mode="mock",
+                inputs={
+                    "schema": "v1",
+                    "params": {"messages": [{"role": "user", "content": f"concurrent test {i}"}]},
                 },
-            }
+            )
 
             uri = f"{ws_url}/run"
             async with websockets.connect(uri, subprotocols=["theory.run.v1"]) as websocket:
@@ -462,20 +363,13 @@ class TestWebSocketDockerIntegration:
         inputs = {"schema": "v1", "params": {"messages": [{"role": "user", "content": "consistency test"}]}}
 
         # Get result via direct WebSocket connection
-        ws_payload = {
-            "kind": "RunOpen",
-            "content": {
-                "role": "client",
-                "execution_id": execution_id_ws,
-                "payload": {
-                    "execution_id": execution_id_ws,
-                    "write_prefix": f"/artifacts/outputs/{execution_id_ws}/",
-                    "schema": "v1",
-                    "mode": "mock",
-                    "inputs": inputs,
-                },
-            },
-        }
+        ws_payload = build_ws_payload(
+            ref="llm/litellm@1",
+            execution_id=execution_id_ws,
+            write_prefix=f"/artifacts/outputs/{execution_id_ws}/",
+            mode="mock",
+            inputs=inputs,
+        )
 
         uri = f"{ws_url}/run"
         ws_envelope = None

@@ -66,8 +66,38 @@ The adapter chooses which image to run or call based on adapter type and the `--
 | modal   | any       | Ignores `--build`; performs SDK lookup of the deployed app/function bound to the pinned digest |
 
 Notes:
-- “Pinned digest” comes from `code/apps/core/processors/<ns>_<name>/registry.yaml` (`image.platforms.{amd64,arm64}` and `default_platform`).
+- "Pinned digest" comes from `code/apps/core/processors/<ns>_<name>/registry.yaml` (`image.platforms.{amd64,arm64}`).
 - Modal deployments must be created by digest; the adapter then looks up the deployed app and can perform a digest drift check.
+
+### Platform Detection & Override
+
+The orchestrator selects the correct platform digest based on adapter type and optional override:
+
+| Adapter | Default Platform | Override Behavior |
+|---------|-----------------|-------------------|
+| local   | Host platform (arm64 on Mac M1/M2, amd64 on x86_64) | `--platform` overrides host detection |
+| modal   | `amd64` (Modal runs x86_64 only) | `--platform` can override if needed |
+
+**Why this matters**:
+- Mac M1/M2 developers run arm64 locally but Modal requires amd64
+- Registry contains separate digests for each platform
+- Digest drift detection fails if platform mismatch occurs
+
+**Platform override example**:
+```bash
+# Force amd64 digest on arm64 Mac (for testing Modal-like behavior locally)
+python manage.py run_processor --ref llm/litellm@1 --adapter local --platform amd64 --json
+```
+
+**Implementation** (`orchestrator_ws.py:81`):
+```python
+def invoke(
+    *,
+    ref: str,
+    platform: str | None = None,  # Override platform for digest selection
+    ...
+) -> Dict[str, Any] | Iterator[Dict[str, Any]]:
+```
 
 ## Selection examples
 

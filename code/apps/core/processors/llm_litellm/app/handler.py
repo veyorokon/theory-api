@@ -5,8 +5,8 @@ from typing import Any, Dict, Callable, Optional
 from .uploader import put_object, ensure_outputs_json
 
 
-# entry(payload, emit) -> envelope
-def entry(payload: Dict[str, Any], emit: Callable[[Dict], None] | None = None) -> Dict[str, Any]:
+# entry(payload, emit, ctrl) -> envelope
+def entry(payload: Dict[str, Any], emit: Callable[[Dict], None] | None = None, ctrl=None) -> Dict[str, Any]:
     execution_id = str(payload.get("execution_id", "")).strip()
     mode = str(payload.get("mode", "mock")).strip()
     write_prefix = str(payload.get("write_prefix", "")).strip()
@@ -20,8 +20,11 @@ def entry(payload: Dict[str, Any], emit: Callable[[Dict], None] | None = None) -
             "error": {"code": "ERR_INPUTS", "message": "missing execution_id"},
             "meta": {},
         }
-    if "{execution_id}" in write_prefix:
-        write_prefix = write_prefix.replace("{execution_id}", execution_id)
+    # Expand execution_id placeholder (support both single and double braces)
+    write_prefix = write_prefix.replace("{{execution_id}}", execution_id).replace("{execution_id}", execution_id)
+    # Ensure trailing slash
+    if not write_prefix.endswith("/"):
+        write_prefix += "/"
 
     params = (inputs or {}).get("params") or {}
     messages = params.get("messages") or []
@@ -34,6 +37,8 @@ def entry(payload: Dict[str, Any], emit: Callable[[Dict], None] | None = None) -
         text = f"Mock response: {messages[-1]['content'][:64] if messages else ''}"
         if emit:
             for chunk in text.split():
+                if ctrl and getattr(ctrl, "is_set", lambda: False)():
+                    break
                 emit({"kind": "Token", "content": {"text": chunk + " "}})
     else:
         api_key = os.getenv("OPENAI_API_KEY")
@@ -50,6 +55,8 @@ def entry(payload: Dict[str, Any], emit: Callable[[Dict], None] | None = None) -
             resp = litellm.completion(model=model, messages=messages, stream=True)
             parts = []
             for ev in resp:
+                if ctrl and getattr(ctrl, "is_set", lambda: False)():
+                    break
                 delta = getattr(ev.choices[0].delta, "content", "") if hasattr(ev.choices[0], "delta") else ""
                 if delta:
                     parts.append(delta)

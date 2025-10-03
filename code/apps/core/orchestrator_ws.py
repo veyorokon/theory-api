@@ -54,7 +54,12 @@ class OrchestratorWS:
       - Enforce digest drift checks and index discipline
     """
 
-    def __init__(self, *, default_bucket: str = "outputs"):
+    def __init__(self, *, default_bucket: str = None):
+        if default_bucket is None:
+            from django.conf import settings
+
+            storage = getattr(settings, "STORAGE", {})
+            default_bucket = storage.get("BUCKET", "outputs")
         self.bucket = default_bucket
 
     # ---------- Public API ----------
@@ -73,6 +78,8 @@ class OrchestratorWS:
         write_prefix: str | None = None,
         world_facet: str = "artifacts",  # usually "artifacts"
         adapter: str = "local",  # "local" | "modal"
+        platform: str
+        | None = None,  # Override platform for digest selection (default: host platform or amd64 for modal)
     ) -> Dict[str, Any] | Iterator[Dict[str, Any]]:
         """
         Returns:
@@ -110,7 +117,7 @@ class OrchestratorWS:
         if build:
             image_ref, expected_digest, target = self._lane_build(ref, reg, adapter)
         else:
-            image_ref, expected_digest, target = self._lane_pinned(ref, reg, adapter)
+            image_ref, expected_digest, target = self._lane_pinned(ref, reg, adapter, platform)
 
         # 4) Prepare presigned PUTs for durability (declared outputs + outputs.json)
         put_urls = self._prepare_put_urls(wprefix, outputs_decl)
@@ -166,11 +173,16 @@ class OrchestratorWS:
         expected_digest = None  # do not enforce registry digest in build lane
         return image_ref, expected_digest, "local"
 
-    def _lane_pinned(self, ref: str, reg: Dict[str, Any], adapter: str) -> Tuple[str, str | None, str]:
+    def _lane_pinned(
+        self, ref: str, reg: Dict[str, Any], adapter: str, platform: str | None = None
+    ) -> Tuple[str, str | None, str]:
         """
         Pinned lane: returns (image_ref_or_base_url, expected_digest, target)
           - For local pinned: use registry digest to select image, target="local"
           - For Modal: return modal base URL + expected_digest, target="modal"
+
+        Args:
+            platform: Override platform for digest selection. If None, defaults to amd64 for modal, host platform for local
         """
         if adapter == "modal":
             # For Modal, we need to resolve the base URL from deployment
@@ -180,7 +192,8 @@ class OrchestratorWS:
                 # Extract expected digest from registry
                 image = reg.get("image") or {}
                 platforms = image.get("platforms") or {}
-                default_platform = self._host_platform()
+                # Modal always runs amd64 unless explicitly overridden
+                default_platform = platform or "amd64"
                 registry_digest = platforms.get(default_platform)
                 expected_digest = _normalize_digest(registry_digest)
 
@@ -200,7 +213,8 @@ class OrchestratorWS:
                 # Extract expected digest from registry
                 image = reg.get("image") or {}
                 platforms = image.get("platforms") or {}
-                default_platform = self._host_platform()
+                # Use provided platform or detect from host
+                default_platform = platform or self._host_platform()
                 registry_digest = platforms.get(default_platform)
                 expected_digest = _normalize_digest(registry_digest)
 
