@@ -211,8 +211,8 @@ STORAGE = {
     },
 }
 
-# Django file storage backend
-DEFAULT_FILE_STORAGE = "apps.storage.backends.VendorNeutralStorage"
+# Note: We use StorageService directly, not Django's file storage backend
+# If Django file fields are needed, configure DEFAULT_FILE_STORAGE appropriately
 
 # Feature flags
 # Modal adapter gating comes from Django settings (not raw env var). Map env→setting here.

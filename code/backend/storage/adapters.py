@@ -203,8 +203,12 @@ class S3Adapter(StorageInterface):
         try:
             self.client.head_object(Bucket=bucket, Key=key)
             return True
-        except:
+        except self.client.exceptions.NoSuchKey:
             return False
+        except Exception as e:
+            # Re-raise non-404 errors (permissions, network, etc.)
+            logger.error(f"S3 file_exists error for {bucket}/{key}: {e}")
+            raise
 
     def list_files(self, bucket: str, prefix: str = "") -> list:
         try:

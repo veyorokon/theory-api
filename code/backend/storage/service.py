@@ -61,10 +61,12 @@ class StorageService:
     def get_file_metadata(self, key, bucket):
         return self.adapter.get_file_metadata(key, bucket)
 
-    def upload_bytes(self, data, key, content_type="application/json", bucket="default", metadata=None):
+    def upload_bytes(self, data, key, content_type="application/json", bucket=None, metadata=None):
         """Upload bytes data as a file. Convenience wrapper around upload_file."""
         import io
+        from django.conf import settings
 
+        bucket = bucket or settings.STORAGE.get("BUCKET")
         return self.upload_file(
             file=io.BytesIO(data), key=key, bucket=bucket, content_type=content_type, metadata=metadata
         )

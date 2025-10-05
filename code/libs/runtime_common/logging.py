@@ -40,14 +40,28 @@ def _ts() -> str:
 def _redact(s: str) -> str:
     """
     Apply central redaction. If redaction helper is unavailable,
-    prefer safety (hide content) over accidental leaks.
+    fall back to pattern-based redaction for common secrets.
     """
     try:
         from libs.runtime_common.redaction import redact_msg  # lazy import
 
         return redact_msg(s)
     except Exception:
-        return "[REDACTED]"
+        # Fallback: selective redaction for common secret patterns
+        import re
+
+        # Patterns for common secrets (case-insensitive)
+        secret_patterns = [
+            (r'(token|key|secret|password|auth|bearer|api[_-]?key)["\s:=]+([^\s"\']+)', r"\1=***"),
+            (r"(sk|pk)[_-][a-zA-Z0-9]{20,}", r"***"),  # API keys like sk_live_...
+            (r"Bearer\s+[a-zA-Z0-9\-._~+/]+=*", "Bearer ***"),  # Bearer tokens
+        ]
+
+        result = s
+        for pattern, replacement in secret_patterns:
+            result = re.sub(pattern, replacement, result, flags=re.IGNORECASE)
+
+        return result
 
 
 def _sample(env_key: str, default: float = 0.0) -> bool:

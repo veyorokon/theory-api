@@ -5,6 +5,7 @@ Thin wrapper over storage_service that enforces WorldPath conventions.
 """
 
 import hashlib
+from django.conf import settings
 
 from .service import storage_service
 from apps.core.predicates.builtins import canon_path_facet_root
@@ -41,7 +42,8 @@ class ArtifactStore:
         canonical_path = canon_path_facet_root(world_path)
 
         # Store via storage service
-        self._service.upload_bytes(data=data, key=canonical_path, content_type=content_type, bucket="default")
+        bucket = settings.STORAGE.get("BUCKET")
+        self._service.upload_bytes(data=data, key=canonical_path, content_type=content_type, bucket=bucket)
 
         return canonical_path
 
@@ -88,7 +90,8 @@ class ArtifactStore:
         canonical_path = canon_path_facet_root(world_path)
 
         # Generate presigned URL
-        return self._service.get_file_url(key=canonical_path, bucket="default", expires_in=ttl_s)
+        bucket = settings.STORAGE.get("BUCKET")
+        return self._service.get_file_url(key=canonical_path, bucket=bucket, expires_in=ttl_s)
 
     def presign_upload(self, world_path: str, ttl_s: int = 3600, content_type: str | None = None) -> str:
         """
@@ -109,8 +112,9 @@ class ArtifactStore:
         canonical_path = canon_path_facet_root(world_path)
 
         # Generate presigned upload URL
+        bucket = settings.STORAGE.get("BUCKET")
         return self._service.get_upload_url(
-            key=canonical_path, bucket="default", expires_in=ttl_s, content_type=content_type
+            key=canonical_path, bucket=bucket, expires_in=ttl_s, content_type=content_type
         )
 
     def exists(self, world_path: str) -> bool:
