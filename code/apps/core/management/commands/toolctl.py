@@ -35,7 +35,12 @@ class Command(BaseCommand):
         # list - list all tools
         p_list = sub.add_parser("list", help="List all tools in database")
         p_list.add_argument("--enabled-only", action="store_true", help="Show only enabled tools")
-        p_list.add_argument("--json", action="store_true", help="Output JSON")
+        p_list.add_argument("--format", choices=["table", "json", "refs"], default="table", help="Output format")
+
+        # get-oci - get OCI digest for a tool+platform from registry.yaml
+        p_get_oci = sub.add_parser("get-oci", help="Get OCI digest for tool+platform from registry.yaml")
+        p_get_oci.add_argument("--ref", required=True, help="Tool ref (e.g., llm/litellm@1)")
+        p_get_oci.add_argument("--platform", default=None, help="Platform (amd64 or arm64, default: auto-detect)")
 
     def handle(self, *args, **opts):
         subcmd = opts["subcmd"]
@@ -48,6 +53,8 @@ class Command(BaseCommand):
             self.handle_disable(opts)
         elif subcmd == "list":
             self.handle_list(opts)
+        elif subcmd == "get-oci":
+            self.handle_get_oci(opts)
 
     def handle_sync(self, opts):
         """Sync tools from registry.yaml to database."""
@@ -209,7 +216,7 @@ class Command(BaseCommand):
     def handle_list(self, opts):
         """List all tools."""
         enabled_only = opts["enabled_only"]
-        json_mode = opts["json"]
+        format_type = opts["format"]
 
         qs = Tool.objects.all()
         if enabled_only:
@@ -217,7 +224,11 @@ class Command(BaseCommand):
 
         tools = list(qs.order_by("ref"))
 
-        if json_mode:
+        if format_type == "refs":
+            # Shell-friendly output: one ref per line
+            for t in tools:
+                sys.stdout.write(f"{t.ref}\n")
+        elif format_type == "json":
             import json
 
             sys.stdout.write(
@@ -240,8 +251,48 @@ class Command(BaseCommand):
                 )
                 + "\n"
             )
-        else:
+        else:  # table
             self.stdout.write(f"Found {len(tools)} tools:\n")
             for t in tools:
                 status = "✓" if t.enabled else "✗"
                 self.stdout.write(f"  {status} {t.ref} ({t.kind})")
+
+    def handle_get_oci(self, opts):
+        """Get OCI digest for a tool+platform from registry.yaml."""
+        import os
+
+        ref = opts["ref"]
+        platform = opts["platform"]
+
+        # Auto-detect platform if not specified
+        if not platform:
+            machine = os.uname().machine
+            if machine == "x86_64":
+                platform = "amd64"
+            elif machine in ("arm64", "aarch64"):
+                platform = "arm64"
+            else:
+                raise CommandError(f"Cannot auto-detect platform from machine type: {machine}")
+
+        try:
+            spec = load_processor_spec(ref)
+        except FileNotFoundError:
+            raise CommandError(f"Tool not found in registry: {ref}")
+        except Exception as e:
+            raise CommandError(f"Failed to load registry for {ref}: {e}")
+
+        image = spec.get("image", {})
+
+        # Check for platform-specific digest first
+        if "platforms" in image:
+            oci = image["platforms"].get(platform)
+            if not oci:
+                raise CommandError(f"No OCI digest for {ref} platform={platform} in registry.yaml")
+        else:
+            # Fallback to single OCI digest (platform-agnostic)
+            oci = image.get("oci")
+            if not oci:
+                raise CommandError(f"No OCI digest for {ref} in registry.yaml")
+
+        # Output just the digest (shell-friendly)
+        sys.stdout.write(f"{oci}\n")

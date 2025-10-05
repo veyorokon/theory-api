@@ -25,15 +25,9 @@ PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 # Test-specific settings
 SECRET_KEY = "test-secret-key-not-for-production-unit-tests"
 
-# Disable migrations for faster test runs
-MIGRATION_MODULES = {
-    "core": None,
-    "storage": None,
-    "plans": None,
-    "ledger": None,
-    "artifacts": None,
-    "runtime": None,
-}
+# Disable migrations for faster test runs (only for apps without FK dependencies)
+# Keep enabled for: agents, worlds, tools, goals, plans, runs (interdependent)
+MIGRATION_MODULES = {}
 
 # Minimal logging for unit tests
 LOGGING = {
