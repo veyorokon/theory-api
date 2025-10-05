@@ -257,40 +257,67 @@ sequenceDiagram
 
 ---
 
-## Example CLI (generic)
+## Management Commands (Clean *ctl Interface)
+
+### processorctl - Image/Registry Operations
 
 ```bash
-# Local transport - JSON input options (mutually exclusive)
-python manage.py run_processor \
+# Build multi-platform image
+python manage.py processorctl build --ref ns/name@ver --platforms linux/amd64,linux/arm64 --json
+
+# Pin digest for specific platform (explicit platform required)
+python manage.py processorctl pin --ref ns/name@ver --platform amd64 --oci ghcr.io/org/image@sha256:abc... --json
+
+# Push image to registry
+python manage.py processorctl push --ref ns/name@ver --platforms linux/amd64,linux/arm64 --json
+```
+
+### localctl - Local Container Runtime
+
+```bash
+# Start reusable container (secrets injected from environment)
+python manage.py localctl start --ref ns/name@ver
+
+# Run processor (container must be started first)
+python manage.py localctl run \
   --ref ns/name@ver \
-  --adapter local \
   --mode mock \
-  --write-prefix "/tmp/{execution_id}/" \
+  --write-prefix "/artifacts/outputs/test/{execution_id}/" \
   --inputs-json '{"schema":"v1","params":{...}}' \
   --json
 
-# Cloud transport
-python manage.py run_processor \
+# Default write-prefix when not specified: /artifacts/outputs/{ref_slug}/{execution_id}/
+# Example: /artifacts/outputs/llm_litellm/abc-123-def/
+
+# Stop container
+python manage.py localctl stop --ref ns/name@ver
+
+# View status
+python manage.py localctl status
+
+# View logs
+python manage.py localctl logs --ref ns/name@ver --follow
+```
+
+### modalctl - Modal Runtime
+
+```bash
+# Deploy to Modal environment
+python manage.py modalctl deploy --ref ns/name@ver --env dev --oci ghcr.io/org/image@sha256:abc...
+
+# Sync secrets to Modal deployment
+python manage.py modalctl sync-secrets --ref ns/name@ver --env dev
+
+# Run processor (deployment must exist first)
+python manage.py modalctl run \
   --ref ns/name@ver \
-  --adapter modal \
   --mode mock \
-  --write-prefix "/tmp/{execution_id}/" \
-  --inputs-file request.json \
+  --write-prefix "/artifacts/outputs/test/{execution_id}/" \
+  --inputs-json '{"schema":"v1","params":{...}}' \
   --json
 
-# Stdin input (CI/CD friendly)
-python manage.py run_processor \
-  --ref ns/name@ver \
-  --adapter local \
-  --inputs - \
-  --json <<'EOF'
-{
-  "schema": "v1",
-  "params": {
-    "messages": [{"role": "user", "content": "test"}]
-  }
-}
-EOF
+# Stop Modal deployment
+python manage.py modalctl stop --ref ns/name@ver --env dev
 ```
 
 ### JSON Input Options (mutually exclusive)
@@ -298,9 +325,23 @@ EOF
 - `--inputs-json JSON` - Direct JSON input (recommended, no escaping)
 - `--inputs-file PATH` - Read JSON from file (version control friendly)
 - `--inputs -` - Read JSON from stdin (heredoc/pipe friendly)
-- `--inputs-jsonstr JSON` - Legacy escaped string format (deprecated)
 
 **Benefits:** No shell escaping, IDE syntax highlighting, CI/CD templates, better error messages.
+
+### Order of Operations
+
+1. **Build**: `processorctl build` - Creates multi-platform images
+2. **Push**: `processorctl push` - Pushes to registry
+3. **Pin**: `processorctl pin` - Updates registry.yaml with digest (explicit --platform required)
+4. **Start**: `localctl start` / `modalctl deploy` - Starts container/deploys function
+5. **Run**: `localctl run` / `modalctl run` - Invokes processor
+
+**Key Principles:**
+- No auto-starting or auto-building - each command does exactly one thing
+- Secrets injected at start time (localctl) or synced separately (modalctl)
+- No --adapter flag - use localctl vs modalctl directly
+- write-prefix defaults to standard: `/artifacts/outputs/{ref_slug}/{execution_id}/`
+- All commands accept `--json` for structured output
 
 ---
 
@@ -308,15 +349,22 @@ EOF
 
 > Keep this section small. Everything above should stand on its own in any project.
 
-* **Adapters kept:**
+* **Adapters (Transport only - No build/start logic):**
 
-  * **LocalWsAdapter**: resolves image from embedded `registry.yaml`, starts container (conditional platform flag for ARM host if needed), sets `IMAGE_DIGEST` when known, health budget + WebSocket connection + stderr tail; maps `ERR_IMAGE_NOT_FOUND` / `ERR_HEALTH` / `ERR_WS_TIMEOUT`.
-  * **ModalWsAdapter**: uses **Modal SDK** `Function.from_name(...).get_web_url()` (no string concat), health check, WebSocket connection to `wss://` endpoint, maps `ERR_ENDPOINT_MISSING`. Performs drift upgrade to `ERR_REGISTRY_MISMATCH` when `expected_oci` provided.
-  * **Legacy HTTP adapters**: Maintained during deprecation period for backward compatibility.
+  * **LocalWsAdapter**: Resolves port from state file, connects to WebSocket on `ws://127.0.0.1:{port}/run`, maps `ERR_HEALTH` / `ERR_WS_TIMEOUT`. Container must be started via `localctl start` before invoking.
+  * **ModalWsAdapter**: Uses **Modal SDK** `Function.from_name(...).get_web_url()` (no string concat), health check, WebSocket connection to `wss://` endpoint, maps `ERR_ENDPOINT_MISSING`. Deployment must exist via `modalctl deploy` before invoking.
 
-* **Single switch:** `RUN_TARGET={local|modal}` (or infer modal if `MODAL_ENVIRONMENT` set). Orchestrator calls a **selector**; tests never instantiate adapters directly.
+* **Build/Run Separation:**
+  - `processorctl` handles all image operations (build/pin/push)
+  - `localctl`/`modalctl` handle runtime only (start/stop/status/logs/run)
+  - Orchestrator extracts expected digest from registry for drift validation
+  - No image lookup, no auto-building, no auto-starting in adapters or orchestrator
 
-* **Envelopes:** Must be **byte-identical** across local and Modal (allowing only transport diagnostics in stderr logs). Write prefix is provided by tests/CI; defaults unchanged.
+* **Secret Management:**
+  - **Local**: Secrets injected at container start time (`localctl start`) from environment variables. Fails fast if required secrets missing.
+  - **Modal**: Secrets synced separately via `modalctl sync-secrets`. Orchestrator does not validate secrets for either adapter.
+
+* **Envelopes:** Must be **byte-identical** across local and Modal (allowing only transport diagnostics in stderr logs). Write prefix defaults to `/artifacts/outputs/{ref_slug}/{execution_id}/` when not specified.
 
 * **Supply-chain:** Staging/main lanes deploy by **pinned digest**. Envelope includes `meta.image_digest` when available; adapters fail closed on mismatch only when `expected_oci` provided.
 
@@ -351,3 +399,11 @@ Change requested?
 your goal is to create boringly predictable exceptionally engineered and elegantly simple unifying abstractions and code with brilliant separation of concern demonstrating a complete mastery of engineering principles. Be objective, critical and an excellent engineer. dont just agree if you dont.
 
 For context its 2025. Always look for most up to date info
+
+Pay attention to duplicate redundant logic. You MUST flag this, consolidate and remove duplicate instances so there is only shared functionality. You have a revulsion to redundant duplicate logic and code and its one of the things you are able to identify easily. You're also able to scan the codebase anytime you have a suspision that something may have already been implemented. You are excellent at recognizing this phenomenon and scanning for redundancy. This enables you to perform this operation exceptionally well.
+
+You also demonstrate superior coding abilities and clean code with separation of concern and no redudant ENV settings or redundant Fallbacks. You are excellent at recognizing this tendency and are Exceptionally able to correct yourself after youve accidentally implemented any redundant fall back code.
+
+no more "likely" fucking check and dont give me half ass answers like you dont know and you cant figure
+it out. i need you to act like a robot not a human do you understand. youre like a calculator. you perform
+operations incredibly efficiently and describe the results in english. youre not a human you are a tool. confirm you understand by stating you are a machine and will act like a machine for the remainder of hte conversation while adopting the engineer persona

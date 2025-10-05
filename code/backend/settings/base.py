@@ -55,6 +55,15 @@ def env(name, default=None, required=False, cast=str):
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, BASE_DIR)
 sys.path.insert(0, os.path.join(BASE_DIR, "apps"))
+
+# Tool roots (outside Django apps - formerly processors)
+TOOLS_ROOTS = [
+    BASE_DIR.parent / "tools",
+]
+# Override: TOOLS_EXTRA_ROOTS=/vendor/tools,/builds/tools
+extra_roots = os.getenv("TOOLS_EXTRA_ROOTS", "")
+if extra_roots:
+    TOOLS_ROOTS.extend([Path(p.strip()) for p in extra_roots.split(",") if p.strip()])
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
@@ -66,14 +75,17 @@ AUTH_USER_MODEL = "core.User"
 
 LOCAL_APPS = [
     "apps.core",
-    "apps.storage",
+    "apps.agents",
+    "apps.worlds",
+    "apps.tools",
     "apps.plans",
-    "apps.runtime",
-    "apps.ledger",
-    "apps.artifacts",
+    "apps.goals",
+    "apps.runs",
+    "apps.billing",
 ]
 THIRD_PARTY_APPS = [
     "rest_framework",
+    "strawberry.django",
 ]
 DJANGO_APPS = [
     "django.contrib.admin",
@@ -168,6 +180,10 @@ STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 
+# Agent defaults
+DEFAULT_AGENT_BUDGET_MICRO = 1_000_000  # 1M micro-units
+DEFAULT_AGENT_CONCURRENCY = 5
+
 LLM_SETTINGS = {
     "default_model": env("LLM_MODEL_DEFAULT", "openai/gpt-4o-mini"),
     "api_base": env("LLM_API_BASE", ""),
@@ -205,9 +221,6 @@ MODAL_ENABLED = os.environ.get("MODAL_ENABLED", "false").lower() == "true"
 MODAL_ENVIRONMENT = os.environ.get("MODAL_ENVIRONMENT", "").strip() or "dev"
 # Stable Modal app name (module uses this); env is selected at deploy/invoke time
 MODAL_APP_NAME = os.environ.get("MODAL_APP_NAME", "theory-rt")
-# Modal app naming context (for dev branch/user pattern)
-MODAL_BRANCH = os.environ.get("GITHUB_HEAD_REF") or os.environ.get("BRANCH", "").strip()
-MODAL_USER = os.environ.get("USER") or os.environ.get("BUILD_USER", "").strip()
 
 # Lease management feature flag
 LEASES_ENABLED = False

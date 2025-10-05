@@ -28,10 +28,12 @@ Processor execution generates canonical outputs in a standardized envelope forma
 ## CLI Access
 
 ```bash
-# Get canonical outputs in mock mode (no Docker)
-python manage.py run_processor \
+# Start local container
+OPENAI_API_KEY=$OPENAI_API_KEY python manage.py localctl start --ref llm/litellm@1
+
+# Get canonical outputs in mock mode
+python manage.py localctl run \
   --ref llm/litellm@1 \
-  --adapter local \
   --mode mock \
   --inputs-json '{"schema":"v1","params":{"messages":[{"role":"user","content":"Hello"}]}}' \
   --json

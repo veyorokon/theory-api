@@ -56,7 +56,7 @@ def _get_newest_build_tag(ref: str) -> str:
             text=True,
         )
     except Exception:
-        raise ValueError(f"No local build images found. Run: make build-processor REF={ref}")
+        raise ValueError(f"No local build images found. Run: make build-tool REF={ref}")
 
     candidates = []
     for line in out.splitlines():
@@ -79,23 +79,17 @@ def _get_newest_build_tag(ref: str) -> str:
 
 
 def _load_registry_for_ref(ref: str) -> Dict[str, Any]:
-    """Load registry.yaml for a processor ref - compatibility wrapper."""
+    """Load registry.yaml for a tool ref - compatibility wrapper."""
     from apps.core.registry.loader import load_processor_spec
 
     return load_processor_spec(ref)
 
 
 def _registry_path(ref: str) -> Path:
-    """Get registry.yaml path for a processor ref."""
-    try:
-        ns, rest = ref.split("/", 1)
-        name, _ver = rest.split("@", 1)
-    except ValueError as e:
-        raise FileNotFoundError(f"invalid ref '{ref}', expected ns/name@ver") from e
+    """Get registry.yaml path for a tool ref."""
+    from apps.core.registry.loader import _registry_yaml_path_for_ref
 
-    # .../code/apps/core/utils/adapters.py -> .../code
-    root = Path(__file__).resolve().parents[3]
-    return root / "apps" / "core" / "processors" / f"{ns}_{name}" / "registry.yaml"
+    return _registry_yaml_path_for_ref(ref)
 
 
 def _get_modal_web_url(app_name: str, function_name: str = "fastapi_app") -> str:

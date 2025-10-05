@@ -174,12 +174,19 @@ The canonicalization system returns specific error codes:
 
 ### CLI Commands
 
-The `run_processor` command validates write prefixes:
+The `localctl` and `modalctl` commands validate write prefixes:
 
 ```bash
-python manage.py run_processor \
+# Local execution
+python manage.py localctl run \
   --ref llm/litellm@1 \
   --write-prefix /artifacts/outputs/text/ \  # Must end with /
+  --inputs-json '{"messages":[{"role":"user","content":"Hello"}]}'
+
+# Modal execution
+python manage.py modalctl run \
+  --ref llm/litellm@1 \
+  --write-prefix /artifacts/outputs/text/ \
   --inputs-json '{"messages":[{"role":"user","content":"Hello"}]}'
 ```
 

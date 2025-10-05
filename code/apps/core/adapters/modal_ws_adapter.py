@@ -7,10 +7,10 @@ from .base_ws_adapter import BaseWsAdapter, WsError
 
 class ModalWsAdapter(BaseWsAdapter):
     """
-    WebSocket adapter for Modal-deployed processors.
+    WebSocket adapter for Modal-deployed tools.
     Control plane must resolve the deployed base URL and digest.
       oci:
-        - base_url: "https://your-processor.modal.run" (no trailing slash)
+        - base_url: "https://your-tool.modal.run" (no trailing slash)
         - expected_digest: "sha256:..."
         - headers: {"Authorization": "Bearer <ticket>"}  # short-lived run ticket (optional but recommended)
     """

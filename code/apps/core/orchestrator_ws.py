@@ -12,7 +12,7 @@ from apps.core.adapters.local_ws_adapter import LocalWsAdapter
 from apps.core.adapters.modal_ws_adapter import ModalWsAdapter
 
 # Existing services
-from apps.storage.service import storage_service
+from backend.storage.service import storage_service
 from apps.core.registry.loader import load_processor_spec
 from apps.core.utils.adapters import _get_newest_build_tag, _load_registry_for_ref
 
@@ -44,14 +44,16 @@ class OrchestratorWsError(RuntimeError):
 
 class OrchestratorWS:
     """
-    WebSocket orchestrator for processors.
+    WebSocket orchestrator for tools.
 
     Responsibilities:
       - Resolve ref -> registry entry
-      - Choose lane: --build=true (local built image) vs --build=false (pinned digest)
+      - Resolve image digest from registry
       - Prepare write_prefix and presigned PUT URLs for declared outputs + outputs.json
       - Open WS (Local or Modal adapter), send RunInvoke, stream live events or return final envelope
       - Enforce digest drift checks and index discipline
+
+    Note: Containers must be started/deployed before invoking (use localctl/modalctl start).
     """
 
     def __init__(self, *, default_bucket: str = None):
@@ -70,7 +72,6 @@ class OrchestratorWS:
         ref: str,  # ns/name@ver
         mode: str,  # "mock" | "real"
         inputs: Dict[str, Any],
-        build: bool,  # True => build lane; False => pinned lane
         stream: bool,  # True => iterator of events; False => final envelope
         settle: str = "fast",
         timeout_s: int = 600,
@@ -80,7 +81,6 @@ class OrchestratorWS:
         adapter: str = "local",  # "local" | "modal"
         platform: str
         | None = None,  # Override platform for digest selection (default: host platform or amd64 for modal)
-        reuse_container: bool = False,  # True => reuse container (integration tests)
     ) -> Dict[str, Any] | Iterator[Dict[str, Any]]:
         """
         Returns:
@@ -91,9 +91,9 @@ class OrchestratorWS:
         try:
             reg = load_processor_spec(ref)  # must include image digests, outputs list, api info
         except FileNotFoundError:
-            raise OrchestratorWsError(f"Unknown processor ref: {ref}")
+            raise OrchestratorWsError(f"Unknown tool ref: {ref}")
 
-        # All processors now use WebSocket protocol (standardized)
+        # All tools now use WebSocket protocol (standardized)
 
         outputs_decl = reg.get("outputs") or []
         # 2) Compute execution + prefix
@@ -117,28 +117,16 @@ class OrchestratorWS:
         # Guard against outputs duplication
         assert not wprefix.rstrip("/").endswith("/outputs"), f"write_prefix must not contain '/outputs': {wprefix}"
 
-        # 3) Choose lane: build vs pinned, and target adapter
-        if build:
-            image_ref, expected_digest, target = self._lane_build(ref, reg, adapter)
-        else:
-            image_ref, expected_digest, target = self._lane_pinned(ref, reg, adapter, platform)
+        # 3) Extract expected digest from registry (for drift validation)
+        expected_digest = self._get_expected_digest(reg, adapter, platform)
 
         # 4) Prepare presigned PUTs for durability (declared outputs + outputs.json)
         put_urls = self._prepare_put_urls(wprefix, outputs_decl)
 
-        # 5) Resolve required secrets based on mode
-        required_secrets = (reg.get("secrets") or {}).get("required", [])
-        env = {}
-        if mode == "real":
-            from apps.core.integrations.secret_resolver import resolve_secret
-
-            for secret_name in required_secrets:
-                secret_value = resolve_secret(secret_name)
-                if not secret_value:
-                    raise OrchestratorWsError(f"Missing required secret: {secret_name}")
-                env[secret_name] = secret_value
-
-        # 6) Construct payload (same shape as your HTTP body, plus put_urls)
+        # 5) Construct payload (same shape as your HTTP body, plus put_urls)
+        # Note: Secrets are managed separately:
+        #   - local: injected by localctl start
+        #   - modal: synced by modalctl sync-secrets
         payload = {
             "execution_id": eid,
             "mode": mode,
@@ -148,83 +136,45 @@ class OrchestratorWS:
             "settle": settle,
         }
 
-        # 7) Pick adapter (local vs modal)
-        adapter, oci = self._pick_adapter(target, image_ref, expected_digest, reg, env, reuse_container)
+        # 6) Pick adapter (local vs modal)
+        adapter_instance, oci = self._pick_adapter(adapter, expected_digest, ref, reg)
 
         # 7) Invoke over WS
-        info("invoke.ws.start", ref=ref, target=target, build=build, eid=eid, write_prefix=wprefix)
+        info("invoke.ws.start", ref=ref, adapter=adapter, eid=eid, write_prefix=wprefix)
         if stream:
             # Streaming iterator (yield events and final RunResult)
-            return adapter.invoke(ref, payload, timeout_s, oci, stream=True)
+            return adapter_instance.invoke(ref, payload, timeout_s, oci, stream=True)
         else:
             # Final envelope only
-            env = adapter.invoke(ref, payload, timeout_s, oci, stream=False)
+            env = adapter_instance.invoke(ref, payload, timeout_s, oci, stream=False)
             info("invoke.ws.settle", ref=ref, status=env.get("status"), eid=eid)
             return env
 
-    # ---------- Lanes ----------
+    # ---------- Digest resolution ----------
 
-    def _lane_build(self, ref: str, reg: Dict[str, Any], adapter: str) -> Tuple[str, str | None, str]:
+    def _get_expected_digest(self, reg: Dict[str, Any], adapter: str, platform: str | None = None) -> str | None:
         """
-        Build-from-source lane: returns (image_ref, expected_digest, target)
-          - For local: image_ref is local built tag, target="local"
-          - For modal: not supported in build lane, should fail
-        """
-        if adapter == "modal":
-            raise OrchestratorWsError("Modal adapter does not support build lane. Use --build=false for pinned lane.")
-
-        image_ref = _get_newest_build_tag(ref)  # should return the built tag
-        expected_digest = None  # do not enforce registry digest in build lane
-        return image_ref, expected_digest, "local"
-
-    def _lane_pinned(
-        self, ref: str, reg: Dict[str, Any], adapter: str, platform: str | None = None
-    ) -> Tuple[str, str | None, str]:
-        """
-        Pinned lane: returns (image_ref_or_base_url, expected_digest, target)
-          - For local pinned: use registry digest to select image, target="local"
-          - For Modal: return modal base URL + expected_digest, target="modal"
+        Extract expected digest from registry for drift validation.
 
         Args:
             platform: Override platform for digest selection. If None, defaults to amd64 for modal, host platform for local
+
+        Returns:
+            sha256:... digest if found in registry, None otherwise (skips drift check)
         """
+        from apps.core.utils.adapters import _normalize_digest
+
+        image = reg.get("image") or {}
+        platforms = image.get("platforms") or {}
+
+        # Modal always runs amd64 unless explicitly overridden, local uses host platform
         if adapter == "modal":
-            # For Modal, we need to resolve the base URL from deployment
-            try:
-                from apps.core.utils.adapters import _normalize_digest
-
-                # Extract expected digest from registry
-                image = reg.get("image") or {}
-                platforms = image.get("platforms") or {}
-                # Modal always runs amd64 unless explicitly overridden
-                default_platform = platform or "amd64"
-                registry_digest = platforms.get(default_platform)
-                expected_digest = _normalize_digest(registry_digest)
-
-                # Resolve Modal base URL from deployed app
-                base_url = self._resolve_modal_base_url(ref)
-
-                return base_url, expected_digest, "modal"
-            except Exception as e:
-                raise OrchestratorWsError(f"Could not resolve Modal deployment for {ref}: {e}")
+            default_platform = platform or "amd64"
         else:
-            # Local pinned lane with registry digest
-            try:
-                from apps.core.utils.adapters import _get_newest_build_tag, _normalize_digest
+            default_platform = platform or self._host_platform()
 
-                image_ref = _get_newest_build_tag(ref)
-
-                # Extract expected digest from registry
-                image = reg.get("image") or {}
-                platforms = image.get("platforms") or {}
-                # Use provided platform or detect from host
-                default_platform = platform or self._host_platform()
-                registry_digest = platforms.get(default_platform)
-                expected_digest = _normalize_digest(registry_digest)
-
-                return image_ref, expected_digest, "local"
-            except Exception as e:
-                raise OrchestratorWsError(f"Could not resolve pinned image for {ref}: {e}")
+        registry_digest = platforms.get(default_platform)
+        return _normalize_digest(registry_digest)
 
     # ---------- Presigned PUT helpers ----------
 
@@ -233,7 +183,7 @@ class OrchestratorWS:
         Produce presigned PUT URLs for:
           - outputs.json (index, always at write_prefix/outputs.json)
           - each declared output path (relative to outputs/)
-        Keys in the dict are OBJECT KEYS relative to bucket root, matching what the processor will write.
+        Keys in the dict are OBJECT KEYS relative to bucket root, matching what the tool will write.
         """
         put_urls: Dict[str, str] = {}
         # Index last
@@ -273,45 +223,47 @@ class OrchestratorWS:
 
     def _pick_adapter(
         self,
-        target: str,
-        image_ref_or_base: str,
+        adapter: str,
         expected_digest: str | None,
+        ref: str,
         reg: Dict[str, Any],
-        env: Dict[str, str],
-        reuse_container: bool = False,
     ):
         """
         Returns (adapter_instance, oci_dict)
+
+        Note: Containers must already be running (localctl start) or deployed (modalctl start).
         """
-        if target == "local":
 
-            def log_fn(event: str, **fields):
-                info(event, **fields)
+        def log_fn(event: str, **fields):
+            info(event, **fields)
 
-            adapter = LocalWsAdapter(logger=log_fn, reuse=reuse_container)
-
+        if adapter == "local":
+            adapter_instance = LocalWsAdapter(logger=log_fn)
             oci = {
-                "image_ref": image_ref_or_base,
                 "expected_digest": expected_digest,
-                "env": env,  # Include resolved secrets
+                # Note: Container must be started via localctl before invoking
             }
-            return adapter, oci
-        elif target == "modal":
+            return adapter_instance, oci
 
-            def log_fn(event: str, **fields):
-                info(event, **fields)
+        elif adapter == "modal":
+            # Resolve Modal deployment base URL
+            try:
+                base_url = self._resolve_modal_base_url(ref)
+            except Exception as e:
+                raise OrchestratorWsError(f"Could not resolve Modal deployment for {ref}: {e}")
 
-            adapter = ModalWsAdapter(logger=log_fn)
+            adapter_instance = ModalWsAdapter(logger=log_fn)
             headers = {}
             # Skip ticket service for now - not implemented yet
             oci = {
-                "base_url": image_ref_or_base,  # modal base
+                "base_url": base_url,
                 "expected_digest": expected_digest,
                 "headers": headers,
             }
-            return adapter, oci
+            return adapter_instance, oci
+
         else:
-            raise OrchestratorWsError(f"Unknown target: {target}")
+            raise OrchestratorWsError(f"Unknown adapter: {adapter}")
 
     # ---------- Utilities ----------
 
@@ -322,15 +274,15 @@ class OrchestratorWS:
         return "arm64" if platform.machine().lower() in ("arm64", "aarch64") else "amd64"
 
     def _resolve_modal_base_url(self, ref: str) -> str:
-        """Resolve Modal deployment web URL for a processor ref."""
-        from apps.core.management.commands._modal_common import modal_app_name, _guess_user, _guess_branch
+        """Resolve Modal deployment web URL for a tool ref."""
+        from apps.core.management.commands._modal_common import modal_app_name
         from apps.core.utils.adapters import _get_modal_web_url
         from django.conf import settings
 
-        # Get Modal context from Django settings or environment
+        # Get Modal context from Django settings (required, no fallbacks)
         env = getattr(settings, "MODAL_ENVIRONMENT", "dev")
-        user = getattr(settings, "MODAL_USER", None) or _guess_user()
-        branch = getattr(settings, "MODAL_BRANCH", None) or _guess_branch()
+        user = getattr(settings, "GIT_USER", None)
+        branch = getattr(settings, "GIT_BRANCH", None)
 
         # Generate the canonical app name
         if env == "dev":

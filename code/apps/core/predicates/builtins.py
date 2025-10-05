@@ -86,7 +86,7 @@ def artifact_read_json(path: str) -> Dict[str, Any] | None:
     Returns:
         Parsed JSON dict or None if not found/invalid
     """
-    from apps.storage.service import storage_service
+    from backend.storage.service import storage_service
 
     try:
         # Use storage service (not direct filesystem)
@@ -135,7 +135,7 @@ def artifact_exists(path: str) -> bool:
     Returns:
         True if artifact exists, False otherwise
     """
-    from apps.storage.service import storage_service
+    from backend.storage.service import storage_service
 
     try:
         # Canonicalize path

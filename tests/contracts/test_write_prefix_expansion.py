@@ -6,8 +6,12 @@ import os
 import pytest
 import websockets
 
-from tests.tools.docker_fixtures import processor_container
 from tests.helpers import build_ws_payload
+from tests.tools.localctl_helpers import get_ws_url
+
+
+# Container started by Makefile via `localctl start --ref llm/litellm@1`
+WS_URL = get_ws_url("llm/litellm@1").replace("/run", "")  # Base URL without /run
 
 
 @pytest.mark.contracts
@@ -69,70 +73,70 @@ class TestWritePrefixExpansion:
         assert index_path.startswith(expected_prefix), f"{index_path} !startswith {expected_prefix}"
         assert "{{execution_id}}" not in index_path
 
-    def test_basic_expansion(self, processor_container, mock_image_digest):
+    def test_basic_expansion(self, mock_image_digest):
         execution_id = "wp-basic-001"
         write_prefix = "/artifacts/outputs/{{execution_id}}/"
 
         async def run():
-            return await self._ws_invoke(processor_container["ws_url"], execution_id, write_prefix)
+            return await self._ws_invoke(WS_URL, execution_id, write_prefix)
 
         env = asyncio.run(run())
         expected = f"/artifacts/outputs/{execution_id}/"
         self._assert_expanded(env, expected)
 
-    def test_multiple_placeholders(self, processor_container, mock_image_digest):
+    def test_multiple_placeholders(self, mock_image_digest):
         execution_id = "wp-multi-002"
         # Appears twice; both must expand
         write_prefix = "/artifacts/{{execution_id}}/nested/{{execution_id}}/"
 
         async def run():
-            return await self._ws_invoke(processor_container["ws_url"], execution_id, write_prefix)
+            return await self._ws_invoke(WS_URL, execution_id, write_prefix)
 
         env = asyncio.run(run())
         expected = f"/artifacts/{execution_id}/nested/{execution_id}/"
         self._assert_expanded(env, expected)
 
-    def test_case_sensitivity(self, processor_container, mock_image_digest):
+    def test_case_sensitivity(self, mock_image_digest):
         execution_id = "CaseSensitive-XYZ"
         write_prefix = "/artifacts/cs/{{execution_id}}/out/"
 
         async def run():
-            return await self._ws_invoke(processor_container["ws_url"], execution_id, write_prefix)
+            return await self._ws_invoke(WS_URL, execution_id, write_prefix)
 
         env = asyncio.run(run())
         expected = f"/artifacts/cs/{execution_id}/out/"
         self._assert_expanded(env, expected)
 
-    def test_special_characters(self, processor_container, mock_image_digest):
+    def test_special_characters(self, mock_image_digest):
         execution_id = "test-123_456.789"
         write_prefix = "/artifacts/sp/{{execution_id}}/"
 
         async def run():
-            return await self._ws_invoke(processor_container["ws_url"], execution_id, write_prefix)
+            return await self._ws_invoke(WS_URL, execution_id, write_prefix)
 
         env = asyncio.run(run())
         expected = f"/artifacts/sp/{execution_id}/"
         self._assert_expanded(env, expected)
 
-    def test_trailing_slash_normalization(self, processor_container, mock_image_digest):
+    def test_trailing_slash_normalization(self, mock_image_digest):
         execution_id = "wp-slash-003"
         # No trailing slash; handler should normalize to include one
         write_prefix = "/artifacts/trail/{{execution_id}}"
 
         async def run():
-            return await self._ws_invoke(processor_container["ws_url"], execution_id, write_prefix)
+            return await self._ws_invoke(WS_URL, execution_id, write_prefix)
 
         env = asyncio.run(run())
         expected = f"/artifacts/trail/{execution_id}/"
         self._assert_expanded(env, expected)
 
-    def test_static_prefix_allowed(self, processor_container, mock_image_digest):
+    def test_static_prefix_allowed(self, mock_image_digest):
         execution_id = "wp-static-004"
         # No placeholder: allowed; nothing to expand
         static_prefix = "/artifacts/static/output/path/"
 
         async def run():
-            return await self._ws_invoke(processor_container["ws_url"], execution_id, static_prefix)
+            return await self._ws_invoke(WS_URL, execution_id, static_prefix)
 
         env = asyncio.run(run())
         # Even with a static prefix, outputs/index must live under that prefix
@@ -140,13 +144,13 @@ class TestWritePrefixExpansion:
             assert out["path"].startswith(static_prefix)
         assert env.get("index_path", "").startswith(static_prefix)
 
-    def test_consistency_across_all_artifacts(self, processor_container, mock_image_digest):
+    def test_consistency_across_all_artifacts(self, mock_image_digest):
         execution_id = "wp-consistent-005"
         # One placeholder, nested path
         write_prefix = "/artifacts/consistent/{{execution_id}}/test/"
 
         async def run():
-            return await self._ws_invoke(processor_container["ws_url"], execution_id, write_prefix)
+            return await self._ws_invoke(WS_URL, execution_id, write_prefix)
 
         env = asyncio.run(run())
         expected = f"/artifacts/consistent/{execution_id}/test/"

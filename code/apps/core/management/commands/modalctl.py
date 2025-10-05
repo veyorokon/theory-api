@@ -10,12 +10,17 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import uuid
 from pathlib import Path
 from typing import Dict, List, Tuple
 
 import yaml
-from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
+from django.conf import settings
+
+from apps.core.utils import run_utils
+from libs.runtime_common import logging as core_logging
+from libs.runtime_common.envelope import resolve_mode, ModeSafetyError
 
 # --- Helpers ---------------------------------------------------------------
 
@@ -71,43 +76,35 @@ def _digest_like(s: str) -> bool:
 
 
 def _load_registry_for_ref(ref: str) -> dict:
-    """
-    Resolve registry.yaml path from ref (ns/name@ver) to:
-    code/apps/core/processors/{ns}_{name}/registry.yaml
-    """
-    try:
-        ns, rest = ref.split("/", 1)
-        name, _ver = rest.split("@", 1)
-    except ValueError as e:
-        raise CommandError(f"Invalid ref '{ref}'. Expected ns/name@ver") from e
+    """Load registry.yaml using TOOLS_ROOTS from settings."""
+    from apps.core.registry.loader import load_processor_spec
 
-    root = Path(__file__).resolve().parents[4]  # .../code/
-    reg_path = root / "apps" / "core" / "processors" / f"{ns}_{name}" / "registry.yaml"
-    if not reg_path.exists():
-        raise CommandError(f"registry.yaml not found for ref '{ref}' at {reg_path}")
     try:
-        import yaml  # type: ignore
-    except Exception as e:
-        raise CommandError("PyYAML is required. Install with: pip install pyyaml") from e
-    with reg_path.open("r") as f:
-        return yaml.safe_load(f) or {}
+        return load_processor_spec(ref)
+    except FileNotFoundError as e:
+        raise CommandError(str(e)) from e
 
 
 # --- Sync-secrets helpers --------------------------------------------------
 
 
-def _processor_dir(ref: str) -> Path:
-    """Map ns/name@ver -> apps/core/processors/ns_name"""
+def _tool_dir(ref: str) -> Path:
+    """Map ns/name@ver -> <TOOLS_ROOT>/ns/name/ver"""
+    from django.conf import settings
+
     try:
-        ns_name, _ver = ref.split("@", 1)
-        ns, name = ns_name.split("/", 1)
+        ns, rest = ref.split("/", 1)
+        name, ver = rest.split("@", 1)
     except ValueError:
         raise CommandError("Invalid --ref. Expected format: ns/name@ver")
 
-    root = Path(__file__).resolve().parents[3]  # /code
-    pdir = root / "apps" / "core" / "processors" / f"{ns}_{name}"
+    roots = getattr(settings, "TOOLS_ROOTS", [])
+    if not roots:
+        raise CommandError("TOOLS_ROOTS not configured in settings")
+
+    pdir = roots[0] / ns / name / ver
     if not pdir.exists():
-        raise CommandError(f"Processor directory not found: {pdir}")
+        raise CommandError(f"Tool directory not found: {pdir}")
     return pdir
 
 
@@ -195,18 +192,18 @@ def _script_upsert_single_secret() -> str:
 # --- Subcommand implementations --------------------------------------------
 
 
-def cmd_deploy(args: argparse.Namespace) -> None:
+def cmd_start(args: argparse.Namespace) -> None:
     ref = _require(args.ref, "--ref is required (ns/name@ver)")
-    env = _require(args.env, "--env is required (dev|staging|main)")
     oci = _require(args.oci, "--oci is required (ghcr.io/...@sha256:...)")
     if not _digest_like(oci):
         raise CommandError("Expected --oci in digest form: ghcr.io/owner/repo@sha256:...")
 
+    env = settings.MODAL_ENVIRONMENT
     app_name = _modal_app_name(
         ref=ref,
         env=env,
-        branch=getattr(settings, "MODAL_BRANCH", None),
-        user=getattr(settings, "MODAL_USER", None),
+        branch=getattr(settings, "GIT_BRANCH", None),
+        user=getattr(settings, "GIT_USER", None),
     )
 
     src = _script_deploy(app_name, oci)
@@ -218,55 +215,32 @@ def cmd_deploy(args: argparse.Namespace) -> None:
     print(json.dumps({"status": "success", "app_name": app_name, "oci": oci, "env": env}))
 
 
-def cmd_verify_digest(args: argparse.Namespace) -> None:
+def cmd_stop(args: argparse.Namespace) -> None:
     ref = _require(args.ref, "--ref is required")
-    env = _require(args.env, "--env is required")
-    expected = _require(args.oci, "--oci is required")
 
+    env = settings.MODAL_ENVIRONMENT
     app_name = _modal_app_name(
         ref=ref,
         env=env,
-        branch=getattr(settings, "MODAL_BRANCH", None),
-        user=getattr(settings, "MODAL_USER", None),
+        branch=getattr(settings, "GIT_BRANCH", None),
+        user=getattr(settings, "GIT_USER", None),
     )
 
-    src = _script_status_json(app_name)
-    path = _write_temp_modal_script(src)
-
     _ensure_modal_cli()
-    proc = _run([sys.executable, str(path)], check=True)
-    try:
-        data = json.loads(proc.stdout.strip().splitlines()[-1])
-    except Exception as e:
-        raise CommandError(f"Could not parse status JSON:\n{proc.stdout}") from e
+    _run(["modal", "app", "stop", app_name, "--env", env])
 
-    bound = None
-    for f in data.get("functions", []):
-        if f.get("name") in ("http", "run", "default"):
-            bound = f.get("image_ref") or bound
-
-    ok = bound and expected in str(bound)
-    result = {
-        "app_name": app_name,
-        "env": env,
-        "expected_oci": expected,
-        "bound_ref": bound or "",
-        "match": bool(ok),
-    }
-    if not ok:
-        raise CommandError(json.dumps({"status": "error", "code": "ERR_REGISTRY_MISMATCH", **result}))
-    print(json.dumps({"status": "success", **result}))
+    print(json.dumps({"status": "success", "app_name": app_name, "env": env}))
 
 
 def cmd_status(args: argparse.Namespace) -> None:
     ref = _require(args.ref, "--ref is required")
-    env = _require(args.env, "--env is required")
 
+    env = settings.MODAL_ENVIRONMENT
     app_name = _modal_app_name(
         ref=ref,
         env=env,
-        branch=getattr(settings, "MODAL_BRANCH", None),
-        user=getattr(settings, "MODAL_USER", None),
+        branch=getattr(settings, "GIT_BRANCH", None),
+        user=getattr(settings, "GIT_USER", None),
     )
 
     src = _script_status_json(app_name)
@@ -279,14 +253,14 @@ def cmd_status(args: argparse.Namespace) -> None:
 
 def cmd_logs(args: argparse.Namespace) -> None:
     ref = _require(args.ref, "--ref is required")
-    env = _require(args.env, "--env is required")
     limit = str(args.limit or 50)
 
+    env = settings.MODAL_ENVIRONMENT
     app_name = _modal_app_name(
         ref=ref,
         env=env,
-        branch=getattr(settings, "MODAL_BRANCH", None),
-        user=getattr(settings, "MODAL_USER", None),
+        branch=getattr(settings, "GIT_BRANCH", None),
+        user=getattr(settings, "GIT_USER", None),
     )
 
     _ensure_modal_cli()
@@ -313,7 +287,7 @@ def _resolve_required_secret_names(ref: str) -> list[str]:
 
 def cmd_sync_secrets(args: argparse.Namespace) -> None:
     ref = _require(args.ref, "--ref is required (ns/name@ver)")
-    env = _require(args.env, "--env is required (dev|staging|main)")
+    env = settings.MODAL_ENVIRONMENT
 
     # 1) Figure out which secrets we need
     required = _resolve_required_secret_names(ref)
@@ -412,48 +386,167 @@ def cmd_sync_secrets(args: argparse.Namespace) -> None:
         print(json.dumps(result, indent=2))
 
 
+def cmd_run(args: argparse.Namespace) -> None:
+    """Run tool with modal adapter."""
+    execution_id = str(uuid.uuid4())
+
+    if args.json:
+        os.environ["LOG_STREAM"] = "stderr"
+
+    # Bind logging context
+    core_logging.bind(
+        trace_id=execution_id,
+        tool_ref=args.ref,
+        adapter="modal",
+        mode=args.mode or "mock",
+    )
+
+    try:
+        # Require {execution_id} in write prefix
+        write_prefix = args.write_prefix
+        if write_prefix and "{execution_id}" not in write_prefix:
+            raise CommandError("--write-prefix must include '{execution_id}' to prevent output collisions")
+
+        # Parse inputs
+        inputs_json = run_utils.parse_inputs(vars(args))
+
+        # Inject mode
+        if args.mode:
+            inputs_json["mode"] = args.mode
+        elif os.environ.get("CI") == "true" and "mode" not in inputs_json:
+            inputs_json["mode"] = "mock"
+
+        # Validate mode
+        try:
+            resolve_mode(args.mode)
+        except ModeSafetyError as e:
+            core_logging.error(
+                "execution.fail",
+                error={"code": "ERR_CI_SAFETY", "message": e.message},
+                reason="ci_guardrail_block",
+                ci=True,
+                mode="real",
+            )
+            sys.stderr.write(f"Error: {e.message}\n")
+            sys.exit(1)
+        except Exception as e:
+            core_logging.error("execution.fail", error={"code": "ERR_MODE_INVALID", "message": str(e)})
+            sys.stderr.write(f"Error: {e}\n")
+            sys.exit(1)
+
+        # Materialize attachments
+        attachment_map = {}
+        if args.attach:
+            try:
+                attachment_map = run_utils.materialize_attachments(args.attach)
+                if not args.json:
+                    for name, info in attachment_map.items():
+                        sys.stdout.write(f"Materialized {name} -> {info.get('$artifact')} ({info.get('cid')})\n")
+            except (ValueError, FileNotFoundError) as e:
+                sys.stderr.write(f"Error: {e}\n")
+                sys.exit(1)
+
+        # Rewrite $attach references
+        if attachment_map:
+            try:
+                inputs_json = run_utils.rewrite_attach_references(inputs_json, attachment_map)
+            except ValueError as e:
+                sys.stderr.write(f"Error: {e}\n")
+                sys.exit(1)
+
+        # Invoke processor with modal adapter
+        from apps.core.orchestrator_ws import OrchestratorWS
+
+        orch = OrchestratorWS()
+        result = orch.invoke(
+            ref=args.ref,
+            mode=args.mode,
+            inputs=inputs_json,
+            stream=False,
+            timeout_s=args.timeout or 600,
+            execution_id=execution_id,
+            write_prefix=write_prefix,
+            adapter="modal",
+        )
+
+        # Download outputs if requested
+        if result.get("status") == "success" and result.get("outputs"):
+            try:
+                if args.save_dir:
+                    run_utils.download_all_outputs(result["outputs"], args.save_dir)
+                    if not args.json:
+                        sys.stdout.write(f"Downloaded outputs to {args.save_dir}\n")
+                elif args.save_first:
+                    run_utils.download_first_output(result["outputs"], args.save_first)
+                    if not args.json:
+                        sys.stdout.write(f"Downloaded first output to {args.save_first}\n")
+            except Exception as e:
+                sys.stderr.write(f"Error downloading outputs: {e}\n")
+
+        # Output JSON
+        sys.stdout.write(json.dumps(result, ensure_ascii=False, separators=(",", ":")) + "\n")
+
+    finally:
+        core_logging.clear()
+
+
 # --- Django management command entrypoint -----------------------------------
 
 
 class Command(BaseCommand):
-    help = "Unified Modal control: deploy, verify-digest, status, logs, sync-secrets."
+    help = "Unified Modal control: start, stop, status, logs, run, sync-secrets."
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         sub = parser.add_subparsers(dest="subcmd", required=True)
 
-        # deploy
-        p_deploy = sub.add_parser("deploy", help="Deploy app by OCI digest (digest-only).")
-        p_deploy.add_argument("--ref", required=True, help="ns/name@ver")
-        p_deploy.add_argument("--env", required=True, choices=["dev", "staging", "main"])
-        p_deploy.add_argument("--oci", required=True, help="ghcr.io/...@sha256:...")
-        p_deploy.set_defaults(func=cmd_deploy)
+        # start
+        p_start = sub.add_parser("start", help="Start (deploy) app by OCI digest")
+        p_start.add_argument("--ref", required=True, help="ns/name@ver")
+        p_start.add_argument("--oci", required=True, help="ghcr.io/...@sha256:...")
+        p_start.set_defaults(func=cmd_start)
 
-        # verify-digest
-        p_verify = sub.add_parser("verify-digest", help="Verify bound image digest matches expected.")
-        p_verify.add_argument("--ref", required=True)
-        p_verify.add_argument("--env", required=True, choices=["dev", "staging", "main"])
-        p_verify.add_argument("--oci", required=True)
-        p_verify.set_defaults(func=cmd_verify_digest)
+        # stop
+        p_stop = sub.add_parser("stop", help="Stop (delete) deployed app")
+        p_stop.add_argument("--ref", required=True, help="ns/name@ver")
+        p_stop.set_defaults(func=cmd_stop)
 
         # status
-        p_status = sub.add_parser("status", help="Show app/functions and their bound images (JSON).")
-        p_status.add_argument("--ref", required=True)
-        p_status.add_argument("--env", required=True, choices=["dev", "staging", "main"])
+        p_status = sub.add_parser("status", help="Show app/functions and their bound images (JSON)")
+        p_status.add_argument("--ref", required=True, help="ns/name@ver")
         p_status.set_defaults(func=cmd_status)
 
         # logs
-        p_logs = sub.add_parser("logs", help="Tail/print app logs.")
-        p_logs.add_argument("--ref", required=True)
-        p_logs.add_argument("--env", required=True, choices=["dev", "staging", "main"])
-        p_logs.add_argument("--limit", type=int, default=50)
+        p_logs = sub.add_parser("logs", help="Tail/print app logs")
+        p_logs.add_argument("--ref", required=True, help="ns/name@ver")
+        p_logs.add_argument("--limit", type=int, default=50, help="Number of log lines")
         p_logs.add_argument("--since", help="e.g. 10m, 1h")
-        p_logs.add_argument("--follow", action="store_true")
+        p_logs.add_argument("--follow", "-f", action="store_true", help="Follow log output")
         p_logs.set_defaults(func=cmd_logs)
 
+        # run
+        p_run = sub.add_parser("run", help="Run tool with modal adapter")
+        p_run.add_argument("--ref", required=True, help="Tool ref (e.g., llm/litellm@1)")
+        p_run.add_argument("--mode", choices=["real", "mock"], help="Tool mode")
+        p_run.add_argument("--write-prefix", help="Write prefix for outputs (must include {execution_id})")
+        p_run.add_argument("--timeout", type=int, help="Timeout in seconds (default: 600)")
+        p_run.add_argument("--json", action="store_true", help="Output JSON response")
+
+        # Input options (mutually exclusive)
+        inputs_group = p_run.add_mutually_exclusive_group()
+        inputs_group.add_argument("--inputs-json", help="JSON input (no escaping required)")
+        inputs_group.add_argument("--inputs-file", help="Read JSON input from file")
+        inputs_group.add_argument("--inputs", help="Read JSON from stdin (use '-')")
+        inputs_group.add_argument("--inputs-jsonstr", default="{}", help="JSON input as string (legacy)")
+
+        # Attachment and output options
+        p_run.add_argument("--attach", action="append", help="Attach file as name=path (can be used multiple times)")
+        p_run.add_argument("--save-dir", help="Download all outputs into this directory")
+        p_run.add_argument("--save-first", help="Download only the first output into this file")
+        p_run.set_defaults(func=cmd_run)
+
         # sync-secrets
-        p_sync = sub.add_parser("sync-secrets", help="Sync required secrets for processor")
-        p_sync.add_argument("--ref", required=True, help="Processor ref: ns/name@ver")
-        p_sync.add_argument("--env", required=True, help="Environment name (dev|staging|prod)")
+        p_sync = sub.add_parser("sync-secrets", help="Sync required secrets for tool")
+        p_sync.add_argument("--ref", required=True, help="Tool ref: ns/name@ver")
         p_sync.add_argument("--check", action="store_true", help="Dry-run mode: show what would be synced")
         p_sync.add_argument("--prune", action="store_true", help="Remove extra secrets not in registry")
         p_sync.add_argument("--json", action="store_true", help="JSON output")

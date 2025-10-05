@@ -32,3 +32,10 @@ GRAPHENE = {
 }
 
 # Storage and LLM settings are configured in base.py
+
+# Git context for Modal dev environment naming
+# Dev naming pattern: {branch}-{user}-{ref_slug}
+# Staging/prod use: {ref_slug} only
+# Must be explicitly provided via environment variables
+GIT_BRANCH = os.environ.get("GIT_BRANCH", "").strip()
+GIT_USER = os.environ.get("GIT_USER", "").strip()

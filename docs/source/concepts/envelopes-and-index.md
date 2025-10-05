@@ -69,7 +69,7 @@ Both adapters (local and modal) emit the same envelope format. The local adapter
 - **mode="mock"** – Hermetic; writes outputs locally without Docker/ArtifactStore.
 - **mode="real"** – Uses Docker and ArtifactStore (or Modal runtime) to persist artifacts.
 
-Modal deploy workflows run `run_processor … --mode mock` for smoke tests; the resulting envelope is identical.
+Modal deploy workflows run `modalctl run --mode mock` for smoke tests; the resulting envelope is identical.
 
 ## Index Artifacts
 
@@ -148,11 +148,11 @@ with pytest.raises(OrchestratorWsError):
 ## CLI Output
 
 ```bash
-# Default (path only)
-$ python manage.py run_processor --ref ... --adapter local --mode mock
-/artifacts/execution/E123/outputs.json
+# Local execution with JSON output
+$ python manage.py localctl run --ref llm/litellm@1 --mode mock --json
+{"status":"success", ... }
 
-# With --json
-$ python manage.py run_processor --ref ... --adapter local --mode real --json
+# Modal execution with JSON output
+$ python manage.py modalctl run --ref llm/litellm@1 --mode mock --json
 {"status":"success", ... }
 ```

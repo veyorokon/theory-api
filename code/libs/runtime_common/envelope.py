@@ -10,7 +10,6 @@ Includes:
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Mapping
 
@@ -158,7 +157,7 @@ def is_real(resolved: ResolvedMode) -> bool:
 
 @dataclass
 class OutputItem:
-    """Single output artifact from processor execution."""
+    """Single output artifact from tool execution."""
 
     relpath: str
     bytes_: bytes
@@ -168,7 +167,7 @@ class OutputItem:
 
 @dataclass
 class ProcessorResult:
-    """Standard result for all processors."""
+    """Standard result for all tools."""
 
     outputs: List[OutputItem] = field(default_factory=list)
     processor_info: str = ""

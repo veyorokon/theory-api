@@ -8,24 +8,24 @@ This guide is the single source of truth for exercising processors and adapters 
 
 - **Supported modes**: only `mock` and `real`.
 - **CI guard**: when `CI=true`, `mode=real` is blocked. Real-mode runs are local-only (or out-of-band jobs with explicit approvals).
-- **Logging**: processors emit structured logs; some support `/run-stream` (SSE). Envelopes are returned as JSON from `/run` or as the final event from `/run-stream`.
+- **Logging**: processors emit structured logs via WebSocket. Envelopes are returned as JSON from final `RunResult` frame.
 - **Secrets discipline**:
   - `mock`: providers must not read secrets; unset them.
-  - `real`: secrets must be present in your shell, and (for modal) in the target Modal environment.
+  - `real`: secrets must be present. Local: injected at container start. Modal: synced to environment.
 
 ---
 
 ## 1. Test Matrix (where + how)
 
-| Where you run             | Adapter                          | Artifacts                                                          | Mode                    | Allowed in CI? | Purpose                                              |
-| ------------------------- | -------------------------------- | ------------------------------------------------------------------ | ----------------------- | -------------- | ---------------------------------------------------- |
-| Local PR-parity           | `local`                          | **Build-from-source** (`--build` or `BUILD=1`) | `mock`                  | ✅              | Dev loop, PR lane parity                             |
-| Local supply-chain parity | `local`                          | **Pinned** digests                                               | `mock`                  | ✅              | Validate against pinned digests                      |
-| Local “real”              | `local`                          | Build or pinned                                                    | `real`                  | ❌ (local only) | Exercise actual provider calls                       |
-| Modal dev mock            | `modal` ( `MODAL_ENVIRONMENT=dev` ) | n/a                                                              | `mock`                  | ✅              | Adapter + app routing, hermetic                      |
-| Modal dev real            | `modal` ( `MODAL_ENVIRONMENT=dev` ) | n/a                                                              | `real`                  | ❌ (local only) | End-to-end provider calls via Modal                  |
-| CI PR lane                | `local`                          | Build-from-source                                                  | `mock`                  | ✅              | Fast, hermetic verification of current source        |
-| CI staging/main           | `local` → `modal`                | **Pinned** → Deploy                                                | `mock` (+ gated probes) | ✅              | Supply-chain: pins, acceptance, deploy, smoke/canary |
+| Where you run             | Adapter | Container Start | Mode  | Allowed in CI? | Purpose                                   |
+| ------------------------- | ------- | --------------- | ----- | -------------- | ----------------------------------------- |
+| Local PR-parity           | local   | `localctl start` (newest build) | mock  | ✅              | Dev loop, PR lane parity                  |
+| Local supply-chain parity | local   | `localctl start` (pinned digest) | mock  | ✅              | Validate against pinned digests           |
+| Local "real"              | local   | `localctl start` (build or pinned) | real  | ❌ (local only) | Exercise actual provider calls            |
+| Modal dev mock            | modal   | `modalctl start --env dev` | mock  | ✅              | Adapter + app routing, hermetic           |
+| Modal dev real            | modal   | `modalctl start --env dev` | real  | ❌ (local only) | End-to-end provider calls via Modal       |
+| CI PR lane                | local   | Build-from-source | mock  | ✅              | Fast, hermetic verification of current source |
+| CI staging/main           | modal   | Pinned → Deploy | mock (+ gated probes) | ✅              | Supply-chain: pins, acceptance, deploy, smoke |
 
 > **Pinned** means the digest recorded in `code/apps/core/processors/**/registry.yaml`.
 
@@ -49,7 +49,7 @@ make test-acceptance-pr
 make test-acceptance-dev
 ```
 
-Each target fails fast if zero tests match the marker expression, so you’ll know immediately when a lane has been mis-marked.
+Each target fails fast if zero tests match the marker expression, so you'll know immediately when a lane has been mis-marked.
 
 CI lanes reuse the same targets:
 
@@ -67,90 +67,107 @@ Common boilerplate:
 ```bash
 cd code
 export DJANGO_SETTINGS_MODULE=backend.settings.unittest
-export LOG_STREAM=stderr           # processors log to stderr; envelopes come from HTTP responses
+export LOG_STREAM=stderr           # processors log to stderr; envelopes come from WebSocket
 ```
 
 > The Make targets set `LOG_STREAM` for you; only export it manually when running ad-hoc commands.
 
 ### 3.1 PR-lane parity — build-from-source, mock
 
-Knob: `BUILD=1` (or pass `--build`).
+Start container from newest build, run processor:
 
 ```bash
-export BUILD=1
-python manage.py run_processor \
+# Start container (will use newest build tag)
+OPENAI_API_KEY=$OPENAI_API_KEY python manage.py localctl start --ref llm/litellm@1
+
+# Run processor
+python manage.py localctl run \
   --ref llm/litellm@1 \
-  --adapter local \
   --mode mock \
   --write-prefix "/artifacts/outputs/dev/{execution_id}" \
   --inputs-json '{"schema":"v1","params":{"messages":[{"role":"user","content":"hi"}]}}' \
   --json 1>/tmp/result.json 2>/tmp/logs.ndjson
+
+# Stop when done
+python manage.py localctl stop --ref llm/litellm@1
 ```
 
 Or simply: `make test-acceptance-pr`
 
 ### 3.2 Supply-chain parity — pinned-only, mock
 
-Knob: `BUILD=0` (default).
+Start container from pinned digest, run processor:
 
 ```bash
-export BUILD=0
-python manage.py run_processor \
+# Start container (will use pinned digest from registry.yaml)
+OPENAI_API_KEY=$OPENAI_API_KEY python manage.py localctl start --ref llm/litellm@1
+
+# Run processor
+python manage.py localctl run \
   --ref llm/litellm@1 \
-  --adapter local \
   --mode mock \
   --write-prefix "/artifacts/outputs/dev/{execution_id}" \
   --inputs-json '{"schema":"v1","params":{"messages":[{"role":"user","content":"hi"}]}}' \
   --json
+
+# Stop when done
+python manage.py localctl stop --ref llm/litellm@1
 ```
 
 Equivalent: `make test-acceptance-dev`
 
 > If your GHCR registry is private, run `docker login ghcr.io` before the pinned suite.
 
-### 3.3 Local “real” mode (provider calls)
+### 3.3 Local "real" mode (provider calls)
 
-Not allowed in CI. Provide real secrets locally:
+Not allowed in CI. Provide real secrets at container start:
 
 ```bash
+# Start container with real secrets
 export OPENAI_API_KEY=sk-...           # set the secrets your processor needs
-export BUILD=1     # or 0, your choice
-python manage.py run_processor \
+python manage.py localctl start --ref llm/litellm@1
+
+# Run processor in real mode
+python manage.py localctl run \
   --ref llm/litellm@1 \
-  --adapter local \
   --mode real \
   --write-prefix "/artifacts/outputs/dev/{execution_id}" \
   --inputs-json '{"schema":"v1","params":{"messages":[{"role":"user","content":"hi"}]}}' \
   --json
+
+# Stop when done
+python manage.py localctl stop --ref llm/litellm@1
 ```
 
 Expected: a success envelope with real model outputs; receipts include secret **names** only (never values).
 
 ### 3.4 Modal dev — mock & real
 
-The dev Modal environment is developer-owned; CI never deploys here. Naming convention for sandbox apps: `<branch>-<user>-<processor-slug>-vX` (e.g., `feat-retries-alex-llm-litellm-v1`). Deploy via `python code/manage.py deploy_modal --env dev`, the CLI, or the Make helpers below.
+The dev Modal environment is developer-owned; CI never deploys here. Naming convention: `<branch>-<user>-<processor-slug>` (e.g., `feat-retries-alex-llm-litellm-v1`).
+
+**Deploy workflow:**
 
 ```bash
-# Full loop: build → deploy → mock smoke test
-make modal-dev-workflow REF=llm/litellm@1
+# Build image (if needed)
+python manage.py processorctl build --ref llm/litellm@1 --platforms linux/amd64
 
-# Mix-and-match individual steps if you need manual control
-make build-processor REF=llm/litellm@1
-make deploy-modal-dev REF=llm/litellm@1
-make smoke-modal-dev REF=llm/litellm@1
+# Deploy to Modal dev
+GIT_BRANCH=feat/test GIT_USER=veyorokon \
+  python manage.py modalctl start \
+    --ref llm/litellm@1 \
+    --env dev \
+    --oci ghcr.io/veyorokon/theory-api/llm-litellm@sha256:abc...
 
-# Optional: real-mode probe (requires local + Modal secrets)
-make real-modal-dev REF=llm/litellm@1
+# Sync secrets
+python manage.py modalctl sync-secrets --ref llm/litellm@1 --env dev
 ```
 
 **Mock via Modal (dev):**
 
 ```bash
-export MODAL_ENABLED=true
-export MODAL_ENVIRONMENT=dev
-python manage.py run_processor \
+# Run processor in mock mode
+python manage.py modalctl run \
   --ref llm/litellm@1 \
-  --adapter modal \
   --mode mock \
   --write-prefix "/artifacts/outputs/dev/{execution_id}" \
   --inputs-json '{"schema":"v1","params":{"messages":[{"role":"user","content":"hi"}]}}' \
@@ -160,16 +177,19 @@ python manage.py run_processor \
 **Real via Modal (dev):**
 
 ```bash
-export MODAL_ENABLED=true
-export MODAL_ENVIRONMENT=dev
-export OPENAI_API_KEY=sk-...        # secret must also exist in the Modal env (by name)
-python manage.py run_processor \
+# Secret must exist in Modal environment (synced via modalctl sync-secrets)
+python manage.py modalctl run \
   --ref llm/litellm@1 \
-  --adapter modal \
   --mode real \
   --write-prefix "/artifacts/outputs/dev/{execution_id}" \
   --inputs-json '{"schema":"v1","params":{"messages":[{"role":"user","content":"hi"}]}}' \
   --json
+```
+
+**Stop when done:**
+
+```bash
+python manage.py modalctl stop --ref llm/litellm@1 --env dev
 ```
 
 > Crashes still return canonical error envelopes. CI smoke jobs wrap calls in per-command timeouts to avoid hangs.
@@ -222,12 +242,15 @@ python manage.py run_processor \
 
 - Executes `make test-unit`, `make test-integration`, `make test-acceptance-pr`.
 - Guarantees hermetic, build-from-source coverage in `mock` mode with no secrets.
+- Containers started via `localctl start` (newest build tag).
 
 ### Staging
 
-- Build & Pin (multi-arch) only for processors that changed.
+- Build & Pin (multi-arch) only for processors that changed via `processorctl build/push/pin`.
 - `make test-acceptance-dev` (pinned digests, mock) ensures reproducibility.
-- Deploy to Modal staging using pinned digests, then run smoke (`mode=mock`) and a negative probe (`mode=real` expecting `ERR_MISSING_SECRET`). Optional canaries live behind feature flags.
+- Deploy to Modal staging using `modalctl start --env staging --oci <digest>`.
+- Sync secrets via `modalctl sync-secrets --env staging`.
+- Run smoke (`mode=mock`) and negative probe (`mode=real` expecting `ERR_MISSING_SECRET`).
 
 ### Main
 
@@ -247,13 +270,29 @@ make test-acceptance-pr
 make test-acceptance-dev
 
 # Exercise Modal adapter (dev env)
-make modal-dev-workflow REF=llm/litellm@1
-# or drive it manually with MODAL_ENABLED=true ... as shown above
+# 1. Build
+python manage.py processorctl build --ref llm/litellm@1 --platforms linux/amd64
+
+# 2. Deploy
+GIT_BRANCH=feat/test GIT_USER=veyorokon \
+  python manage.py modalctl start --ref llm/litellm@1 --env dev --oci <digest>
+
+# 3. Sync secrets
+python manage.py modalctl sync-secrets --ref llm/litellm@1 --env dev
+
+# 4. Run
+python manage.py modalctl run --ref llm/litellm@1 --mode mock --json
+
+# 5. Stop
+python manage.py modalctl stop --ref llm/litellm@1 --env dev
 
 # Real mode (never in CI)
 export OPENAI_API_KEY=sk-...
-python manage.py run_processor --ref llm/litellm@1 --adapter local --mode real \
-  --write-prefix "/artifacts/outputs/dev/{execution_id}" --inputs-json '{"schema":"v1","params":{"messages":[...]}}' --json
+python manage.py localctl start --ref llm/litellm@1
+python manage.py localctl run --ref llm/litellm@1 --mode real \
+  --write-prefix "/artifacts/outputs/dev/{execution_id}" \
+  --inputs-json '{"schema":"v1","params":{"messages":[...]}}' --json
+python manage.py localctl stop --ref llm/litellm@1
 ```
 
 ---
@@ -262,16 +301,19 @@ python manage.py run_processor --ref llm/litellm@1 --adapter local --mode real \
 
 - Tests auto-discover required secret names from the processor registry (`tests/tools/registry.py`).
 - Mock lanes must drop all secrets; real lanes must provide them.
+- **Local**: Secrets injected at container start time via `localctl start`.
+- **Modal**: Secrets synced separately via `modalctl sync-secrets` after deployment.
 - Modal deployments expect secrets to be present in the Modal environment **under the same names** defined in the registry.
 
 ---
 
 ## 8. Troubleshooting
 
-- **PR acceptance fails but unit passes** → verify `BUILD=1` or use the Make target.
-- **Pinned acceptance fails locally** → your registry pins are stale; rebase or wait for staging’s Build & Pin commit.
-- **Modal dev errors** → ensure app naming matches `<branch>-<user>-<slug>-vX`, inputs satisfy payload validation, and secrets exist in Modal.
-- **Streaming issues** → consume `/run-stream` SSE events if available; the final event contains the envelope.
+- **PR acceptance fails but unit passes** → verify container started with newest build via `localctl start`.
+- **Pinned acceptance fails locally** → your registry pins are stale; rebase or wait for staging's Build & Pin commit.
+- **Modal dev errors** → ensure app naming matches `<branch>-<user>-<slug>`, inputs satisfy payload validation, and secrets exist in Modal via `modalctl sync-secrets`.
+- **Container not running** → use `localctl status` to check running containers; ensure `localctl start` completed successfully.
+- **Secrets missing** → Local: provide at start time. Modal: sync via `modalctl sync-secrets`.
 
 ---
 
@@ -279,8 +321,12 @@ python manage.py run_processor --ref llm/litellm@1 --adapter local --mode real \
 
 **Can CI run `mode=real`?** No. The guardrail intentionally blocks real-mode executions. Use local runs or controlled staging jobs outside the default workflows.
 
-**Do I need Docker for PR acceptance?** Yes—the `local` adapter suite uses docker-compose services.
+**Do I need Docker for PR acceptance?** Yes—the `local` adapter suite uses docker-compose services and containers via `localctl`.
 
 **How do I mirror CI locally?** Use the provided Make targets; they wrap the same markers, env vars, and docker-compose orchestration that CI invokes.
+
+**Do containers auto-start?** No. Explicit `localctl start` or `modalctl start` required before running processors.
+
+**Where are secrets injected?** Local: at `localctl start` time. Modal: synced via `modalctl sync-secrets` after `modalctl start`.
 
 Follow this guide and you get deterministic parity between local development and every CI/CD lane, with optional Modal dev and real-mode explorations handled safely.

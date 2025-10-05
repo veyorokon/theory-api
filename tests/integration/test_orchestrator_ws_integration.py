@@ -1,7 +1,7 @@
 """Integration tests for OrchestratorWS with local adapter."""
 
 import pytest
-from tests.tools.docker_fixtures import reusable_orchestrator
+from apps.core.orchestrator_ws import OrchestratorWS
 
 
 @pytest.mark.integration
@@ -9,10 +9,11 @@ from tests.tools.docker_fixtures import reusable_orchestrator
 class TestOrchestratorWSIntegration:
     """Test full orchestration flow: registry → presign → WS → upload → envelope."""
 
-    def test_invoke_success_mock_mode(self, reusable_orchestrator):
+    def test_invoke_success_mock_mode(self):
         """Test successful invocation in mock mode returns success envelope."""
-        envelope = reusable_orchestrator(
-            "llm/litellm@1",
+        orch = OrchestratorWS()
+        envelope = orch.invoke(
+            ref="llm/litellm@1",
             inputs={
                 "schema": "v1",
                 "params": {"messages": [{"role": "user", "content": "test message"}]},
@@ -30,10 +31,11 @@ class TestOrchestratorWSIntegration:
         assert "index_path" in envelope
         assert envelope["index_path"].endswith("/outputs.json")
 
-    def test_invoke_invalid_inputs_returns_error_envelope(self, reusable_orchestrator):
+    def test_invoke_invalid_inputs_returns_error_envelope(self):
         """Test invalid inputs return error envelope (not exception)."""
-        envelope = reusable_orchestrator(
-            "llm/litellm@1",
+        orch = OrchestratorWS()
+        envelope = orch.invoke(
+            ref="llm/litellm@1",
             inputs={
                 "schema": "v1",
                 # Missing required params
@@ -48,13 +50,14 @@ class TestOrchestratorWSIntegration:
         assert envelope["status"] in ["success", "error"]
         assert "execution_id" in envelope
 
-    def test_invoke_concurrent_requests(self, reusable_orchestrator):
+    def test_invoke_concurrent_requests(self):
         """Test concurrent invocations succeed independently (reuses same container)."""
         import concurrent.futures
 
         def make_request(i: int):
-            return reusable_orchestrator(
-                "llm/litellm@1",
+            orch = OrchestratorWS()
+            return orch.invoke(
+                ref="llm/litellm@1",
                 inputs={
                     "schema": "v1",
                     "params": {"messages": [{"role": "user", "content": f"concurrent test {i}"}]},
@@ -74,12 +77,13 @@ class TestOrchestratorWSIntegration:
             assert envelope["status"] == "success"
             assert "execution_id" in envelope
 
-    def test_invoke_with_custom_write_prefix(self, reusable_orchestrator):
+    def test_invoke_with_custom_write_prefix(self):
         """Test invocation with custom write_prefix."""
         custom_prefix = "/artifacts/outputs/custom/{execution_id}/"
+        orch = OrchestratorWS()
 
-        envelope = reusable_orchestrator(
-            "llm/litellm@1",
+        envelope = orch.invoke(
+            ref="llm/litellm@1",
             inputs={
                 "schema": "v1",
                 "params": {"messages": [{"role": "user", "content": "test"}]},

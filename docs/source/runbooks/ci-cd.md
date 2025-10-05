@@ -16,8 +16,16 @@ This runbook captures the three-lane delivery system: PRs build directly from so
 ### 1. Local Development
 
 - Goal: quick iteration with full docker-compose stack plus optional Modal **dev** sandboxing.
-- Run `make compose-up` to boot Postgres/Redis/MinIO, then `make test-acceptance-pr` for the PR lane suite (`--build`, `mode=mock`, no secrets).
-- Developers can deploy to Modal **dev** manually (`python code/manage.py deploy_modal --env dev`); CI never touches this environment.
+- Run `make compose-up` to boot Postgres/Redis/MinIO, then `make test-acceptance-pr` for the PR lane suite (`mode=mock`, no secrets).
+- Developers can deploy to Modal **dev** manually:
+  ```bash
+  # Build and deploy
+  python manage.py processorctl build --ref llm/litellm@1 --platforms linux/amd64
+  GIT_BRANCH=feat/test GIT_USER=veyorokon \
+    python manage.py modalctl start --ref llm/litellm@1 --env dev --oci <digest>
+  python manage.py modalctl sync-secrets --ref llm/litellm@1 --env dev
+  ```
+- CI never touches dev environment.
 
 ### 2. Pull Request Lane (Hermetic Source Builds)
 
@@ -39,14 +47,24 @@ This runbook captures the three-lane delivery system: PRs build directly from so
 - Trigger: push to `staging` (usually merge-up from `dev`).
 - Steps run serially via `needs`:
   1. **Build & Pin** – Multi-arch (`amd64` + `arm64`) builds for each processor. Digests are written directly back to `staging` via commit `ci(staging): pin processor images`. No bot PRs against other branches.
-     - Build sequence: `make build-processor REF=<ref> PLATFORMS=linux/arm64 && make pin-processor REF=<ref> PLATFORMS=linux/arm64`
-     - Then: `make build-processor REF=<ref> PLATFORMS=linux/amd64 && make pin-processor REF=<ref> PLATFORMS=linux/amd64`
+     - Build sequence:
+       ```bash
+       python manage.py processorctl build --ref <ref> --platforms linux/amd64,linux/arm64
+       python manage.py processorctl push --ref <ref> --platforms linux/amd64,linux/arm64
+       python manage.py processorctl pin --ref <ref> --platform arm64 --oci <digest>
+       python manage.py processorctl pin --ref <ref> --platform amd64 --oci <digest>
+       ```
      - Registry.yaml now contains both platform digests
   2. **Acceptance (pinned)** – Executes `make test-acceptance-dev` with `TEST_LANE=staging`, verifying per-processor registry digests in mock mode (no rebuilds).
      - Orchestrator selects digest based on platform: amd64 for Modal, arm64 for local Mac
-  3. **Deploy Modal (staging)** – Deploys by amd64 digest (`modalctl deploy`), runs smoke (`mode=mock`) and a negative probe (`mode=real` expecting `ERR_MISSING_SECRET`).
+  3. **Deploy Modal (staging)** – Deploys by amd64 digest, syncs secrets, runs smoke tests:
+     ```bash
+     python manage.py modalctl start --ref <ref> --env staging --oci <amd64-digest>
+     python manage.py modalctl sync-secrets --ref <ref> --env staging
+     python manage.py modalctl run --ref <ref> --mode mock --json  # smoke test
+     ```
      - Modal always uses amd64 digest from `registry.yaml::image.platforms.amd64`
-  4. **Drift Audit** – `python code/scripts/drift_audit.py` fails if deployed digests mismatch the registry.
+  4. **Drift Audit** – Fails if deployed digests mismatch the registry.
 - Outcome: staging now owns canonical pins plus a green deployment. Open a release PR from this commit to `main`.
 
 ### 5. Release PR (`staging → main`)
@@ -71,8 +89,9 @@ This runbook captures the three-lane delivery system: PRs build directly from so
 
 ## Modal Environments & Naming
 
-- **dev (personal)** – `<branch>-<user>-<processor-slug>-vX`; never touched by CI.
-- **staging/main** – `<processor-slug>-vX`; CI deploys via `modalctl deploy` using pinned digests.
+- **dev (personal)** – `<branch>-<user>-<processor-slug>`; never touched by CI. Requires `GIT_BRANCH` and `GIT_USER` environment variables.
+- **staging/main** – `<processor-slug>`; CI deploys via `modalctl start` using pinned digests.
+- Secrets synced separately via `modalctl sync-secrets` after deployment.
 - Negative probes intentionally trigger `ERR_MISSING_SECRET` to confirm real-mode guardrails are intact.
 
 ## Secrets & Registry Expectations

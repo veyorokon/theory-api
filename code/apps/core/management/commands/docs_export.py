@@ -24,7 +24,7 @@ class Command(BaseCommand):
             "--api", action="store_true", help="Generate API documentation from interfaces and services"
         )
         parser.add_argument("--schemas", action="store_true", help="Export JSON schemas")
-        parser.add_argument("--registry", action="store_true", help="Export processor registry documentation")
+        parser.add_argument("--registry", action="store_true", help="Export tool registry documentation")
 
     def handle(self, *args, **options):
         output_dir = Path(options["out"])
@@ -127,7 +127,7 @@ class Command(BaseCommand):
         storage_docs = []
 
         try:
-            from apps.storage import interfaces
+            from backend.storage import interfaces
 
             # Document StorageInterface
             storage_docs.append("# Storage API Documentation\n")
@@ -152,7 +152,7 @@ class Command(BaseCommand):
             storage_docs.append("\n## StorageService\n")
             storage_docs.append("Vendor-neutral storage service (Singleton pattern).\n")
             storage_docs.append("```python")
-            storage_docs.append("from apps.storage.service import storage_service")
+            storage_docs.append("from backend.storage.service import storage_service")
             storage_docs.append("# Automatically uses MinIO in dev, S3 in prod")
             storage_docs.append("url = storage_service.upload_file(file, key, bucket)")
             storage_docs.append("```\n")
@@ -277,14 +277,14 @@ class Command(BaseCommand):
         return schema
 
     def generate_registry(self, output_dir: Path):
-        """Generate processor registry documentation"""
-        self.stdout.write("Generating processor registry...")
+        """Generate tool registry documentation"""
+        self.stdout.write("Generating tool registry...")
 
         registry_dir = Path("apps/core/registry/processors")
         registry_docs = []
 
-        registry_docs.append("# Processor Registry\n")
-        registry_docs.append("Auto-generated processor registry documentation.\n\n")
+        registry_docs.append("# Tool Registry\n")
+        registry_docs.append("Auto-generated tool registry documentation.\n\n")
 
         if registry_dir.exists():
             for yaml_file in registry_dir.glob("*.yaml"):
@@ -349,12 +349,12 @@ class Command(BaseCommand):
                     self.stdout.write(self.style.WARNING(f"Error processing {yaml_file}: {e}"))
 
         # Write registry documentation
-        registry_file = output_dir / "registry" / "processors.md"
+        registry_file = output_dir / "registry" / "tools.md"
         registry_file.parent.mkdir(parents=True, exist_ok=True)
         with open(registry_file, "w") as f:
             f.write("".join(registry_docs))
 
-        self.stdout.write(self.style.SUCCESS(f"Processor registry generated: {registry_file}"))
+        self.stdout.write(self.style.SUCCESS(f"Tool registry generated: {registry_file}"))
 
     def generate_predicate_registry(self, registry_dir: Path):
         """Generate predicate registry documentation"""

@@ -57,17 +57,19 @@ Similar signature but uses `POST /run` for synchronous execution.
 
 ## Image Selection Behavior
 
-The adapter chooses which image to run or call based on adapter type and the `--build` flag passed to `run_processor`:
+Containers must be started before invoking:
+- **Local**: Use `localctl start` (injects secrets, starts container from pinned digest or newest build)
+- **Modal**: Use `modalctl start` (deploys by digest) + `modalctl sync-secrets` (syncs secrets separately)
 
-| Adapter | `--build` | Behavior |
-|---------|-----------|----------|
-| local   | true      | Uses the newest locally built, timestamped tag (build-from-source loop) |
-| local   | false     | Uses the pinned registry digest from the processor's `registry.yaml` |
-| modal   | any       | Ignores `--build`; performs SDK lookup of the deployed app/function bound to the pinned digest |
+| Adapter | Container Start | Digest Source |
+|---------|----------------|---------------|
+| local   | `localctl start` | Pinned registry digest or newest build tag |
+| modal   | `modalctl start --oci <digest>` | Explicit digest (amd64 from registry) |
 
 Notes:
 - "Pinned digest" comes from `code/apps/core/processors/<ns>_<name>/registry.yaml` (`image.platforms.{amd64,arm64}`).
-- Modal deployments must be created by digest; the adapter then looks up the deployed app and can perform a digest drift check.
+- Modal deployments require explicit digest; drift check validates deployed digest matches registry.
+- No auto-starting or auto-building; each command does exactly one thing.
 
 ### Platform Detection & Override
 
@@ -86,7 +88,7 @@ The orchestrator selects the correct platform digest based on adapter type and o
 **Platform override example**:
 ```bash
 # Force amd64 digest on arm64 Mac (for testing Modal-like behavior locally)
-python manage.py run_processor --ref llm/litellm@1 --adapter local --platform amd64 --json
+python manage.py localctl run --ref llm/litellm@1 --platform amd64 --mode mock --json
 ```
 
 **Implementation** (`orchestrator_ws.py:81`):
@@ -102,14 +104,17 @@ def invoke(
 ## Selection examples
 
 ```bash
-# Local WebSocket mock (no external deps)
-python manage.py run_processor --adapter local --mode mock --ref llm/litellm@1 --inputs-json '{"schema":"v1","params":{...}}'
+# Local WebSocket - start, run, stop
+OPENAI_API_KEY=$OPENAI_API_KEY python manage.py localctl start --ref llm/litellm@1
+python manage.py localctl run --ref llm/litellm@1 --mode mock --inputs-json '{"schema":"v1","params":{...}}'
+python manage.py localctl stop --ref llm/litellm@1
 
-# Local WebSocket real (Docker)
-python manage.py run_processor --adapter local --mode real --ref llm/litellm@1 --inputs-json '{...}'
-
-# Modal WebSocket (mock for smoke, real for prod)
-python manage.py run_processor --adapter modal --mode mock --ref llm/litellm@1 --inputs-json '{...}'
+# Modal WebSocket - start, sync secrets, run, stop
+GIT_BRANCH=feat/test GIT_USER=veyorokon \
+  python manage.py modalctl start --ref llm/litellm@1 --env dev --oci ghcr.io/...@sha256:...
+python manage.py modalctl sync-secrets --ref llm/litellm@1 --env dev
+python manage.py modalctl run --ref llm/litellm@1 --mode mock --inputs-json '{...}'
+python manage.py modalctl stop --ref llm/litellm@1 --env dev
 ```
 
 ## Error handling (common codes)

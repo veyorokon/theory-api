@@ -56,8 +56,8 @@ class BaseWsAdapter:
         stream: bool = False,
     ) -> Dict[str, Any] | Iterator[Dict[str, Any]]:
         """
-        Invoke a processor over WebSocket.
-        - ref: processor ref (ns/name@ver) for logging
+        Invoke a tool over WebSocket.
+        - ref: tool ref (ns/name@ver) for logging
         - payload: same JSON you used to POST before, but must include put_urls
         - timeout_s: overall deadline for the run (adapter-side)
         - oci: {"ws_url": ".../run", "headers": {...}, "expected_digest": "..."} (resolved by control plane)
@@ -216,8 +216,8 @@ class BaseWsAdapter:
         """
         Validate envelope structure and drift.
 
-        Contract: Processor always returns an envelope with status="success" or "error".
-        - status="error" is a VALID envelope (processor-level failure)
+        Contract: Tool always returns an envelope with status="success" or "error".
+        - status="error" is a VALID envelope (tool-level failure)
         - Only raise for TRANSPORT/PROTOCOL failures (drift, malformed envelope)
         """
         status = env.get("status")

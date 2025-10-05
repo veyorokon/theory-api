@@ -16,7 +16,7 @@ _CTX = contextvars.ContextVar("log_ctx", default=None)
 def bind(**fields: Any) -> None:
     """
     Bind context fields for the current execution trace.
-    Use for things like execution_id, processor_ref, adapter, mode, etc.
+    Use for things like execution_id, tool_ref, adapter, mode, etc.
     """
     ctx = dict(_CTX.get() or {})
     # Keep only non-None values; shallow copy is fine for flat fields

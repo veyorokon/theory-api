@@ -62,13 +62,13 @@ The CI/CD system uses a **build-once, deploy-many** strategy with digest pinning
 ```yaml
 # .github/workflows/build-and-pin.yml
 - Discover changed processors (paths-filter)
-- Build Docker images (linux/amd64)
-- Push to GHCR with SHA tag
-- Extract digest from per-processor registry.yaml
-- Create bot PR pinning digest in the processor's registry.yaml
+- Build multi-platform Docker images (linux/amd64,linux/arm64)
+- Push to GHCR: python manage.py processorctl push --ref <ref> --platforms linux/amd64,linux/arm64
+- Pin digests: python manage.py processorctl pin --ref <ref> --platform amd64 --oci <digest>
+- Create bot PR pinning digests in the processor's registry.yaml
 ```
 
-**Purpose**: Automated image building with digest pinning for reproducible deployments.
+**Purpose**: Automated multi-platform image building with digest pinning for reproducible deployments.
 
 ### GHCR Package Access & Authentication (Required)
 
@@ -104,11 +104,17 @@ Distinction: “Codespaces” access is for dev environments; **CI/CD needs “A
 ```yaml
 # .github/workflows/modal-deploy.yml
 - Extract pinned digest from per-processor registry.yaml
-- Deploy by digest: python manage.py modalctl deploy --ref <ref> --env <env> --oci <digest>
-- Post-deploy smoke test
+- Deploy by digest: python manage.py modalctl start --ref <ref> --env <env> --oci <digest>
+- Sync secrets: python manage.py modalctl sync-secrets --ref <ref> --env <env>
+- Post-deploy smoke test: python manage.py modalctl run --ref <ref> --mode mock --json
 ```
 
-**Purpose**: Environment-gated deployments to Modal with smoke testing.
+**Purpose**: Environment-gated deployments to Modal with secret sync and smoke testing.
+
+**Critical:**
+- Dev environment requires `GIT_BRANCH` and `GIT_USER` environment variables
+- Secrets must be synced separately after deployment
+- Use `modalctl start` (not `modalctl deploy`)
 
 ### 5. Modal Drift Audit
 **Trigger**:
@@ -144,10 +150,13 @@ git log --oneline
 git checkout <commit-sha>
 
 # Redeploy modal app from target commit
-python manage.py modalctl deploy --ref <ref> --env <env> --oci <digest>
+python manage.py modalctl start --ref <ref> --env <env> --oci <digest>
+
+# Sync secrets
+python manage.py modalctl sync-secrets --ref <ref> --env <env>
 
 # Verify deployment
-modal function logs <slug>-v<ver>-<env>::run --env <environment>
+python manage.py modalctl run --ref <ref> --mode mock --json
 ```
 
 **Purpose**: Emergency rollback to previous known-good state.
@@ -175,11 +184,12 @@ OPENAI_API_KEY          # Workload runtime key
 ## Naming Conventions
 
 ### Modal Resources
-- **App naming**: `{slug}-{version}-{environment}`
-  - Example: `llm-litellm-v1-dev`
-- **Function naming**: `run` (single function per app)
+- **App naming**:
+  - **Dev**: `{branch}-{user}-{ref_slug}` (e.g., `feat-websocket-veyorokon-llm-litellm-v1`)
+  - **Staging/Main**: `{ref_slug}` (e.g., `llm-litellm-v1`)
+- **Function naming**: `fastapi_app` (FastAPI WebSocket endpoint)
 - **Environment mapping**:
-  - `dev` → `dev`
+  - `dev` → `dev` (requires GIT_BRANCH and GIT_USER)
   - `staging` → `staging`
   - `main` → `main` (production)
 
@@ -194,14 +204,17 @@ OPENAI_API_KEY          # Workload runtime key
 1. **Automated trigger**: Push changes to processor paths
 2. **Build process**:
    - Detect changed processors via paths-filter
-   - Build and push Docker images to GHCR
-   - Extract SHA256 digest from registry
+   - Build multi-platform images: `python manage.py processorctl build --ref <ref> --platforms linux/amd64,linux/arm64`
+   - Push to GHCR: `python manage.py processorctl push --ref <ref> --platforms linux/amd64,linux/arm64`
+   - Extract SHA256 digests for both platforms
 3. **Pin creation**:
-   - Bot creates PR updating registry YAML
+   - Pin amd64: `python manage.py processorctl pin --ref <ref> --platform amd64 --oci <digest>`
+   - Pin arm64: `python manage.py processorctl pin --ref <ref> --platform arm64 --oci <digest>`
+   - Bot creates PR updating registry YAML with both platform digests
    - PR title: `Pin digest for {processor} @ {commit}`
    - Auto-labeled: `registry`, `automation`
 4. **Review and merge**: Human reviews and merges pin PR
-5. **Deployment**: Modal deploy uses pinned digest (amd64) via `python manage.py modalctl deploy --ref ... --env ... --oci ...`
+5. **Deployment**: Modal deploy uses pinned amd64 digest via `python manage.py modalctl start --ref ... --env ... --oci ...`
 
 ### Rollback Procedure
 1. **Identify target**: Determine commit SHA of known-good state
@@ -246,17 +259,18 @@ modal run --env dev -m modal_app --input '{"test": true}'
 
 #### Local Testing
 ```bash
-# Get current pinned image
-make ci-get-image-ref
+# Start local container
+OPENAI_API_KEY=$OPENAI_API_KEY python manage.py localctl start --ref llm/litellm@1
 
-# Test adapter parity
-DJANGO_SETTINGS_MODULE=backend.settings.unittest \
-python manage.py run_processor \
+# Test local adapter
+python manage.py localctl run \
   --ref llm/litellm@1 \
-  --adapter mock \
-  --write-prefix /artifacts/outputs/test/{execution_id}/ \
-  --inputs-json '{"messages":[{"role":"user","content":"test"}]}' \
+  --mode mock \
+  --inputs-json '{"schema":"v1","params":{"messages":[{"role":"user","content":"test"}]}}' \
   --json
+
+# Stop container
+python manage.py localctl stop --ref llm/litellm@1
 ```
 
 #### CI Workflow Debugging
@@ -341,34 +355,49 @@ gh run rerun <run-id>
 
 ---
 
-## Helper Scripts
+## Management Commands Reference
 
-The following scripts are available in `scripts/ci/` for operational tasks:
+All CI/CD operations use Django management commands for consistency:
 
-### `get_image_ref.py`
+### processorctl - Image Operations
 ```bash
-# Extract current pinned image reference
-python scripts/ci/get_image_ref.py
-# Output: ghcr.io/owner/llm-litellm@sha256:abc123...
+# Build multi-platform images
+python manage.py processorctl build --ref llm/litellm@1 --platforms linux/amd64,linux/arm64
+
+# Push to registry
+python manage.py processorctl push --ref llm/litellm@1 --platforms linux/amd64,linux/arm64
+
+# Pin platform-specific digests
+python manage.py processorctl pin --ref llm/litellm@1 --platform amd64 --oci ghcr.io/...@sha256:...
+python manage.py processorctl pin --ref llm/litellm@1 --platform arm64 --oci ghcr.io/...@sha256:...
 ```
 
-### `pin_processor.py`
+### localctl - Local Runtime
 ```bash
-# Pin processor to specific digest
-python scripts/ci/pin_processor.py llm_litellm \
-  ghcr.io/owner/llm-litellm \
-  sha256:abc123...
+# Start container (secrets from environment)
+OPENAI_API_KEY=$OPENAI_API_KEY python manage.py localctl start --ref llm/litellm@1
+
+# Run processor
+python manage.py localctl run --ref llm/litellm@1 --mode mock --json
+
+# Stop container
+python manage.py localctl stop --ref llm/litellm@1
 ```
 
-### Makefile Integration
+### modalctl - Modal Runtime
 ```bash
-# Get current pinned reference
-make ci-get-image-ref
+# Deploy to Modal
+GIT_BRANCH=feat/test GIT_USER=veyorokon \
+python manage.py modalctl start --ref llm/litellm@1 --env dev --oci ghcr.io/...@sha256:...
 
-# Pin processor (for manual operations)
-make ci-pin-processor PROCESSOR=llm_litellm \
-  IMAGE_BASE=ghcr.io/owner/llm-litellm \
-  DIGEST=sha256:abc123...
+# Sync secrets
+python manage.py modalctl sync-secrets --ref llm/litellm@1 --env dev
+
+# Run processor
+python manage.py modalctl run --ref llm/litellm@1 --mode mock --json
+
+# Stop deployment
+python manage.py modalctl stop --ref llm/litellm@1 --env dev
 ```
 
 ---
