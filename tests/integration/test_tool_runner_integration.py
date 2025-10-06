@@ -1,17 +1,17 @@
-"""Integration tests for OrchestratorWS with local adapter."""
+"""Integration tests for ToolRunner with local adapter."""
 
 import pytest
-from apps.core.orchestrator_ws import OrchestratorWS
+from apps.core.tool_runner import ToolRunner
 
 
 @pytest.mark.integration
 @pytest.mark.requires_docker
-class TestOrchestratorWSIntegration:
+class TestToolRunnerIntegration:
     """Test full orchestration flow: registry → presign → WS → upload → envelope."""
 
     def test_invoke_success_mock_mode(self):
         """Test successful invocation in mock mode returns success envelope."""
-        orch = OrchestratorWS()
+        orch = ToolRunner()
         envelope = orch.invoke(
             ref="llm/litellm@1",
             inputs={
@@ -33,7 +33,7 @@ class TestOrchestratorWSIntegration:
 
     def test_invoke_invalid_inputs_returns_error_envelope(self):
         """Test invalid inputs return error envelope (not exception)."""
-        orch = OrchestratorWS()
+        orch = ToolRunner()
         envelope = orch.invoke(
             ref="llm/litellm@1",
             inputs={
@@ -55,7 +55,7 @@ class TestOrchestratorWSIntegration:
         import concurrent.futures
 
         def make_request(i: int):
-            orch = OrchestratorWS()
+            orch = ToolRunner()
             return orch.invoke(
                 ref="llm/litellm@1",
                 inputs={
@@ -80,7 +80,7 @@ class TestOrchestratorWSIntegration:
     def test_invoke_with_custom_write_prefix(self):
         """Test invocation with custom write_prefix."""
         custom_prefix = "/artifacts/outputs/custom/{execution_id}/"
-        orch = OrchestratorWS()
+        orch = ToolRunner()
 
         envelope = orch.invoke(
             ref="llm/litellm@1",

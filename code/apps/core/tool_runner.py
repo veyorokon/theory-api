@@ -4,6 +4,7 @@ Direct tool execution without persistence.
 Used by localctl/modalctl for ephemeral CLI runs.
 For persisted runs, use RunService instead.
 """
+
 from __future__ import annotations
 import json
 import os
@@ -96,7 +97,7 @@ class ToolRunner:
         try:
             reg = load_processor_spec(ref)  # must include image digests, outputs list, api info
         except FileNotFoundError:
-            raise OrchestratorWsError(f"Unknown tool ref: {ref}")
+            raise ToolRunnerError(f"Unknown tool ref: {ref}")
 
         # All tools now use WebSocket protocol (standardized)
 
@@ -255,7 +256,7 @@ class ToolRunner:
             try:
                 base_url = self._resolve_modal_base_url(ref)
             except Exception as e:
-                raise OrchestratorWsError(f"Could not resolve Modal deployment for {ref}: {e}")
+                raise ToolRunnerError(f"Could not resolve Modal deployment for {ref}: {e}")
 
             adapter_instance = ModalWsAdapter(logger=log_fn)
             headers = {}
@@ -268,7 +269,7 @@ class ToolRunner:
             return adapter_instance, oci
 
         else:
-            raise OrchestratorWsError(f"Unknown adapter: {adapter}")
+            raise ToolRunnerError(f"Unknown adapter: {adapter}")
 
     # ---------- Utilities ----------
 

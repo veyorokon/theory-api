@@ -1,4 +1,4 @@
-"""Integration tests for OrchestratorWS streaming."""
+"""Integration tests for ToolRunner streaming."""
 
 import pytest
 from tests.helpers import invoke_processor
@@ -6,7 +6,7 @@ from tests.helpers import invoke_processor
 
 @pytest.mark.integration
 @pytest.mark.requires_docker
-class TestOrchestratorWSStreaming:
+class TestToolRunnerStreaming:
     """Test streaming functionality in orchestration flow."""
 
     def test_invoke_non_streaming_mode(self):
@@ -26,9 +26,9 @@ class TestOrchestratorWSStreaming:
 
     def test_invoke_streaming_returns_final_envelope(self):
         """Test streaming mode ultimately returns final envelope."""
-        from apps.core.orchestrator_ws import OrchestratorWS
+        from apps.core.tool_runner import ToolRunner
 
-        orch = OrchestratorWS()
+        orch = ToolRunner()
 
         result = orch.invoke(
             ref="llm/litellm@1",

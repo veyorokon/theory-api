@@ -76,6 +76,8 @@ class Run(models.Model):
 
     def finalize(self, envelope: dict) -> None:
         """Update run from terminal envelope (status, meta, outputs)."""
+        from apps.artifacts.models import Artifact
+
         self.status = envelope.get("status", self.Status.FAILED)
         self.meta = envelope.get("meta", {})
         self.index_path = envelope.get("index_path", "")
@@ -93,16 +95,41 @@ class Run(models.Model):
 
         self.save()
 
-        # Create RunOutput records for each file artifact
+        # Create Artifact + RunArtifact records for each output
         outputs = envelope.get("outputs", [])
         for output in outputs:
             path = output["path"].lstrip("/")  # Remove leading slash
             key = path.split("/")[-1].rsplit(".", 1)[0]  # Extract key from path
+            uri = f"world://{self.world.id}/{self.id}/{path}"
 
+            # Create or get Artifact
+            artifact, created = Artifact.objects.get_or_create(
+                world=self.world,
+                uri=uri,
+                defaults={
+                    "path": f"{self.world.id}/{self.id}/{path}",
+                    "data": None,
+                    "is_scalar": False,
+                    "content_type": output.get("content_type", ""),
+                    "size_bytes": output.get("size"),
+                    "etag": output.get("etag", "").strip('"'),
+                    "sha256": output.get("sha256", ""),
+                }
+            )
+
+            # Link to run as output
+            RunArtifact.objects.create(
+                run=self,
+                artifact=artifact,
+                direction=RunArtifact.DIRECTION_OUT,
+                key=key,
+            )
+
+            # Also create legacy RunOutput for backwards compat (temporary)
             RunOutput.objects.create(
                 run=self,
                 key=key,
-                uri=f"world://{self.world.id}/{self.id}/{path}",
+                uri=uri,
                 path=path,
                 content_type=output.get("content_type", ""),
                 size_bytes=output.get("size"),
@@ -111,6 +138,42 @@ class Run(models.Model):
             )
 
 
+class RunArtifact(models.Model):
+    """
+    Links a Run to an Artifact with direction and key.
+
+    Direction indicates whether artifact was an input or output.
+    Key identifies the semantic role (e.g., "messages", "document", "summary").
+    """
+
+    DIRECTION_IN = "in"
+    DIRECTION_OUT = "out"
+    DIRECTION_CHOICES = [
+        (DIRECTION_IN, "Input"),
+        (DIRECTION_OUT, "Output"),
+    ]
+
+    run = models.ForeignKey(Run, on_delete=models.CASCADE, related_name="artifacts")
+    artifact = models.ForeignKey("artifacts.Artifact", on_delete=models.CASCADE, related_name="run_links")
+    direction = models.CharField(max_length=3, choices=DIRECTION_CHOICES)
+    key = models.CharField(max_length=128)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "run_artifact"
+        unique_together = [("run", "direction", "key")]
+        indexes = [
+            models.Index(fields=["run", "direction"]),
+            models.Index(fields=["artifact"]),
+        ]
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"{self.run.id}:{self.direction}:{self.key}"
+
+
+# Legacy model - to be removed after migration
 class RunOutput(models.Model):
     """Tracks one file artifact produced by a Run."""
 

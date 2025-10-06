@@ -16,7 +16,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from apps.core.utils import run_utils
-from libs.runtime_common import logging as core_logging
+from backend.middleware import logging as core_logging
 from libs.runtime_common.envelope import resolve_mode, ModeSafetyError
 
 

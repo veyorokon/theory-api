@@ -79,7 +79,12 @@ class BaseWsAdapter:
         return self.invoke(run.ref, payload, tool.timeout_s, oci, stream=False)
 
     def _build_payload(self, run) -> Dict[str, Any]:
-        """Build invocation payload with inputs and presigned PUT URLs."""
+        """
+        Build invocation payload with hydrated inputs and presigned output URLs.
+
+        Hydrates world:// URIs in inputs to presigned GET URLs.
+        Generates presigned PUT URLs for outputs.
+        """
         from backend.storage.service import StorageService
         from django.conf import settings
 
@@ -97,25 +102,68 @@ class BaseWsAdapter:
             timeout = 3600
             output_paths = []
 
+        # Hydrate inputs: convert world:// URIs to presigned GET URLs
+        hydrated_inputs = self._hydrate_inputs(run.inputs, run.world.id, bucket, storage, timeout)
+
         # Generate presigned PUT URLs for declared outputs
         prefix = run.write_prefix.lstrip("/").rstrip("/")
-        put_urls = {}
+        outputs = {}
         for path in output_paths:
-            put_urls[path] = storage.generate_presigned_put_url(
+            outputs[path] = storage.generate_presigned_put_url(
                 bucket=bucket, key=f"{prefix}/{path}", expires_in=timeout
             )
 
         # Always include outputs.json index
-        put_urls["outputs.json"] = storage.generate_presigned_put_url(
+        outputs["outputs.json"] = storage.generate_presigned_put_url(
             bucket=bucket, key=f"{prefix}/outputs.json", expires_in=timeout
         )
 
         return {
             "execution_id": str(run.id),
             "mode": run.mode,
-            "inputs": run.inputs,
-            "put_urls": put_urls,
+            "inputs": hydrated_inputs,
+            "outputs": outputs,
         }
+
+    def _hydrate_inputs(self, inputs: Dict[str, Any], world_id: str, bucket: str, storage, timeout: int) -> Dict[str, Any]:
+        """
+        Recursively hydrate world:// URIs to presigned GET URLs.
+
+        Handles:
+        - world://{world}/{run}/{path} → presigned GET URL
+        - world://{world}/{run}/key?data={json} → leaves as-is (protocol layer handles)
+        - Nested dicts and lists
+        """
+        if isinstance(inputs, dict):
+            return {k: self._hydrate_inputs(v, world_id, bucket, storage, timeout) for k, v in inputs.items()}
+        elif isinstance(inputs, list):
+            return [self._hydrate_inputs(item, world_id, bucket, storage, timeout) for item in inputs]
+        elif isinstance(inputs, str) and inputs.startswith("world://"):
+            # Check if it's a scalar (has ?data=)
+            if "?data=" in inputs:
+                # Scalar artifact - protocol layer will extract data
+                return inputs
+
+            # File artifact - generate presigned GET URL
+            # Parse: world://{world_id}/{run_id}/{path}
+            uri_path = inputs.replace("world://", "")
+            parts = uri_path.split("/", 2)
+
+            if len(parts) < 3:
+                raise ValueError(f"Invalid world:// URI format: {inputs}")
+
+            uri_world_id, run_id, path = parts
+
+            # Security: ensure artifact is from same world
+            if uri_world_id != str(world_id):
+                raise PermissionError(f"Cannot access artifacts from other worlds: {inputs}")
+
+            # Generate presigned GET URL
+            s3_key = f"{uri_world_id}/{run_id}/{path}"
+            return storage.generate_presigned_get_url(bucket=bucket, key=s3_key, expires_in=timeout)
+        else:
+            # Primitive value or non-world URI
+            return inputs
 
     def invoke(
         self,

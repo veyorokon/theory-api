@@ -126,7 +126,7 @@ User/processor errors → `status="error"` envelope:
 Only orchestration/transport failures raise:
 - `WsError` – Connection timeout, protocol violation, bad frames
 - `DriftError` – Image digest mismatch (supply chain security)
-- `OrchestratorWsError` – Missing secrets, registry issues, build failures
+- `ToolRunnerError` – Missing secrets, registry issues, build failures
 
 ### Testing Guidance
 
@@ -141,7 +141,7 @@ with pytest.raises(Exception):  # NO - processor errors are envelopes
     invoke_processor("llm/litellm@1", inputs={"bad": "data"})
 
 # ✅ Correct: Expect exception for orchestration failures
-with pytest.raises(OrchestratorWsError):
+with pytest.raises(ToolRunnerError):
     invoke_processor("nonexistent/processor@1", inputs={...})
 ```
 

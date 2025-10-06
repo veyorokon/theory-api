@@ -1,7 +1,7 @@
 """Test helpers for invoking processors via orchestrator."""
 
 from typing import Any, Dict, Optional
-from apps.core.orchestrator_ws import OrchestratorWS
+from apps.core.tool_runner import ToolRunner
 from apps.core.registry.loader import load_processor_spec
 from apps.storage.service import storage_service
 
@@ -18,7 +18,7 @@ def invoke_processor(
     adapter: str = "local",
 ) -> Dict[str, Any]:
     """
-    Invoke processor via OrchestratorWS (same path as production).
+    Invoke processor via ToolRunner (same path as production).
 
     This exercises the full prod flow:
     1. Load registry.yaml (declared outputs)
@@ -42,7 +42,7 @@ def invoke_processor(
     Raises:
         Exception: If processor invocation fails
     """
-    orch = OrchestratorWS()
+    orch = ToolRunner()
 
     return orch.invoke(
         ref=ref,

@@ -5,6 +5,7 @@ from __future__ import annotations
 import strawberry
 
 from apps.tools.graphql.queries import ToolQuery
+from apps.runs.graphql.mutations import RunMutation
 
 
 @strawberry.type
@@ -14,4 +15,11 @@ class Query(ToolQuery):
     pass
 
 
-schema = strawberry.Schema(query=Query)
+@strawberry.type
+class Mutation(RunMutation):
+    """Root Mutation - combines all app mutations."""
+
+    pass
+
+
+schema = strawberry.Schema(query=Query, mutation=Mutation)

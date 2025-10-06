@@ -78,6 +78,7 @@ LOCAL_APPS = [
     "apps.agents",
     "apps.worlds",
     "apps.tools",
+    "apps.artifacts",
     "apps.plans",
     "apps.goals",
     "apps.runs",

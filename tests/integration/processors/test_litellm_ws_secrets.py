@@ -2,7 +2,7 @@
 
 import os
 import pytest
-from apps.core.orchestrator_ws import OrchestratorWS
+from apps.core.tool_runner import ToolRunner
 
 
 pytestmark = [pytest.mark.integration, pytest.mark.requires_docker]
@@ -13,7 +13,7 @@ class TestLiteLLMWebSocketSecrets:
 
     def test_ws_orchestrator_resolves_secrets_mock_mode(self):
         """Test that WebSocket orchestrator works in mock mode (no secrets needed)."""
-        orchestrator = OrchestratorWS()
+        orchestrator = ToolRunner()
 
         inputs = {
             "schema": "v1",
@@ -37,7 +37,7 @@ class TestLiteLLMWebSocketSecrets:
     @pytest.mark.skipif(not os.getenv("OPENAI_API_KEY"), reason="OPENAI_API_KEY not available for real mode testing")
     def test_ws_orchestrator_resolves_secrets_real_mode(self):
         """Test that WebSocket orchestrator properly resolves and passes secrets in real mode."""
-        orchestrator = OrchestratorWS()
+        orchestrator = ToolRunner()
 
         inputs = {
             "schema": "v1",
@@ -69,7 +69,7 @@ class TestLiteLLMWebSocketSecrets:
         # Remove OPENAI_API_KEY from environment
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-        orchestrator = OrchestratorWS()
+        orchestrator = ToolRunner()
 
         inputs = {
             "schema": "v1",
@@ -98,7 +98,7 @@ class TestLiteLLMWebSocketSecrets:
         # Ensure we have a fake API key for testing
         os.environ["OPENAI_API_KEY"] = "sk-test-1234567890abcdefghij"
 
-        orchestrator = OrchestratorWS()
+        orchestrator = ToolRunner()
 
         inputs = {
             "schema": "v1",
