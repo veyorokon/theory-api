@@ -107,12 +107,13 @@ class Run(models.Model):
                 content_type=output.get("content_type", ""),
                 size_bytes=output.get("size"),
                 etag=output.get("etag", ""),
-                sha256=output.get("sha256", "")
+                sha256=output.get("sha256", ""),
             )
 
 
 class RunOutput(models.Model):
     """Tracks one file artifact produced by a Run."""
+
     run = models.ForeignKey(Run, on_delete=models.CASCADE, related_name="outputs")
     key = models.CharField(max_length=128)  # matches ToolIO.key
     uri = models.CharField(max_length=512)  # world://artifacts/outputs/{ref_slug}/{run_id}/...

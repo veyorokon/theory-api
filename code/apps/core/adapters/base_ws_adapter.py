@@ -88,6 +88,7 @@ class BaseWsAdapter:
 
         # Get tool for timeout and output declarations
         from apps.tools.models import Tool
+
         try:
             tool = Tool.objects.get(ref=run.ref)
             timeout = tool.timeout_s
@@ -97,20 +98,16 @@ class BaseWsAdapter:
             output_paths = []
 
         # Generate presigned PUT URLs for declared outputs
-        prefix = run.write_prefix.lstrip('/').rstrip('/')
+        prefix = run.write_prefix.lstrip("/").rstrip("/")
         put_urls = {}
         for path in output_paths:
             put_urls[path] = storage.generate_presigned_put_url(
-                bucket=bucket,
-                key=f"{prefix}/{path}",
-                expires_in=timeout
+                bucket=bucket, key=f"{prefix}/{path}", expires_in=timeout
             )
 
         # Always include outputs.json index
         put_urls["outputs.json"] = storage.generate_presigned_put_url(
-            bucket=bucket,
-            key=f"{prefix}/outputs.json",
-            expires_in=timeout
+            bucket=bucket, key=f"{prefix}/outputs.json", expires_in=timeout
         )
 
         return {

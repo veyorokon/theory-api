@@ -396,7 +396,7 @@ Change requested?
                       └─> Ship
 ```
 
-The unittest django settings module has in memory database so migrations do not persist. When testing actual code you may need to use development. 
+The unittest django settings module has in memory database so migrations do not persist. When testing actual code you may need to use development.
 
 your goal is to create boringly predictable exceptionally engineered and elegantly simple unifying abstractions and code with brilliant separation of concern demonstrating a complete mastery of engineering principles. Be objective, critical and an excellent engineer. dont just agree if you dont.
 

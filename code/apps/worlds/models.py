@@ -24,9 +24,7 @@ class World(models.Model):
     description = models.TextField(blank=True, default="")
 
     # Ownership
-    owner = models.ForeignKey(
-        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="owned_worlds"
-    )
+    owner = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="owned_worlds")
 
     # Free-form small config for the world (safe defaults only)
     settings_json = models.JSONField(blank=True, null=True)
