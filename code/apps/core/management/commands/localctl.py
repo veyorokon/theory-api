@@ -303,7 +303,7 @@ def cmd_start(args: argparse.Namespace) -> None:
 
     # Resolve required secrets from registry
     from apps.core.registry.loader import load_processor_spec
-    from apps.core.integrations.secret_resolver import resolve_secret
+    from apps.core.utils.secret_resolver import resolve_secret
 
     try:
         spec = load_processor_spec(ref)

@@ -1,6 +1,7 @@
 # apps/runs/models.py
 import uuid
 from django.db import models
+from django.utils import timezone
 
 
 class Run(models.Model):
@@ -19,7 +20,6 @@ class Run(models.Model):
     goal = models.ForeignKey("goals.Goal", on_delete=models.SET_NULL, null=True, blank=True, related_name="runs")
 
     ref = models.CharField(max_length=128)  # e.g. "llm/litellm@1"
-    ref_slug = models.CharField(max_length=128)  # e.g. "llm_litellm"
     mode = models.CharField(max_length=8)  # "mock" | "real"
     adapter = models.CharField(max_length=8)  # "local" | "modal"
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
@@ -27,7 +27,7 @@ class Run(models.Model):
     error_code = models.CharField(max_length=64, null=True, blank=True)
     error_message = models.TextField(null=True, blank=True)
 
-    write_prefix = models.CharField(max_length=512)  # "/artifacts/outputs/{ref_slug}/{run_id}/"
+    write_prefix = models.CharField(max_length=512)  # "/{world_id}/{run_id}/"
     index_path = models.CharField(max_length=512, blank=True)  # set on settle - outputs.json
 
     image_digest_expected = models.CharField(max_length=71, null=True, blank=True)  # "sha256:…"
@@ -48,7 +48,7 @@ class Run(models.Model):
             models.Index(fields=["world", "-started_at"], name="run_world_started_idx"),
             models.Index(fields=["goal", "-started_at"], name="run_goal_started_idx"),
             models.Index(fields=["plan", "-started_at"], name="run_plan_started_idx"),
-            models.Index(fields=["ref_slug", "-started_at"], name="run_ref_started_idx"),
+            models.Index(fields=["ref", "-started_at"], name="run_ref_started_idx"),
         ]
         ordering = ["-started_at"]
 
@@ -73,3 +73,61 @@ class Run(models.Model):
     @property
     def duration_min(self) -> int:
         return self.duration_sec // 60
+
+    def finalize(self, envelope: dict) -> None:
+        """Update run from terminal envelope (status, meta, outputs)."""
+        self.status = envelope.get("status", self.Status.FAILED)
+        self.meta = envelope.get("meta", {})
+        self.index_path = envelope.get("index_path", "")
+        self.ended_at = timezone.now()
+
+        # Extract error details if present
+        if "error" in envelope:
+            error = envelope["error"]
+            self.error_code = error.get("code", "")
+            self.error_message = error.get("message", "")
+
+        # Extract cost if available
+        if "cost_micro" in envelope.get("meta", {}):
+            self.cost_micro = envelope["meta"]["cost_micro"]
+
+        self.save()
+
+        # Create RunOutput records for each file artifact
+        outputs = envelope.get("outputs", [])
+        for output in outputs:
+            path = output["path"].lstrip("/")  # Remove leading slash
+            key = path.split("/")[-1].rsplit(".", 1)[0]  # Extract key from path
+
+            RunOutput.objects.create(
+                run=self,
+                key=key,
+                uri=f"world://{self.world.id}/{self.id}/{path}",
+                path=path,
+                content_type=output.get("content_type", ""),
+                size_bytes=output.get("size"),
+                etag=output.get("etag", ""),
+                sha256=output.get("sha256", "")
+            )
+
+
+class RunOutput(models.Model):
+    """Tracks one file artifact produced by a Run."""
+    run = models.ForeignKey(Run, on_delete=models.CASCADE, related_name="outputs")
+    key = models.CharField(max_length=128)  # matches ToolIO.key
+    uri = models.CharField(max_length=512)  # world://artifacts/outputs/{ref_slug}/{run_id}/...
+    path = models.CharField(max_length=256)  # Relative path (e.g., outputs/text/response.txt)
+    content_type = models.CharField(max_length=128, blank=True)
+    size_bytes = models.BigIntegerField(null=True, blank=True)
+    etag = models.CharField(max_length=128, blank=True)
+    sha256 = models.CharField(max_length=64, blank=True)
+
+    class Meta:
+        unique_together = [("run", "key")]
+        indexes = [
+            models.Index(fields=["run", "key"]),
+            models.Index(fields=["uri"]),
+        ]
+
+    def __str__(self):
+        return f"{self.run_id}:{self.key}"

@@ -111,6 +111,13 @@ class Command(BaseCommand):
             digest_amd64 = platforms.get("amd64", "")
             digest_arm64 = platforms.get("arm64", "")
 
+            # Runtime config
+            runtime = spec.get("runtime", {})
+            timeout_s = runtime.get("timeout_s") or 600
+            cpu = runtime.get("cpu") or "1"
+            memory_gb = runtime.get("memory_gb") or 2
+            gpu = runtime.get("gpu") or ""  # null in YAML becomes None, coalesce to ""
+
             if dry_run:
                 if not json_mode:
                     self.stdout.write(f"Would sync: {ref} (enabled={enabled}, kind={kind})")
@@ -131,6 +138,10 @@ class Command(BaseCommand):
                     "required_secrets": required_secrets,
                     "digest_amd64": digest_amd64,
                     "digest_arm64": digest_arm64,
+                    "timeout_s": timeout_s,
+                    "cpu": cpu,
+                    "memory_gb": memory_gb,
+                    "gpu": gpu,
                 },
             )
 

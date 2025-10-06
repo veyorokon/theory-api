@@ -111,3 +111,15 @@ def _get_modal_web_url(app_name: str, function_name: str = "fastapi_app") -> str
         raise RuntimeError(f"Modal function has no web_url: {app_name}:{function_name}")
 
     return url
+
+
+def get_adapter_for_run(adapter: str):
+    """Get adapter instance for run invocation."""
+    if adapter == "local":
+        from apps.core.adapters.local_ws_adapter import LocalWsAdapter
+        return LocalWsAdapter()
+    elif adapter == "modal":
+        from apps.core.adapters.modal_ws_adapter import ModalWsAdapter
+        return ModalWsAdapter()
+    else:
+        raise ValueError(f"Unknown adapter: {adapter}")

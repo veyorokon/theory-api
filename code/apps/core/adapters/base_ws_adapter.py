@@ -47,6 +47,79 @@ class BaseWsAdapter:
 
     # ---------------- Public API ----------------
 
+    def invoke_run(self, run) -> Dict[str, Any]:
+        """
+        High-level invocation from Run model.
+        Loads Tool, constructs payload with presigned URLs, invokes, returns envelope.
+        """
+        from apps.tools.models import Tool
+        from django.conf import settings
+        import platform
+
+        # Load tool for runtime config and digest
+        try:
+            tool = Tool.objects.get(ref=run.ref)
+        except Tool.DoesNotExist:
+            raise WsError(f"Tool not found: {run.ref}")
+
+        # Detect architecture for digest selection
+        arch = platform.machine()
+        if arch == "x86_64":
+            expected_digest = tool.digest_amd64
+        elif arch in ("arm64", "aarch64"):
+            expected_digest = tool.digest_arm64
+        else:
+            expected_digest = tool.digest_amd64  # fallback
+
+        # Construct payload with presigned PUT URLs
+        payload = self._build_payload(run)
+
+        # Invoke with tool timeout
+        oci = {"expected_digest": expected_digest}
+        return self.invoke(run.ref, payload, tool.timeout_s, oci, stream=False)
+
+    def _build_payload(self, run) -> Dict[str, Any]:
+        """Build invocation payload with inputs and presigned PUT URLs."""
+        from backend.storage.service import StorageService
+        from django.conf import settings
+
+        storage = StorageService()
+        bucket = settings.STORAGE.get("BUCKET")
+
+        # Get tool for timeout and output declarations
+        from apps.tools.models import Tool
+        try:
+            tool = Tool.objects.get(ref=run.ref)
+            timeout = tool.timeout_s
+            output_paths = [o.get("path") for o in tool.outputs_decl if o.get("path")]
+        except Tool.DoesNotExist:
+            timeout = 3600
+            output_paths = []
+
+        # Generate presigned PUT URLs for declared outputs
+        prefix = run.write_prefix.lstrip('/').rstrip('/')
+        put_urls = {}
+        for path in output_paths:
+            put_urls[path] = storage.generate_presigned_put_url(
+                bucket=bucket,
+                key=f"{prefix}/{path}",
+                expires_in=timeout
+            )
+
+        # Always include outputs.json index
+        put_urls["outputs.json"] = storage.generate_presigned_put_url(
+            bucket=bucket,
+            key=f"{prefix}/outputs.json",
+            expires_in=timeout
+        )
+
+        return {
+            "execution_id": str(run.id),
+            "mode": run.mode,
+            "inputs": run.inputs,
+            "put_urls": put_urls,
+        }
+
     def invoke(
         self,
         ref: str,
@@ -237,8 +310,8 @@ class BaseWsAdapter:
         if status == "error" and "error" not in env:
             raise WsError("Error envelope missing 'error' field")
 
-        # Drift check (applies to both success and error)
-        if expected_digest:
+        # Drift check (only for success - error envelopes may not have digest)
+        if expected_digest and status == "success":
             got = (((env.get("meta") or {}).get("image_digest")) or "").strip()
             if not got:
                 raise DriftError("Envelope missing meta.image_digest for drift check")

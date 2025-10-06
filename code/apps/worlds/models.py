@@ -17,15 +17,15 @@ class World(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     # Human-friendly ID you can put in paths/URLs and S3 prefixes
-    key = models.SlugField(max_length=64, unique=True, help_text="Stable slug. e.g. 'acme-campaign-q4'")
+    name = models.SlugField(max_length=64, unique=True, help_text="Stable slug. e.g. 'acme-campaign-q4'")
 
     # Optional display fields
     title = models.CharField(max_length=200, blank=True, default="")
     description = models.TextField(blank=True, default="")
 
-    # Ownership / tenancy
-    created_by = models.ForeignKey(
-        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="worlds_created"
+    # Ownership
+    owner = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name="owned_worlds"
     )
 
     # Free-form small config for the world (safe defaults only)
@@ -40,25 +40,12 @@ class World(models.Model):
         ordering = ("-created_at",)
 
     def __str__(self) -> str:
-        return self.key
-
-    @property
-    def artifacts_prefix(self) -> str:
-        """
-        Canonical root prefix for this world's artifacts in S3/MinIO.
-        Use this to build write_prefixes for runs:
-          f"{self.artifacts_prefix}outputs/{ref_slug}/{run_id}/"
-        """
-        # Keep the global ARTIFACTS_PREFIX (e.g. "artifacts/") from settings
-        base = getattr(settings, "ARTIFACTS_PREFIX", "artifacts/")
-        if not base.endswith("/"):
-            base += "/"
-        return f"/{base}worlds/{self.key}/"  # note leading "/" to match current convention
+        return self.name
 
     def save(self, *args, **kwargs):
-        # help if someone passes a title but no key
-        if not self.key and self.title:
-            self.key = slugify(self.title)[:64] or str(uuid.uuid4())[:12]
+        # help if someone passes a title but no name
+        if not self.name and self.title:
+            self.name = slugify(self.title)[:64] or str(uuid.uuid4())[:12]
         super().save(*args, **kwargs)
 
 

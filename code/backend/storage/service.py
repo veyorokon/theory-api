@@ -46,11 +46,14 @@ class StorageService:
     def delete_file(self, key, bucket):
         return self.adapter.delete_file(key, bucket)
 
-    def get_file_url(self, key, bucket, expires_in=3600):
+    def generate_presigned_get_url(self, key, bucket, expires_in=3600):
         return self.adapter.get_file_url(key, bucket, expires_in)
 
-    def get_upload_url(self, key, bucket, expires_in=3600, content_type=None):
+    def generate_presigned_put_url(self, key, bucket, expires_in=3600, content_type=None):
         return self.adapter.get_upload_url(key, bucket, expires_in, content_type)
+
+    def get_upload_url(self, key, bucket, expires_in=3600, content_type=None):
+        return self.generate_presigned_put_url(key, bucket, expires_in, content_type)
 
     def file_exists(self, key, bucket):
         return self.adapter.file_exists(key, bucket)

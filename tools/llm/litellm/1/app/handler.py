@@ -81,7 +81,7 @@ def entry(payload: Dict[str, Any], emit: Callable[[Dict], None] | None = None, c
         }
 
     etags = {}
-    reply_key = "outputs/text/response.txt"
+    reply_key = "text/response.txt"
     if reply_key not in put_urls:
         return {
             "status": "error",
@@ -101,7 +101,7 @@ def entry(payload: Dict[str, Any], emit: Callable[[Dict], None] | None = None, c
 
     # outputs.json LAST
     index_key = "outputs.json"
-    outputs_list = [{"path": f"{write_prefix}outputs/text/response.txt"}]
+    outputs_list = [{"path": f"{write_prefix}text/response.txt"}]
     index_bytes = ensure_outputs_json(outputs_list)
     if index_key not in put_urls:
         return {

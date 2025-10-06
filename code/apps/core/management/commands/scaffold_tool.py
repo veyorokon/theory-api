@@ -256,7 +256,7 @@ class Command(BaseCommand):
                     return {"status":"error","execution_id":execution_id,"error":{"code":"ERR_IMAGE_DIGEST_MISSING","message":"IMAGE_DIGEST not set"},"meta":{}}
 
                 etags = {}
-                reply_key = "outputs/text/response.txt"
+                reply_key = "text/response.txt"
                 if reply_key not in put_urls:
                     return {"status":"error","execution_id":execution_id,"error":{"code":"ERR_UPLOAD_PLAN","message":f"missing put_url for {reply_key}"},"meta":{}}
                 try:
@@ -266,7 +266,7 @@ class Command(BaseCommand):
 
                 # outputs.json LAST
                 index_key = "outputs.json"
-                outputs_list = [ {"path": f"{write_prefix}outputs/text/response.txt"} ]
+                outputs_list = [ {"path": f"{write_prefix}text/response.txt"} ]
                 index_bytes = ensure_outputs_json(outputs_list)
                 if index_key not in put_urls:
                     return {"status":"error","execution_id":execution_id,"error":{"code":"ERR_UPLOAD_PLAN","message":f"missing put_url for {index_key}"},"meta":{}}

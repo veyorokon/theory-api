@@ -6,10 +6,11 @@ build:
   context: .
   dockerfile: Dockerfile
   port: 8000
+enabled: true
 image:
   platforms:
     amd64: ghcr.io/veyorokon/theory-api/llm-litellm@sha256:placeholder
-    arm64: ghcr.io/veyorokon/theory-api/llm-litellm@sha256:994b7e1a343b1dc7efdb847a344235852276791c9152d7c3fbcd3642dbf8cd7b
+    arm64: sha256:f42c5611566c92a5c4bec5d7f68a229b12441ce99f233dcba6ac4270a9684f32
 inputs:
   $schema: https://json-schema.org/draft-07/schema#
   additionalProperties: false
@@ -51,7 +52,6 @@ outputs:
   mime: text/plain
   path: text/response.txt
 ref: llm/litellm@1
-enabled: true
 runtime:
   cpu: '1'
   gpu: null

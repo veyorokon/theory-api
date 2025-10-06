@@ -45,6 +45,12 @@ class Tool(models.Model):
     digest_amd64 = models.CharField(max_length=128, blank=True, default="")
     digest_arm64 = models.CharField(max_length=128, blank=True, default="")
 
+    # Runtime configuration from registry
+    timeout_s = models.PositiveIntegerField(default=600)
+    cpu = models.CharField(max_length=8, blank=True, default="1")
+    memory_gb = models.PositiveIntegerField(default=2)
+    gpu = models.CharField(max_length=32, blank=True, default="")  # e.g., "A10G", "T4", or empty
+
     class Meta:
         unique_together = [("namespace", "name", "version")]
         indexes = [
@@ -112,6 +118,10 @@ class ToolIO(models.Model):
     # Storage-related (mostly relevant for OUT; optional for IN that accept files)
     path = models.CharField(max_length=256, blank=True, default="")  # e.g., "outputs/text/response.txt"
     mime = models.CharField(max_length=128, blank=True, default="")  # e.g., "text/plain"
+
+    # For OUT only: indicates this output is a scalar value extracted from results.json
+    # (e.g., token_count, score) rather than a standalone file artifact
+    is_scalar_result = models.BooleanField(default=False)
 
     # Presentation / selection
     role = models.CharField(max_length=64, blank=True, default="")  # e.g., "primary", "preview"
