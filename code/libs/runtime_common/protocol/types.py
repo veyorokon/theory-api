@@ -1,11 +1,9 @@
 from enum import Enum, auto
 
-
 class ConnectionRole(Enum):
     CLIENT = auto()
     CONTROLLER = auto()
     OBSERVER = auto()
-
 
 class RunState(Enum):
     PENDING = auto()

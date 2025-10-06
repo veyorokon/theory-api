@@ -108,7 +108,6 @@ def _build_image(
     if not build_spec:
         raise RuntimeError("No build specification found in registry entry")
 
-    context = build_spec.get("context", ".")
     dockerfile = build_spec.get("dockerfile", "Dockerfile")
     default_tag = build_spec.get("tag")
 
@@ -134,14 +133,15 @@ def _build_image(
 
     tool_dir = roots[0] / ns / name / ver
 
-    context_path = Path(context)
-    if not context_path.is_absolute():
-        context_path = tool_dir / context_path
+    # Always use project root as build context to access code/libs
+    project_root = settings.BASE_DIR.parent
+    context_path = project_root
 
     if not context_path.exists():
         raise RuntimeError(f"Build context does not exist: {context_path}")
 
-    dockerfile_path = context_path / dockerfile
+    # Dockerfile path is relative to tool directory
+    dockerfile_path = tool_dir / dockerfile
     if not dockerfile_path.exists():
         raise RuntimeError(f"Dockerfile not found: {dockerfile_path}")
 
