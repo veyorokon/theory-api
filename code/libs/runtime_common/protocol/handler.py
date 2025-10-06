@@ -24,7 +24,7 @@ Returns envelope:
 from typing import Any, Dict, Callable, Optional
 
 
-def entry(payload: Dict[str, Any], emit: Optional[Callable[[Dict], None]] = None, ctrl=None) -> Dict[str, Any]:
+def entry(payload: Dict[str, Any], emit: Callable[[Dict], None] | None = None, ctrl=None) -> Dict[str, Any]:
     """
     Generic mock handler - replace with tool-specific logic.
 

@@ -117,8 +117,23 @@ def _print_json(obj: dict):
 # --- Ephemeral modal scripts (SDK one-shots) -------------------------------
 
 
-def _script_deploy(app_name: str, oci: str) -> str:
+def _script_deploy(app_name: str, oci: str, required_secrets: list[str], runtime_config: dict) -> str:
     digest_part = oci.split("@")[1] if "@" in oci else oci
+
+    # Build secrets list for function decorator
+    secrets_list = ", ".join([f'modal.Secret.from_name("{s}")' for s in required_secrets]) if required_secrets else ""
+    secrets_param = f"secrets=[{secrets_list}]" if secrets_list else ""
+
+    # Build runtime params
+    cpu = runtime_config.get("cpu", "1")
+    memory_mb = int(float(runtime_config.get("memory_gb", 2)) * 1024)
+    timeout = runtime_config.get("timeout_s", 600)
+    gpu = runtime_config.get("gpu")
+
+    runtime_params = f"cpu={cpu}, memory={memory_mb}, timeout={timeout}"
+    if gpu:
+        runtime_params += f', gpu="{gpu}"'
+
     return textwrap.dedent(f"""
     import modal
 
@@ -128,12 +143,12 @@ def _script_deploy(app_name: str, oci: str) -> str:
 
     app = modal.App("{app_name}", image=image)
 
-    @app.function(image=image)
+    @app.function(image=image, {runtime_params}{", " + secrets_param if secrets_param else ""})
     @modal.asgi_app()
     def fastapi_app():
         # Import the FastAPI app from the image at runtime
         # so Modal runs it directly as an ASGI application.
-        from app.ws import app as fastapi_app
+        from protocol.ws import app as fastapi_app
         return fastapi_app
     """)
 
@@ -182,9 +197,29 @@ def _script_upsert_single_secret() -> str:
 
 def cmd_start(args: argparse.Namespace) -> None:
     ref = _require(args.ref, "--ref is required (ns/name@ver)")
-    oci = _require(args.oci, "--oci is required (ghcr.io/...@sha256:...)")
+    oci = args.oci  # Optional now
+
+    # Load registry to get both oci (if needed) and required secrets
+    reg = _load_registry_for_ref(ref)
+
+    # If --oci not provided, read from registry.yaml
+    if not oci:
+        image = reg.get("image") or {}
+        platforms = image.get("platforms") or {}
+        oci = platforms.get("amd64")  # Modal always uses amd64
+        if not oci:
+            raise CommandError(
+                f"No amd64 platform pinned in registry.yaml for {ref}. Run 'imagectl pin --ref {ref} --platform amd64' first."
+            )
+
     if not _digest_like(oci):
         raise CommandError("Expected --oci in digest form: ghcr.io/owner/repo@sha256:...")
+
+    # Get required secrets
+    required_secrets = _resolve_required_secret_names(ref)
+
+    # Get runtime config
+    runtime_config = reg.get("runtime", {})
 
     env = settings.MODAL_ENVIRONMENT
     app_name = _modal_app_name(
@@ -194,13 +229,13 @@ def cmd_start(args: argparse.Namespace) -> None:
         user=getattr(settings, "GIT_USER", None),
     )
 
-    src = _script_deploy(app_name, oci)
+    src = _script_deploy(app_name, oci, required_secrets, runtime_config)
     path = _write_temp_modal_script(src)
 
     _ensure_modal_cli()
     _run(["modal", "deploy", str(path), "--env", env])
 
-    print(json.dumps({"status": "success", "app_name": app_name, "oci": oci, "env": env}))
+    print(json.dumps({"status": "success", "app_name": app_name, "oci": oci, "env": env, "secrets": required_secrets}))
 
 
 def cmd_stop(args: argparse.Namespace) -> None:
@@ -376,24 +411,25 @@ def cmd_sync_secrets(args: argparse.Namespace) -> None:
 
 def cmd_run(args: argparse.Namespace) -> None:
     """Run tool with modal adapter."""
-    execution_id = str(uuid.uuid4())
+    # Support both run_id and execution_id during transition
+    run_id = str(uuid.uuid4())
 
     if args.json:
         os.environ["LOG_STREAM"] = "stderr"
 
     # Bind logging context
     core_logging.bind(
-        trace_id=execution_id,
+        trace_id=run_id,
         tool_ref=args.ref,
         adapter="modal",
         mode=args.mode or "mock",
     )
 
     try:
-        # Require {execution_id} in write prefix
+        # Require {run_id} in write prefix (support both forms during transition)
         write_prefix = args.write_prefix
-        if write_prefix and "{execution_id}" not in write_prefix:
-            raise CommandError("--write-prefix must include '{execution_id}' to prevent output collisions")
+        if write_prefix and "{run_id}" not in write_prefix and "{execution_id}" not in write_prefix:
+            raise CommandError("--write-prefix must include '{run_id}' to prevent output collisions")
 
         # Parse inputs
         inputs_json = run_utils.parse_inputs(vars(args))
@@ -445,6 +481,9 @@ def cmd_run(args: argparse.Namespace) -> None:
         # Invoke processor with modal adapter
         from apps.core.tool_runner import ToolRunner
 
+        # Determine artifact scope from storage backend
+        artifact_scope = "world" if settings.STORAGE_BACKEND == "s3" else "local"
+
         runner = ToolRunner()
         result = runner.invoke(
             ref=args.ref,
@@ -452,9 +491,10 @@ def cmd_run(args: argparse.Namespace) -> None:
             inputs=inputs_json,
             stream=False,
             timeout_s=args.timeout or 600,
-            execution_id=execution_id,
+            run_id=run_id,
             write_prefix=write_prefix,
             adapter="modal",
+            artifact_scope=artifact_scope,
         )
 
         # Download outputs if requested
@@ -488,9 +528,9 @@ class Command(BaseCommand):
         sub = parser.add_subparsers(dest="subcmd", required=True)
 
         # start
-        p_start = sub.add_parser("start", help="Start (deploy) app by OCI digest")
+        p_start = sub.add_parser("start", help="Start (deploy) app")
         p_start.add_argument("--ref", required=True, help="ns/name@ver")
-        p_start.add_argument("--oci", required=True, help="ghcr.io/...@sha256:...")
+        p_start.add_argument("--oci", help="ghcr.io/...@sha256:... (default: read from registry.yaml)")
         p_start.set_defaults(func=cmd_start)
 
         # stop
@@ -515,7 +555,7 @@ class Command(BaseCommand):
         p_run = sub.add_parser("run", help="Run tool with modal adapter")
         p_run.add_argument("--ref", required=True, help="Tool ref (e.g., llm/litellm@1)")
         p_run.add_argument("--mode", choices=["real", "mock"], help="Tool mode")
-        p_run.add_argument("--write-prefix", help="Write prefix for outputs (must include {execution_id})")
+        p_run.add_argument("--write-prefix", help="Write prefix for outputs (must include {run_id})")
         p_run.add_argument("--timeout", type=int, help="Timeout in seconds (default: 600)")
         p_run.add_argument("--json", action="store_true", help="Output JSON response")
 

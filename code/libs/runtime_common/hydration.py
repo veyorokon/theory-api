@@ -33,7 +33,7 @@ def resolve_artifact_uri(uri: str, timeout: int = 30) -> Any:
     if "?data=" in uri:
         # Scalar artifact - extract embedded JSON from query param
         query_start = uri.index("?data=")
-        encoded_data = uri[query_start + 6:]  # Skip "?data="
+        encoded_data = uri[query_start + 6 :]  # Skip "?data="
         json_str = urllib.parse.unquote(encoded_data)
         return json.loads(json_str)
 
@@ -76,7 +76,8 @@ def resolve_inputs(inputs: Dict[str, Any], timeout: int = 30) -> Dict[str, Any]:
         elif isinstance(value, list):
             # List - resolve each item
             resolved[key] = [
-                resolve_artifact_uri(item, timeout) if isinstance(item, str) and ("?data=" in item or item.startswith("http"))
+                resolve_artifact_uri(item, timeout)
+                if isinstance(item, str) and ("?data=" in item or item.startswith("http"))
                 else item
                 for item in value
             ]
@@ -97,12 +98,7 @@ def write_output(url: str, data: bytes, content_type: str = "application/octet-s
         content_type: MIME type
         timeout: HTTP timeout in seconds
     """
-    response = httpx.put(
-        url,
-        content=data,
-        headers={"Content-Type": content_type},
-        timeout=timeout
-    )
+    response = httpx.put(url, content=data, headers={"Content-Type": content_type}, timeout=timeout)
     response.raise_for_status()
 
 

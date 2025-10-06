@@ -30,7 +30,9 @@ class Artifact(models.Model):
     world = models.ForeignKey("worlds.World", on_delete=models.CASCADE, related_name="artifacts")
 
     # Universal storage
-    uri = models.CharField(max_length=1024, db_index=True)  # Always looks like a URI - may need to be a property if too large
+    uri = models.CharField(
+        max_length=1024, db_index=True
+    )  # Always looks like a URI - may need to be a property if too large
     path = models.CharField(max_length=512, blank=True)  # S3 key (empty for scalars)
     data = models.JSONField(null=True, blank=True)  # Inline data for scalars, null for files
     is_scalar = models.BooleanField(default=False)

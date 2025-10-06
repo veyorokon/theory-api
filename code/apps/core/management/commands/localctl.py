@@ -248,14 +248,23 @@ def _find_containers(ref: str | None = None, all_theory: bool = False) -> List[D
 def cmd_start(args: argparse.Namespace) -> None:
     """Start reusable container for tool ref."""
     ref = args.ref
+    platform = args.platform
     if not ref:
         raise CommandError("--ref is required")
+    if not platform:
+        raise CommandError("--platform is required")
 
-    # Get image tag
+    # Get image tag for platform
     try:
-        image_ref = _get_newest_build_tag(ref)
+        from apps.core.management.commands.imagectl import _read_build_manifest, _normalize_platform
+
+        platform = _normalize_platform(platform)
+        manifest = _read_build_manifest(ref)
+        image_ref = manifest.get("tags", {}).get(platform)
+        if not image_ref:
+            raise RuntimeError(f"No build found for platform {platform}")
     except Exception as e:
-        raise CommandError(f"Could not find built image for {ref}: {e}")
+        raise CommandError(f"Could not find built image for {ref} platform {platform}: {e}")
 
     # Generate container name and allocate port
     container_name = _container_name(ref, image_ref)
@@ -448,24 +457,25 @@ def cmd_logs(args: argparse.Namespace) -> None:
 
 def cmd_run(args: argparse.Namespace) -> None:
     """Run tool with local adapter."""
-    execution_id = str(uuid.uuid4())
+    # Support both run_id and execution_id during transition
+    run_id = str(uuid.uuid4())
 
     if args.json:
         os.environ["LOG_STREAM"] = "stderr"
 
     # Bind logging context
     core_logging.bind(
-        trace_id=execution_id,
+        trace_id=run_id,
         tool_ref=args.ref,
         adapter="local",
         mode=args.mode or "mock",
     )
 
     try:
-        # Require {execution_id} in write prefix
+        # Require {run_id} in write prefix (support both forms during transition)
         write_prefix = args.write_prefix
-        if write_prefix and "{execution_id}" not in write_prefix:
-            raise CommandError("--write-prefix must include '{execution_id}' to prevent output collisions")
+        if write_prefix and "{run_id}" not in write_prefix and "{execution_id}" not in write_prefix:
+            raise CommandError("--write-prefix must include '{run_id}' to prevent output collisions")
 
         # Parse inputs
         inputs_json = run_utils.parse_inputs(vars(args))
@@ -524,9 +534,10 @@ def cmd_run(args: argparse.Namespace) -> None:
             inputs=inputs_json,
             stream=False,
             timeout_s=args.timeout or 600,
-            execution_id=execution_id,
+            run_id=run_id,
             write_prefix=write_prefix,
             adapter="local",
+            artifact_scope="local",
         )
 
         # Download outputs if requested
@@ -559,6 +570,7 @@ class Command(BaseCommand):
         # start
         p_start = sub.add_parser("start", help="Start reusable container for tool")
         p_start.add_argument("--ref", required=True, help="Tool ref: ns/name@ver")
+        p_start.add_argument("--platform", required=True, help="Platform (amd64 or arm64)")
         p_start.add_argument("--port", type=int, help="Override host port (default: auto-assign from 40000+)")
         p_start.set_defaults(func=cmd_start)
 
@@ -584,7 +596,7 @@ class Command(BaseCommand):
         p_run = sub.add_parser("run", help="Run tool with local adapter")
         p_run.add_argument("--ref", required=True, help="Tool ref (e.g., llm/litellm@1)")
         p_run.add_argument("--mode", choices=["real", "mock"], help="Tool mode")
-        p_run.add_argument("--write-prefix", help="Write prefix for outputs (must include {execution_id})")
+        p_run.add_argument("--write-prefix", help="Write prefix for outputs (must include {run_id})")
         p_run.add_argument("--timeout", type=int, help="Timeout in seconds (default: 600)")
         p_run.add_argument("--json", action="store_true", help="Output JSON response")
 

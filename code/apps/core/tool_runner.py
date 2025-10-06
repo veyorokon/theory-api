@@ -81,10 +81,11 @@ class ToolRunner:
         stream: bool,  # True => iterator of events; False => final envelope
         settle: str = "fast",
         timeout_s: int = 600,
-        execution_id: str | None = None,
+        run_id: str | None = None,  # Primary parameter
+        execution_id: str | None = None,  # Backward compat
         write_prefix: str | None = None,
-        world_facet: str = "artifacts",  # usually "artifacts"
         adapter: str = "local",  # "local" | "modal"
+        artifact_scope: str,  # "world" | "local" - where artifacts are written
         platform: str
         | None = None,  # Override platform for digest selection (default: host platform or amd64 for modal)
     ) -> Dict[str, Any] | Iterator[Dict[str, Any]]:
@@ -102,8 +103,8 @@ class ToolRunner:
         # All tools now use WebSocket protocol (standardized)
 
         outputs_decl = reg.get("outputs") or []
-        # 2) Compute execution + prefix
-        eid = execution_id or str(uuid.uuid4())
+        # 2) Compute run_id + prefix (support both run_id and execution_id during transition)
+        rid = run_id or execution_id or str(uuid.uuid4())
 
         # Compute ref_slug for storage namespacing: llm/litellm@1 → llm_litellm
         ref_slug = ref.split("@", 1)[0].replace("/", "_")
@@ -111,12 +112,15 @@ class ToolRunner:
         if write_prefix:
             wprefix = write_prefix
         else:
-            # Default: /{world_facet}/outputs/{ref_slug}/{execution_id}/
+            # Default: /artifacts/outputs/{ref_slug}/{run_id}/
             # Example: /artifacts/outputs/llm_litellm/abc-123/
-            wprefix = f"/{world_facet}/outputs/{ref_slug}/{eid}/"
+            wprefix = f"/artifacts/outputs/{ref_slug}/{rid}/"
 
+        # Support both {run_id} and {execution_id} placeholders during transition
+        if "{run_id}" in wprefix:
+            wprefix = wprefix.replace("{run_id}", rid)
         if "{execution_id}" in wprefix:
-            wprefix = wprefix.replace("{execution_id}", eid)
+            wprefix = wprefix.replace("{execution_id}", rid)
         if not wprefix.endswith("/"):
             wprefix += "/"
 
@@ -126,34 +130,41 @@ class ToolRunner:
         # 3) Extract expected digest from registry (for drift validation)
         expected_digest = self._get_expected_digest(reg, adapter, platform)
 
-        # 4) Prepare presigned PUTs for durability (declared outputs + outputs.json)
-        put_urls = self._prepare_put_urls(wprefix, outputs_decl)
+        # 4) Prepare outputs map based on artifact_scope
+        # artifact_scope="world" → generate presigned URLs for S3 upload
+        # artifact_scope="local" → omit outputs, protocol writes to /artifacts/
+        outputs_map = None
+        if artifact_scope == "world":
+            outputs_map = self._prepare_put_urls(wprefix, outputs_decl)
 
-        # 5) Construct payload (same shape as your HTTP body, plus put_urls)
+        # 5) Construct payload
         # Note: Secrets are managed separately:
         #   - local: injected by localctl start
         #   - modal: synced by modalctl sync-secrets
         payload = {
-            "execution_id": eid,
+            "run_id": rid,
             "mode": mode,
             "inputs": inputs,
             "write_prefix": wprefix,
-            "put_urls": put_urls,
             "settle": settle,
         }
+
+        # Only include outputs if artifact_scope="world"
+        if outputs_map is not None:
+            payload["outputs"] = outputs_map
 
         # 6) Pick adapter (local vs modal)
         adapter_instance, oci = self._pick_adapter(adapter, expected_digest, ref, reg)
 
         # 7) Invoke over WS
-        info("invoke.ws.start", ref=ref, adapter=adapter, eid=eid, write_prefix=wprefix)
+        info("invoke.ws.start", ref=ref, adapter=adapter, run_id=rid, write_prefix=wprefix)
         if stream:
             # Streaming iterator (yield events and final RunResult)
             return adapter_instance.invoke(ref, payload, timeout_s, oci, stream=True)
         else:
             # Final envelope only
             env = adapter_instance.invoke(ref, payload, timeout_s, oci, stream=False)
-            info("invoke.ws.settle", ref=ref, status=env.get("status"), eid=eid)
+            info("invoke.ws.settle", ref=ref, status=env.get("status"), run_id=rid)
             return env
 
     # ---------- Digest resolution ----------

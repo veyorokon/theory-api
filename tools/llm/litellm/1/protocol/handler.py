@@ -105,7 +105,9 @@ def entry(payload: Dict[str, Any], emit: Callable[[Dict], None] | None = None, c
                 "meta": {},
             }
         try:
-            etags[reply_key] = put_object(outputs[reply_key], io.BytesIO(text.encode("utf-8")), content_type="text/plain")
+            etags[reply_key] = put_object(
+                outputs[reply_key], io.BytesIO(text.encode("utf-8")), content_type="text/plain"
+            )
         except Exception as e:
             return {
                 "status": "error",

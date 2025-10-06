@@ -7,7 +7,7 @@ SECRET_KEY = os.environ.get("SECRET_KEY", "django-insecure-dev-key-only-for-deve
 
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
-DATABASE_URL = os.environ.get("DATABASE_URL")
+DATABASE_URL = env("DATABASE_URL", required=False)
 if DATABASE_URL:
     DATABASES = {"default": dj_database_url.parse(DATABASE_URL)}
 else:
@@ -23,34 +23,6 @@ DEBUG = True
 
 ALLOWED_HOSTS = ["*"]
 
-# Graphene settings
-GRAPHENE = {
-    "SCHEMA": "backend.schema.schema",
-    "MIDDLEWARE": [
-        "graphene_django.debug.DjangoDebugMiddleware",
-    ],
-}
 
-# Storage and LLM settings are configured in base.py
-
-
-# Git context for Modal dev environment naming
-# Dev naming pattern: {branch}-{user}-{ref_slug}
-# Staging/prod use: {ref_slug} only
-# Auto-detect from git repo in development, or use env vars
-def _get_git_info():
-    """Auto-detect git branch and user for dev environment."""
-    try:
-        from git import Repo
-
-        repo = Repo(search_parent_directories=True)
-        branch = repo.active_branch.name
-        user = repo.config_reader().get_value("user", "name", default="unknown")
-        return branch, user
-    except Exception:
-        return None, None
-
-
-_git_branch, _git_user = _get_git_info()
-GIT_BRANCH = os.environ.get("GIT_BRANCH", _git_branch or "").strip()
-GIT_USER = os.environ.get("GIT_USER", _git_user or "").strip()
+# Modal environment name for Function.from_name(..., environment_name=...)
+MODAL_ENVIRONMENT = env("MODAL_ENVIRONMENT", default="dev", required=MODAL_ENABLED)

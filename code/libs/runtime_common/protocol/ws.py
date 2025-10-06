@@ -1,4 +1,7 @@
-import asyncio, time, json, os
+import asyncio
+import time
+import json
+import os
 from typing import Any, Dict, Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from starlette.exceptions import WebSocketException
@@ -9,9 +12,11 @@ from .logging import info
 
 app = FastAPI()
 
+
 @app.get("/healthz")
 def healthz():
     return {"ok": True, "digest": os.getenv("IMAGE_DIGEST", "unknown")}
+
 
 @app.websocket("/run")
 async def run_ws(ws: WebSocket):
@@ -25,28 +30,30 @@ async def run_ws(ws: WebSocket):
         raise WebSocketException(code=1002)
 
     await ws.accept(subprotocol=required)
-    connection_id = f"conn-{int(time.time()*1000)}"
-    execution_id: Optional[str] = None
-    role: Optional[ConnectionRole] = None
+    connection_id = f"conn-{int(time.time() * 1000)}"
+    execution_id: str | None = None
+    role: ConnectionRole | None = None
 
     try:
         # First frame must be RunOpen
         msg = await ws.receive_json()
         if not isinstance(msg, dict) or msg.get("kind") != "RunOpen":
-            await ws.close(code=1002); return
+            await ws.close(code=1002)
+            return
         content = msg.get("content") or {}
-        role_s = str(content.get("role","")).lower()
+        role_s = str(content.get("role", "")).lower()
         run_id = str(content.get("run_id") or content.get("execution_id", "")).strip()
         payload = content.get("payload") or {}
 
-        if role_s not in ("client","controller","observer") or not run_id:
-            await ws.close(code=1008); return
+        if role_s not in ("client", "controller", "observer") or not run_id:
+            await ws.close(code=1008)
+            return
         role = ConnectionRole[role_s.upper()]
 
         # Register connection
         run = await registry.get_or_create(run_id)
         await registry.add_connection(run_id, connection_id, ws, role)
-        await ws.send_json({"kind":"Ack","content":{"run_id":run_id}})
+        await ws.send_json({"kind": "Ack", "content": {"run_id": run_id}})
 
         # Client starts the run (if not running)
         if role is ConnectionRole.CLIENT and run.state == RunState.PENDING:
@@ -59,6 +66,7 @@ async def run_ws(ws: WebSocket):
 
             # Pump worker events → all listeners; capture terminal envelope
             run_start_time = time.time()
+
             async def pump():
                 try:
                     loop = asyncio.get_running_loop()
@@ -88,7 +96,7 @@ async def run_ws(ws: WebSocket):
                 grace_s = 5
                 while True:
                     await asyncio.sleep(0.25)
-                    st = (await registry.state(run_id))
+                    st = await registry.state(run_id)
                     if st in (RunState.PREEMPTED, RunState.COMPLETED, RunState.ERROR):
                         break
                 # If preempted, give worker grace then terminate if alive

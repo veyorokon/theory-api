@@ -64,6 +64,53 @@ TOOLS_ROOTS = [
 extra_roots = os.getenv("TOOLS_EXTRA_ROOTS", "")
 if extra_roots:
     TOOLS_ROOTS.extend([Path(p.strip()) for p in extra_roots.split(",") if p.strip()])
+
+
+# ============================================================================
+# Git and Registry Configuration
+# ============================================================================
+
+
+def _get_git_info():
+    """Auto-detect git branch, user, and org from repository."""
+    try:
+        from git import Repo
+
+        repo = Repo(search_parent_directories=True)
+        branch = repo.active_branch.name
+
+        # Extract GitHub org and username from remote origin URL
+        org = None
+        username = None
+        try:
+            url = repo.remotes.origin.url  # e.g., git@github.com:veyorokon/theory-api.git
+            if "github.com" in url:
+                parts = url.split("github.com")[1].strip("/:").split("/")
+                if parts:
+                    org = parts[0]
+                    # For user-specific naming, use the org/owner as username
+                    username = parts[0]
+        except Exception:
+            pass
+
+        # Fallback to git config user.name if we couldn't extract from URL
+        if not username:
+            username = repo.config_reader().get_value("user", "name", default="unknown")
+
+        return branch, username, org
+    except Exception:
+        return None, None, None
+
+
+_git_branch, _git_user, _git_org = _get_git_info()
+
+# Git context (used for dev environment naming)
+GIT_BRANCH = env("GIT_BRANCH", _git_branch or "")
+GIT_USER = env("GIT_USER", _git_user or "")
+
+# Container registry configuration
+REGISTRY_HOST = env("REGISTRY_HOST", "ghcr.io")
+REGISTRY_ORG = env("REGISTRY_ORG", "veyorokon")
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
@@ -180,16 +227,6 @@ STATIC_URL = "static/"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-
-# Agent defaults
-DEFAULT_AGENT_BUDGET_MICRO = 1_000_000  # 1M micro-units
-DEFAULT_AGENT_CONCURRENCY = 5
-
-LLM_SETTINGS = {
-    "default_model": env("LLM_MODEL_DEFAULT", "openai/gpt-4o-mini"),
-    "api_base": env("LLM_API_BASE", ""),
-}
-
 # Storage configuration (12-factor pattern)
 STORAGE_BACKEND = env("STORAGE_BACKEND", "minio")
 ARTIFACTS_BUCKET = env("ARTIFACTS_BUCKET", "theory-artifacts-dev")
@@ -207,24 +244,18 @@ STORAGE = {
     },
 }
 
+
+# Graphene settings
+GRAPHENE = {
+    "SCHEMA": "backend.schema.schema",
+    "MIDDLEWARE": [
+        "graphene_django.debug.DjangoDebugMiddleware",
+    ],
+}
+
 # Note: We use StorageService directly, not Django's file storage backend
 # If Django file fields are needed, configure DEFAULT_FILE_STORAGE appropriately
 
 # Feature flags
 # Modal adapter gating comes from Django settings (not raw env var). Map env→setting here.
-MODAL_ENABLED = os.environ.get("MODAL_ENABLED", "false").lower() == "true"
-# Modal environment name for Function.from_name(..., environment_name=...)
-MODAL_ENVIRONMENT = os.environ.get("MODAL_ENVIRONMENT", "").strip() or "dev"
-# Stable Modal app name (module uses this); env is selected at deploy/invoke time
-MODAL_APP_NAME = os.environ.get("MODAL_APP_NAME", "theory-rt")
-
-# Lease management feature flag
-LEASES_ENABLED = False
-
-# Django Management Commands configuration
-# Enable discovery of commands in subdirectories
-MANAGEMENT_COMMANDS_SUBMODULES = [
-    "management.commands.processors",
-    "management.commands.modal",
-    "management.commands.docs",
-]
+MODAL_ENABLED = env("MODAL_ENABLED", default=True, required=True, cast=bool)

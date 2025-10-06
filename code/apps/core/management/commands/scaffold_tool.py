@@ -57,7 +57,7 @@ class Command(BaseCommand):
         self._write(protocol_dir / "__init__.py", "")
 
         self.stdout.write(self.style.SUCCESS(f"Scaffolded minimal tool at {tool_dir}"))
-        self.stdout.write(f"  Protocol layer: code/libs/runtime_common/protocol/")
+        self.stdout.write("  Protocol layer: code/libs/runtime_common/protocol/")
         self.stdout.write(f"  Override handler: {protocol_dir}/handler.py")
 
     def _write(self, path: pathlib.Path, content: str):

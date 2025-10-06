@@ -92,26 +92,31 @@
 ```json
 {
   "status": "success",
-  "execution_id": "uuid-or-user-supplied",
-  "outputs": [{"path": "/abs/path/to/artifact"}],
-  "index_path": "/abs/path/to/outputs.json",
+  "run_id": "uuid-or-user-supplied",
+  "outputs": [{"path": "world://world-id/run-id/text/response.txt"}],
+  "index_path": "world://world-id/run-id/outputs.json",
   "meta": {
-    "env_fingerprint": "cpu:1;memory:2Gi;platform:amd64;python:3.11;runtime:docker",
-    "image_digest": "sha256:abc123..."   // optional, recommended when known
+    "env_fingerprint": "cpu:1;memory:2Gi",
+    "image_digest": "sha256:abc123...",
+    "proof": {"etag_map": {"text/response.txt": "etag-xyz"}}
   }
 }
 ```
+
+**URI Schemes:**
+- `world://` - Persistent storage (S3) with presigned upload URLs
+- `local://` - Container-local storage at `/artifacts/`
 
 ### Envelope (error)
 
 ```json
 {
   "status": "error",
-  "execution_id": "same-as-request-if-present",
+  "run_id": "same-as-request-if-present",
   "error": {"code": "ERR_INPUTS", "message": "human readable"},
   "meta": {
-    "env_fingerprint": "cpu:1;memory:2Gi;platform:amd64;python:3.11;runtime:docker",
-    "stderr_tail": "last 2KB of container stderr (optional)"
+    "env_fingerprint": "cpu:1;memory:2Gi",
+    "image_digest": "sha256:abc123..."
   }
 }
 ```
@@ -121,11 +126,13 @@
 #### WebSocket Contract (Standard)
 
 * `GET /healthz` → `{"ok": true}` (200) [HTTP - unchanged]
-* `WebSocket /run` → subprotocol: `theory.run.v1`
-  - First frame: `{"kind":"RunOpen","content":{"role":"client","execution_id":"<uuid>","payload":{...}}}`
-  - Events: `{"kind":"Token|Frame|Log|Event","content":{...}}`
-  - Final: `{"kind":"RunResult","content":<envelope>}`
-  - Connection close codes: 1002 (protocol error), 1008 (invalid payload)
+* `WebSocket /run`
+  - Client sends JSON payload: `{"run_id":"<uuid>","mode":"mock|real","inputs":{...},"write_prefix":"/path/","outputs":{...},"settle":"fast"}`
+  - `outputs` field presence determines storage mode:
+    - **Present**: S3 mode - presigned PUT URLs, world:// URIs
+    - **Absent**: Local mode - writes to /artifacts/, local:// URIs
+  - Server streams: `{"kind":"Token|Event|Log","content":{...}}`
+  - Final envelope streamed as data, connection closes
 
 #### HTTP Contract (Legacy - Deprecation Path)
 
@@ -259,65 +266,71 @@ sequenceDiagram
 
 ## Management Commands (Clean *ctl Interface)
 
-### processorctl - Image/Registry Operations
+### imagectl - Image/Registry Operations
 
 ```bash
-# Build multi-platform image
-python manage.py processorctl build --ref ns/name@ver --platforms linux/amd64,linux/arm64 --json
+# Build for specific platform (required)
+python manage.py imagectl build --ref llm/litellm@1 --platform amd64
 
-# Pin digest for specific platform (explicit platform required)
-python manage.py processorctl pin --ref ns/name@ver --platform amd64 --oci ghcr.io/org/image@sha256:abc... --json
+# Push to registry
+python manage.py imagectl push --ref llm/litellm@1 --platform amd64
 
-# Push image to registry
-python manage.py processorctl push --ref ns/name@ver --platforms linux/amd64,linux/arm64 --json
+# Pin digest in registry.yaml
+python manage.py imagectl pin --ref llm/litellm@1 --platform amd64
+
+# Publish (push + pin in one command)
+python manage.py imagectl publish --ref llm/litellm@1 --platform amd64
 ```
 
 ### localctl - Local Container Runtime
 
 ```bash
-# Start reusable container (secrets injected from environment)
-python manage.py localctl start --ref ns/name@ver
+# Start container (platform required, secrets from environment)
+python manage.py localctl start --ref llm/litellm@1 --platform amd64
 
-# Run processor (container must be started first)
+# Run tool (artifact_scope=local, writes to /artifacts/, local:// URIs)
 python manage.py localctl run \
-  --ref ns/name@ver \
+  --ref llm/litellm@1 \
   --mode mock \
-  --write-prefix "/artifacts/outputs/test/{execution_id}/" \
-  --inputs-json '{"schema":"v1","params":{...}}' \
+  --inputs-json '{"schema":"v1","params":{"messages":[{"role":"user","content":"test"}]}}' \
   --json
 
-# Default write-prefix when not specified: /artifacts/outputs/{ref_slug}/{execution_id}/
-# Example: /artifacts/outputs/llm_litellm/abc-123-def/
-
 # Stop container
-python manage.py localctl stop --ref ns/name@ver
+python manage.py localctl stop --ref llm/litellm@1
 
 # View status
 python manage.py localctl status
 
 # View logs
-python manage.py localctl logs --ref ns/name@ver --follow
+python manage.py localctl logs --ref llm/litellm@1
 ```
 
 ### modalctl - Modal Runtime
 
 ```bash
-# Deploy to Modal environment
-python manage.py modalctl deploy --ref ns/name@ver --env dev --oci ghcr.io/org/image@sha256:abc...
+# Deploy function (reads digest from registry.yaml if not provided)
+python manage.py modalctl start --ref llm/litellm@1
 
-# Sync secrets to Modal deployment
-python manage.py modalctl sync-secrets --ref ns/name@ver --env dev
+# Or with explicit OCI
+python manage.py modalctl start --ref llm/litellm@1 --oci ghcr.io/org/image@sha256:abc...
 
-# Run processor (deployment must exist first)
+# Run tool (artifact_scope from STORAGE_BACKEND setting)
+# - STORAGE_BACKEND=s3 → artifact_scope=world (presigned URLs, world:// URIs)
+# - STORAGE_BACKEND=minio → artifact_scope=local (container /artifacts/, local:// URIs)
 python manage.py modalctl run \
-  --ref ns/name@ver \
+  --ref llm/litellm@1 \
   --mode mock \
-  --write-prefix "/artifacts/outputs/test/{execution_id}/" \
-  --inputs-json '{"schema":"v1","params":{...}}' \
+  --inputs-json '{"schema":"v1","params":{"messages":[{"role":"user","content":"test"}]}}' \
   --json
 
-# Stop Modal deployment
-python manage.py modalctl stop --ref ns/name@ver --env dev
+# Sync secrets to Modal
+python manage.py modalctl sync-secrets --ref llm/litellm@1
+
+# Stop deployment
+python manage.py modalctl stop --ref llm/litellm@1
+
+# View status
+python manage.py modalctl status --ref llm/litellm@1
 ```
 
 ### JSON Input Options (mutually exclusive)
@@ -330,17 +343,19 @@ python manage.py modalctl stop --ref ns/name@ver --env dev
 
 ### Order of Operations
 
-1. **Build**: `processorctl build` - Creates multi-platform images
-2. **Push**: `processorctl push` - Pushes to registry
-3. **Pin**: `processorctl pin` - Updates registry.yaml with digest (explicit --platform required)
-4. **Start**: `localctl start` / `modalctl deploy` - Starts container/deploys function
-5. **Run**: `localctl run` / `modalctl run` - Invokes processor
+1. **Build**: `imagectl build --platform amd64` - Creates platform-specific image
+2. **Publish**: `imagectl publish --platform amd64` - Pushes to registry + pins digest in registry.yaml
+3. **Start**: `localctl start --platform amd64` / `modalctl start` - Starts container/deploys function
+4. **Run**: `localctl run` / `modalctl run` - Invokes tool
 
 **Key Principles:**
+- Platform must be explicit for all operations (amd64 or arm64)
 - No auto-starting or auto-building - each command does exactly one thing
-- Secrets injected at start time (localctl) or synced separately (modalctl)
-- No --adapter flag - use localctl vs modalctl directly
-- write-prefix defaults to standard: `/artifacts/outputs/{ref_slug}/{execution_id}/`
+- Secrets injected at start time (localctl) or synced via modalctl sync-secrets
+- artifact_scope controlled by ToolRunner based on storage backend:
+  - localctl: always `artifact_scope=local`
+  - modalctl: `artifact_scope=world` if STORAGE_BACKEND=s3, else `local`
+- write_prefix defaults to: `/artifacts/outputs/{ref_slug}/{run_id}/`
 - All commands accept `--json` for structured output
 
 ---
@@ -352,19 +367,25 @@ python manage.py modalctl stop --ref ns/name@ver --env dev
 * **Adapters (Transport only - No build/start logic):**
 
   * **LocalWsAdapter**: Resolves port from state file, connects to WebSocket on `ws://127.0.0.1:{port}/run`, maps `ERR_HEALTH` / `ERR_WS_TIMEOUT`. Container must be started via `localctl start` before invoking.
-  * **ModalWsAdapter**: Uses **Modal SDK** `Function.from_name(...).get_web_url()` (no string concat), health check, WebSocket connection to `wss://` endpoint, maps `ERR_ENDPOINT_MISSING`. Deployment must exist via `modalctl deploy` before invoking.
+  * **ModalWsAdapter**: Uses **Modal SDK** `Function.from_name(...).get_web_url()` (no string concat), health check, WebSocket connection to `wss://` endpoint, maps `ERR_ENDPOINT_MISSING`. Deployment must exist via `modalctl start` before invoking.
 
 * **Build/Run Separation:**
-  - `processorctl` handles all image operations (build/pin/push)
+  - `imagectl` handles all image operations (build/push/pin/publish)
   - `localctl`/`modalctl` handle runtime only (start/stop/status/logs/run)
-  - Orchestrator extracts expected digest from registry for drift validation
-  - No image lookup, no auto-building, no auto-starting in adapters or orchestrator
+  - ToolRunner extracts expected digest from registry for drift validation
+  - No image lookup, no auto-building, no auto-starting in adapters or ToolRunner
 
 * **Secret Management:**
   - **Local**: Secrets injected at container start time (`localctl start`) from environment variables. Fails fast if required secrets missing.
   - **Modal**: Secrets synced separately via `modalctl sync-secrets`. Orchestrator does not validate secrets for either adapter.
 
-* **Envelopes:** Must be **byte-identical** across local and Modal (allowing only transport diagnostics in stderr logs). Write prefix defaults to `/artifacts/outputs/{ref_slug}/{execution_id}/` when not specified.
+* **Envelopes:** Must be **byte-identical** across local and Modal (allowing only transport diagnostics in stderr logs). Write prefix defaults to `/artifacts/outputs/{ref_slug}/{run_id}/` when not specified.
+
+* **Artifact Scope:** Explicit parameter to ToolRunner.invoke() controls storage destination:
+  - `artifact_scope="world"`: Generate presigned S3 URLs, outputs field present in payload, world:// URIs in envelope
+  - `artifact_scope="local"`: Omit outputs field, protocol writes to /artifacts/, local:// URIs in envelope
+  - localctl always uses `artifact_scope="local"`
+  - modalctl determines from STORAGE_BACKEND setting (s3→world, minio→local)
 
 * **Supply-chain:** Staging/main lanes deploy by **pinned digest**. Envelope includes `meta.image_digest` when available; adapters fail closed on mismatch only when `expected_oci` provided.
 
