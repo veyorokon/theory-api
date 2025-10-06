@@ -1,4 +1,9 @@
-# code/apps/core/orchestrator_ws.py
+# code/apps/core/tool_runner.py
+"""
+Direct tool execution without persistence.
+Used by localctl/modalctl for ephemeral CLI runs.
+For persisted runs, use RunService instead.
+"""
 from __future__ import annotations
 import json
 import os
@@ -6,12 +11,12 @@ import time
 import uuid
 from typing import Any, Dict, Iterator, Optional, Tuple, Union, List
 
-# Adapters (from the files you added)
+# Adapters
 from apps.core.adapters.base_ws_adapter import BaseWsAdapter, WsError
 from apps.core.adapters.local_ws_adapter import LocalWsAdapter
 from apps.core.adapters.modal_ws_adapter import ModalWsAdapter
 
-# Existing services
+# Services
 from backend.storage.service import storage_service
 from apps.core.registry.loader import load_processor_spec
 from apps.core.utils.adapters import _get_newest_build_tag, _load_registry_for_ref
@@ -22,7 +27,7 @@ try:
 except Exception:  # pragma: no cover
     import logging
 
-    _L = logging.getLogger("orchestrator.ws")
+    _L = logging.getLogger("tool_runner")
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     def info(event: str, **fields):
@@ -38,13 +43,13 @@ except Exception:  # pragma: no cover
         _L.debug(json.dumps({"event": event, **fields}))
 
 
-class OrchestratorWsError(RuntimeError):
+class ToolRunnerError(RuntimeError):
     pass
 
 
-class OrchestratorWS:
+class ToolRunner:
     """
-    WebSocket orchestrator for tools.
+    Direct tool execution without persistence.
 
     Responsibilities:
       - Resolve ref -> registry entry

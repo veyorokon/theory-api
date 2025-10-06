@@ -515,10 +515,10 @@ def cmd_run(args: argparse.Namespace) -> None:
                 sys.exit(1)
 
         # Invoke processor with local adapter
-        from apps.core.orchestrator_ws import OrchestratorWS
+        from apps.core.tool_runner import ToolRunner
 
-        orch = OrchestratorWS()
-        result = orch.invoke(
+        runner = ToolRunner()
+        result = runner.invoke(
             ref=args.ref,
             mode=args.mode,
             inputs=inputs_json,
