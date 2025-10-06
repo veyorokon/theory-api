@@ -128,16 +128,16 @@ class S3Adapter(StorageInterface):
     """AWS S3 storage adapter for production"""
 
     def __init__(self):
-        import os
+        from botocore.config import Config
 
         storage = getattr(settings, "STORAGE", {})
         region = storage.get("REGION", "us-east-1")
 
+        config = Config(signature_version="s3v4")
         self.client = boto3.client(
             "s3",
-            aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),  # Prefer IAM role
-            aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
             region_name=region,
+            config=config,
         )
         self.region = region
 

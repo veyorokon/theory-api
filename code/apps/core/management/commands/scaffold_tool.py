@@ -405,6 +405,7 @@ class Command(BaseCommand):
                     await registry.bind_worker(execution_id, proc, cancel_ev)
 
                     # Pump worker events → all listeners; capture terminal envelope
+                    run_start_time = time.time()
                     async def pump():
                         try:
                             loop = asyncio.get_running_loop()
@@ -412,11 +413,13 @@ class Command(BaseCommand):
                                 ev = await loop.run_in_executor(None, events_q.get)  # blocking get
                                 if ev is None:
                                     break
-                                # If terminal result, update state
+                                # If terminal result, update state and log settlement
                                 if ev.get("kind") == "RunResult":
                                     status = (ev.get("content") or {}).get("status")
                                     new_state = RunState.COMPLETED if status == "success" else RunState.ERROR
                                     await registry.update_state(execution_id, new_state)
+                                    elapsed_ms = int((time.time() - run_start_time) * 1000)
+                                    info("ws.run.settle", execution_id=execution_id, status=status, ms=elapsed_ms)
                                 await registry.emit(execution_id, ev)
                         finally:
                             try:

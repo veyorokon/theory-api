@@ -9,7 +9,7 @@ build:
 enabled: true
 image:
   platforms:
-    amd64: ghcr.io/veyorokon/theory-api/llm-litellm@sha256:placeholder
+    amd64: ghcr.io/veyorokon/theory-api/llm-litellm@sha256:bfa308497a27a764edcc976563c1ea62c867bc981119510c22acdbab2b52092c
     arm64: sha256:f42c5611566c92a5c4bec5d7f68a229b12441ce99f233dcba6ac4270a9684f32
 inputs:
   $schema: https://json-schema.org/draft-07/schema#

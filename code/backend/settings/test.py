@@ -4,7 +4,7 @@ Test settings for theory_api project.
 Uses PostgreSQL via docker-compose for acceptance/property tests.
 """
 
-from .development import *  # noqa
+from .dev_local import *  # noqa
 import os
 from urllib.parse import urlparse
 

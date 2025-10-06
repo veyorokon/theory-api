@@ -5,3 +5,4 @@ pytest>=8
 pytest-asyncio>=0.23
 testcontainers[compose]>=4.7
 pyyaml>=6
+GitPython>=3.1

@@ -4,7 +4,7 @@ Unit test settings for theory_api project.
 Uses SQLite for fast, isolated unit tests.
 """
 
-from .development import *  # noqa
+from .dev_local import *  # noqa
 
 # Hermetic settings for fast unit tests
 DEBUG = False

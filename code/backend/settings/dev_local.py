@@ -33,9 +33,24 @@ GRAPHENE = {
 
 # Storage and LLM settings are configured in base.py
 
+
 # Git context for Modal dev environment naming
 # Dev naming pattern: {branch}-{user}-{ref_slug}
 # Staging/prod use: {ref_slug} only
-# Must be explicitly provided via environment variables
-GIT_BRANCH = os.environ.get("GIT_BRANCH", "").strip()
-GIT_USER = os.environ.get("GIT_USER", "").strip()
+# Auto-detect from git repo in development, or use env vars
+def _get_git_info():
+    """Auto-detect git branch and user for dev environment."""
+    try:
+        from git import Repo
+
+        repo = Repo(search_parent_directories=True)
+        branch = repo.active_branch.name
+        user = repo.config_reader().get_value("user", "name", default="unknown")
+        return branch, user
+    except Exception:
+        return None, None
+
+
+_git_branch, _git_user = _get_git_info()
+GIT_BRANCH = os.environ.get("GIT_BRANCH", _git_branch or "").strip()
+GIT_USER = os.environ.get("GIT_USER", _git_user or "").strip()

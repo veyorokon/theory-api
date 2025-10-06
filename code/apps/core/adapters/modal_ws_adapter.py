@@ -2,18 +2,36 @@
 from __future__ import annotations
 from typing import Any, Dict, Iterator, Optional, Union
 
+from django.conf import settings
+
 from .base_ws_adapter import BaseWsAdapter, WsError
 
 
 class ModalWsAdapter(BaseWsAdapter):
     """
     WebSocket adapter for Modal-deployed tools.
-    Control plane must resolve the deployed base URL and digest.
-      oci:
-        - base_url: "https://your-tool.modal.run" (no trailing slash)
-        - expected_digest: "sha256:..."
-        - headers: {"Authorization": "Bearer <ticket>"}  # short-lived run ticket (optional but recommended)
+    Resolves deployed function URL via Modal SDK.
+    Modal always runs linux/amd64.
     """
+
+    def invoke_run(self, run) -> Dict[str, Any]:
+        """Override to force amd64 digest selection for Modal."""
+        from apps.tools.models import Tool
+
+        try:
+            tool = Tool.objects.get(ref=run.ref)
+        except Tool.DoesNotExist:
+            raise WsError(f"Tool not found: {run.ref}")
+
+        # Modal always runs amd64
+        expected_digest = tool.digest_amd64
+
+        # Build payload with presigned URLs
+        payload = self._build_payload(run)
+
+        # Invoke with Modal-resolved URL
+        oci = {"expected_digest": expected_digest}
+        return self.invoke(run.ref, payload, tool.timeout_s, oci, stream=False)
 
     def invoke(
         self,
@@ -23,12 +41,21 @@ class ModalWsAdapter(BaseWsAdapter):
         oci: Dict[str, Any],
         stream: bool = False,
     ) -> Dict[str, Any] | Iterator[Dict[str, Any]]:
-        base_url = (oci.get("base_url") or "").rstrip("/")
+        from apps.core.management.commands._modal_common import modal_app_name
+        from apps.core.utils.adapters import _get_modal_web_url
+
+        # Resolve app name from ref and environment settings
+        app_name = modal_app_name(
+            ref,
+            env=settings.MODAL_ENVIRONMENT,
+            branch=settings.GIT_BRANCH,
+            user=settings.GIT_USER,
+        )
+
+        # Get deployed URL via Modal SDK
+        base_url = _get_modal_web_url(app_name).rstrip("/")
         expected_digest = oci.get("expected_digest")
         headers = dict(oci.get("headers") or {})
-
-        if not base_url:
-            raise WsError("ModalWsAdapter requires oci.base_url")
 
         # Normalize to wss and attach /run
         if base_url.startswith("http://"):

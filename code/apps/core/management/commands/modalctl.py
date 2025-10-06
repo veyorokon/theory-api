@@ -19,7 +19,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.conf import settings
 
 from apps.core.utils import run_utils
-from libs.runtime_common import logging as core_logging
+from backend.middleware import logging as core_logging
 from libs.runtime_common.envelope import resolve_mode, ModeSafetyError
 
 # --- Helpers ---------------------------------------------------------------
@@ -128,19 +128,7 @@ def _script_deploy(app_name: str, oci: str) -> str:
 
     app = modal.App("{app_name}", image=image)
 
-    def cleanup_handler():
-        # Modal exit handler to ensure clean shutdown
-        # Prevents "background threads still running" warnings
-        import asyncio
-        import time
-        print("[modal] Starting cleanup...")
-        time.sleep(0.5)  # Give uvicorn time to shutdown gracefully
-        print("[modal] Cleanup complete")
-
-    @app.function(
-        image=image,
-        container_lifecycle={{"exit_handler": cleanup_handler}}
-    )
+    @app.function(image=image)
     @modal.asgi_app()
     def fastapi_app():
         # Import the FastAPI app from the image at runtime

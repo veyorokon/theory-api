@@ -309,8 +309,18 @@ class BaseWsAdapter:
 
         # Drift check (only for success - error envelopes may not have digest)
         if expected_digest and status == "success":
+            from apps.core.utils.adapters import _normalize_digest
+
             got = (((env.get("meta") or {}).get("image_digest")) or "").strip()
             if not got:
                 raise DriftError("Envelope missing meta.image_digest for drift check")
-            if expected_digest != got:
-                raise DriftError(f"Digest drift: expected {expected_digest}, got {got}")
+
+            # Normalize both to sha256:... format for comparison
+            expected_norm = _normalize_digest(expected_digest)
+            got_norm = _normalize_digest(got)
+
+            if not expected_norm or not got_norm:
+                raise DriftError(f"Invalid digest format: expected {expected_digest}, got {got}")
+
+            if expected_norm != got_norm:
+                raise DriftError(f"Digest drift: expected {expected_norm}, got {got_norm}")
