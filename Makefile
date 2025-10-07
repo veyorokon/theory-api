@@ -65,40 +65,64 @@ services-ensure:
 	@docker compose ps minio 2>/dev/null | grep -q "Up" || $(MAKE) services-up
 
 # ============================================================================
-# Tool prep – dynamic discovery via Django; parity for local/modal
+# Image Build/Publish (build once, use everywhere)
 # ============================================================================
-.PHONY: tools-sync tools-prepare tools-cleanup
+.PHONY: tools-sync build-images publish-images
 tools-sync:
 	@$(call run_manage,toolctl sync --json >/dev/null)
 
-tools-prepare:
-	@echo "→ Preparing tools for adapter=$(ADAPTER) env=$(ENV)"
+build-images:
+	@echo "→ Building images for platform=$(PLATFORM)"
 	@$(MAKE) tools-sync
-ifneq ($(ADAPTER),modal)
-	@$(MAKE) tools-prepare-local
-else
-	@$(MAKE) tools-prepare-modal ENV=$(ENV)
-endif
-
-tools-prepare-local: services-ensure
-	@echo "→ Building images (if needed) and starting all enabled tools locally..."
 	@refs="$$( $(call run_manage,toolctl list --enabled-only --format refs) )"; \
 	for ref in $$refs; do \
 		echo "  • $$ref: build"; \
 		$(call run_manage,imagectl build --ref $$ref --platform $(PLATFORM) --json >/dev/null); \
+	done
+	@echo "✓ Images built"
+
+publish-images:
+	@echo "→ Publishing images to registry for platform=$(PLATFORM)"
+	@refs="$$( $(call run_manage,toolctl list --enabled-only --format refs) )"; \
+	for ref in $$refs; do \
+		echo "  • $$ref: publish"; \
+		$(call run_manage,imagectl publish --ref $$ref --platform $(PLATFORM) --json); \
+	done
+	@echo "✓ Images published and pinned"
+
+# ============================================================================
+# Tool Start (from pinned images)
+# ============================================================================
+.PHONY: start-tools start-tools-local start-tools-modal stop-tools
+start-tools:
+	@echo "→ Starting tools for adapter=$(ADAPTER) env=$(ENV)"
+ifneq ($(ADAPTER),modal)
+	@$(MAKE) start-tools-local
+else
+	@$(MAKE) start-tools-modal ENV=$(ENV)
+endif
+
+start-tools-local: services-ensure
+	@echo "→ Pulling published images and starting local containers..."
+	@refs="$$( $(call run_manage,toolctl list --enabled-only --format refs) )"; \
+	for ref in $$refs; do \
+		oci="$$( $(call run_manage,toolctl get-oci --ref $$ref --platform $(PLATFORM)) )"; \
+		test -n "$$oci" || { echo "No pinned OCI for $$ref ($(PLATFORM))"; exit 1; }; \
+		echo "  • $$ref: pull $$oci"; \
+		docker pull "$$oci" >/dev/null 2>&1; \
 		echo "  • $$ref: start"; \
 		$(call run_manage,localctl start --ref $$ref --platform $(PLATFORM) \
 			$(if $(filter true,$(MOCK_MISSING_SECRETS)),--mock-missing-secrets,) >/dev/null); \
 	done
-	@echo "✓ Local tools ready (ports allocated dynamically by localctl)"
+	@echo "✓ Local tools ready (from registry)"
 
-tools-prepare-modal:
+start-tools-modal:
 	$(call require,ENV)
-	@echo "→ Deploying all enabled tools to Modal ($(ENV)) with pinned digests..."
+	@echo "→ Deploying tools to Modal ($(ENV)) with pinned digests..."
 	@refs="$$( $(call run_manage,toolctl list --enabled-only --format refs) )"; \
 	for ref in $$refs; do \
 		oci="$$( $(call run_manage,toolctl get-oci --ref $$ref --platform $(PLATFORM)) )"; \
-		test -n "$$oci" || { echo "No pinned OCI for $$ref ($(PLATFORM))"; exit 1; } ; \
+		test -n "$$oci" || { echo "No pinned OCI for $$ref ($(PLATFORM))"; exit 1; }; \
 		echo "  • $$ref: deploy $$oci"; \
 		MODAL_ENVIRONMENT=$(ENV) $(call run_manage,modalctl start --ref $$ref --oci "$$oci" \
 			$(if $(filter true,$(MOCK_MISSING_SECRETS)),--mock-missing-secrets,)); \
@@ -108,7 +132,7 @@ tools-prepare-modal:
 	done
 	@echo "✓ Modal tools ready"
 
-tools-cleanup:
+stop-tools:
 ifneq ($(ADAPTER),modal)
 	@$(call run_manage,localctl stop --all || true)
 else
@@ -116,7 +140,7 @@ else
 endif
 
 # ============================================================================
-# Tests – adapter agnostic; pytest discovers enabled tools from DB
+# Tests (assumes tools already started)
 # ============================================================================
 .PHONY: test-unit test-contracts test-integration test-acceptance test-all
 test-unit:
@@ -125,95 +149,49 @@ test-unit:
 test-contracts:
 	$(call run_pytest,$(MARK_CONTRACTS),--ignore=tests/integration)
 
-test-integration: tools-prepare
+test-integration:
 	$(call run_pytest,$(MARK_INTEGRATION))
 
-test-acceptance: tools-prepare
+test-acceptance:
 	$(call run_pytest,$(MARK_ACCEPTANCE))
 
-test-all: test-unit test-contracts test-integration test-acceptance
-
 # ============================================================================
-# Build and publish pipeline (staging lane)
+# Combined build+publish (for CI convenience)
 # ============================================================================
 .PHONY: build-and-publish-all
 build-and-publish-all:
-	@echo "→ Building and publishing all enabled tools for platform=$(PLATFORM)"
-	@$(MAKE) tools-sync
-	@refs="$$( $(call run_manage,toolctl list --enabled-only --format refs) )"; \
-	for ref in $$refs; do \
-		echo "  • $$ref: build"; \
-		$(call run_manage,imagectl build --ref $$ref --platform $(PLATFORM) --json >/dev/null); \
-		echo "  • $$ref: publish"; \
-		$(call run_manage,imagectl publish --ref $$ref --platform $(PLATFORM) --json); \
-	done
-	@echo "✓ All tools built and published"
-
-# ============================================================================
-# Low-level convenience (optional; single-tool ops when debugging)
-# ============================================================================
-.PHONY: local-start local-stop local-status modal-deploy modal-secrets modal-stop
-local-start:
-	$(call require,REF)
-	@$(call run_manage,localctl start --ref $(REF) $(if $(PORT),--port $(PORT),))
-
-local-stop:
-	@$(call run_manage,localctl stop --all || true)
-
-local-status:
-	@$(call run_manage,localctl status)
-
-modal-deploy:
-	$(call require,REF)
-	$(call require,ENV)
-	$(call require,OCI)
-	@MODAL_ENVIRONMENT=$(ENV) $(call run_manage,modalctl deploy --ref $(REF) --env $(ENV) --oci "$(OCI)")
-
-modal-secrets:
-	$(call require,REF)
-	$(call require,ENV)
-	@MODAL_ENVIRONMENT=$(ENV) $(call run_manage,modalctl sync-secrets --ref $(REF) --env $(ENV))
-
-modal-stop:
-	$(call require,REF)
-	$(call require,ENV)
-	@MODAL_ENVIRONMENT=$(ENV) $(call run_manage,modalctl stop --ref $(REF) --env $(ENV))
-
-# ============================================================================
-# CI lanes – keep simple; choose adapter via env
-# ============================================================================
-.PHONY: ci-pr ci-pr-modal ci-staging
-ci-pr:
-	@echo "→ PR lane (local adapter): unit + contracts + integration"
-	@$(MAKE) test-unit
-	@$(MAKE) test-contracts
-	@$(MAKE) test-integration ADAPTER=local
-	@$(MAKE) tools-cleanup ADAPTER=local
-
-ci-pr-modal:
-	@echo "→ PR lane (modal dev): integration + acceptance"
-	@$(MAKE) test-integration ADAPTER=modal ENV=dev
-	@$(MAKE) test-acceptance ADAPTER=modal ENV=dev
-
-# Staging assumes digests already pinned in registry.yaml; no registry args required here.
-ci-staging:
-	@echo "→ Staging acceptance against modal-staging"
-	@$(MAKE) test-acceptance ADAPTER=modal ENV=staging
+	@$(MAKE) build-images PLATFORM=$(PLATFORM)
+	@$(MAKE) publish-images PLATFORM=$(PLATFORM)
 
 # ============================================================================
 # Help
 # ============================================================================
 .PHONY: help
 help:
-	@echo "Targets:"
-	@echo "  make test-unit|test-contracts|test-integration|test-acceptance|test-all"
-	@echo "     ADAPTER=local|modal (default local)  ENV=dev|staging|prod (for modal)"
-	@echo "  make tools-prepare [ADAPTER=...]        - Build+start (local) OR deploy+sync (modal)"
-	@echo "  make tools-cleanup                      - Stop local containers"
-	@echo "  make services-up|services-down          - Local stack (MinIO, etc.)"
-	@echo "  make local-start REF=ns/name@ver        - Start single tool locally"
-	@echo "  make modal-deploy REF=... ENV=... OCI=... - Deploy single tool"
+	@echo "Usage: make <target>"
 	@echo ""
-	@echo "Env:"
-	@echo "  DJANGO_SETTINGS=backend.settings.unittest|development|prod"
-	@echo "  ADAPTER=local|modal  ENV=dev|staging|prod  PLATFORM=amd64|arm64"
+	@echo "Image Build/Publish:"
+	@echo "  build-images           Build images for PLATFORM (no push)"
+	@echo "  publish-images         Push + pin digests to registry"
+	@echo "  build-and-publish-all  Build + publish (combined)"
+	@echo ""
+	@echo "Tool Start/Stop:"
+	@echo "  start-tools            Pull pinned images + start (ADAPTER=local|modal)"
+	@echo "  stop-tools             Stop tools"
+	@echo ""
+	@echo "Tests (assumes tools started):"
+	@echo "  test-unit              Run unit tests"
+	@echo "  test-contracts         Run contract tests"
+	@echo "  test-integration       Run integration tests"
+	@echo "  test-acceptance        Run acceptance tests"
+	@echo ""
+	@echo "Services:"
+	@echo "  services-up            Start MinIO + Postgres"
+	@echo "  services-down          Stop services"
+	@echo ""
+	@echo "Environment Variables:"
+	@echo "  DJANGO_SETTINGS_MODULE Backend settings module (unittest|dev_local|dev_remote)"
+	@echo "  ADAPTER                Tool adapter (local|modal)"
+	@echo "  ENV                    Modal environment (dev|staging|prod)"
+	@echo "  PLATFORM               Build platform (amd64|arm64)"
+	@echo "  MOCK_MISSING_SECRETS   Generate mock secrets (true|false)"

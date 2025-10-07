@@ -58,12 +58,15 @@ jobs:
       - name: Build and publish images
         run: make build-and-publish-all PLATFORM=amd64
 
+      - name: Start tools from registry
+        run: make start-tools ADAPTER=local
+
       - name: Integration tests (local adapter)
         run: make test-integration
 
       - name: Cleanup
         if: always()
-        run: make tools-cleanup && make services-down
+        run: make stop-tools && make services-down
 
   contracts:
     runs-on: ubuntu-latest
