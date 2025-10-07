@@ -43,7 +43,7 @@ require = @test -n "$($(1))" || { echo "Missing: $(1)"; exit 1; }
 # ============================================================================
 .PHONY: services-up services-down services-ensure
 services-up:
-	@docker compose up -d
+	@docker compose --profile full up -d
 	# Wait for MinIO to get healthy (compose service name must be 'minio')
 	@until docker compose ps minio --format json 2>/dev/null | grep -q '"Health":"healthy"'; do \
 		echo "⏳ Waiting for MinIO..."; sleep 1; \
@@ -82,9 +82,9 @@ tools-prepare-local: services-ensure
 	@refs="$$( $(call run_manage,toolctl list --enabled-only --format refs) )"; \
 	for ref in $$refs; do \
 		echo "  • $$ref: build"; \
-		$(call run_manage,imagectl build --ref $$ref --platforms linux/$(PLATFORM) --json >/dev/null); \
+		$(call run_manage,imagectl build --ref $$ref --platform $(PLATFORM) --json >/dev/null); \
 		echo "  • $$ref: start"; \
-		$(call run_manage,localctl start --ref $$ref >/dev/null); \
+		$(call run_manage,localctl start --ref $$ref --platform $(PLATFORM) >/dev/null); \
 	done
 	@echo "✓ Local tools ready (ports allocated dynamically by localctl)"
 
@@ -96,9 +96,9 @@ tools-prepare-modal:
 		oci="$$( $(call run_manage,toolctl get-oci --ref $$ref --platform $(PLATFORM)) )"; \
 		test -n "$$oci" || { echo "No pinned OCI for $$ref ($(PLATFORM))"; exit 1; } ; \
 		echo "  • $$ref: deploy $$oci"; \
-		MODAL_ENVIRONMENT=$(ENV) $(call run_manage,modalctl deploy --ref $$ref --env $(ENV) --oci "$$oci"); \
+		MODAL_ENVIRONMENT=$(ENV) $(call run_manage,modalctl start --ref $$ref --oci "$$oci"); \
 		echo "  • $$ref: sync secrets"; \
-		MODAL_ENVIRONMENT=$(ENV) $(call run_manage,modalctl sync-secrets --ref $$ref --env $(ENV)); \
+		MODAL_ENVIRONMENT=$(ENV) $(call run_manage,modalctl sync-secrets --ref $$ref); \
 	done
 	@echo "✓ Modal tools ready"
 
@@ -117,7 +117,7 @@ test-unit:
 	$(call run_pytest,$(MARK_UNIT),--ignore=tests/integration)
 
 test-contracts:
-	$(call run_pytest,$(MARK_CONTRACTS))
+	$(call run_pytest,$(MARK_CONTRACTS),--ignore=tests/integration)
 
 test-integration: tools-prepare
 	$(call run_pytest,$(MARK_INTEGRATION))
@@ -126,6 +126,22 @@ test-acceptance: tools-prepare
 	$(call run_pytest,$(MARK_ACCEPTANCE))
 
 test-all: test-unit test-contracts test-integration test-acceptance
+
+# ============================================================================
+# Build and publish pipeline (staging lane)
+# ============================================================================
+.PHONY: build-and-publish-all
+build-and-publish-all:
+	@echo "→ Building and publishing all enabled tools for platform=$(PLATFORM)"
+	@$(MAKE) tools-sync
+	@refs="$$( $(call run_manage,toolctl list --enabled-only --format refs) )"; \
+	for ref in $$refs; do \
+		echo "  • $$ref: build"; \
+		$(call run_manage,imagectl build --ref $$ref --platform $(PLATFORM) --json >/dev/null); \
+		echo "  • $$ref: publish"; \
+		$(call run_manage,imagectl publish --ref $$ref --platform $(PLATFORM) --json); \
+	done
+	@echo "✓ All tools built and published"
 
 # ============================================================================
 # Low-level convenience (optional; single-tool ops when debugging)
