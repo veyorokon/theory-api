@@ -294,6 +294,18 @@ def cmd_start(args: argparse.Namespace) -> dict:
             # Remove stopped container
             subprocess.run(["docker", "rm", "-f", container["container_id"]], capture_output=True)
 
+    # Pull pinned image if remote OCI ref
+    if image_ref.startswith(settings.REGISTRY_HOST) and "@sha256:" in image_ref:
+        try:
+            subprocess.run(
+                ["docker", "pull", image_ref],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        except subprocess.CalledProcessError as e:
+            raise CommandError(f"Failed to pull {image_ref}: {e.stderr}")
+
     # Start container
     import os
 
@@ -311,7 +323,7 @@ def cmd_start(args: argparse.Namespace) -> dict:
         )
         image_digest = inspect_result.stdout.strip()
     except subprocess.CalledProcessError as e:
-        raise CommandError(f"Failed to inspect image {image_ref}: {e.stderr}")
+        raise CommandError(f"Image not found: {image_ref}")
 
     # Resolve required secrets from registry
     from apps.core.registry.loader import load_processor_spec
