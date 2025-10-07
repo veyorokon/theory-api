@@ -51,7 +51,7 @@ services-up:
 	done
 	# Ensure dev bucket exists
 	@docker run --rm --network theory_api_app_network \
-	  --entrypoint sh quay.io/minio/mc:RELEASE.2025-01-11T19-15-23Z -c ' \
+	  --entrypoint sh quay.io/minio/mc:RELEASE.2025-01-17T23-25-50Z -c ' \
 	    mc alias set local http://minio:9000 minioadmin minioadmin && \
 	    mc mb --ignore-existing local/$$ARTIFACTS_BUCKET' || true
 	@echo "✅ Services ready"
