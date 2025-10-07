@@ -42,8 +42,18 @@ jobs:
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt -r requirements-dev.txt
 
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Run migrations
         run: cd code && python manage.py migrate --run-syncdb
+
+      - name: Build and publish images
+        run: make build-and-publish-all PLATFORM=amd64
 
       - name: Integration tests (local adapter)
         run: make test-integration
