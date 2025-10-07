@@ -44,6 +44,8 @@ require = @test -n "$($(1))" || { echo "Missing: $(1)"; exit 1; }
 # ============================================================================
 .PHONY: services-up services-down services-ensure
 services-up:
+	@docker network inspect theory_api_app_network >/dev/null 2>&1 || \
+		docker network create theory_api_app_network
 	@docker compose --profile full up -d
 	# Wait for MinIO to get healthy (compose service name must be 'minio')
 	@until docker compose ps minio --format json 2>/dev/null | grep -q '"Health":"healthy"'; do \
