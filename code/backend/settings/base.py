@@ -244,6 +244,19 @@ STORAGE = {
     },
 }
 
+# Logging settings
+LOG_CONFIG = {
+    "STREAM": env("LOG_STREAM", "stderr"),
+    "JSON": env("JSON_LOGS", "1", cast=bool),
+    "SERVICE": env("SERVICE", "theory"),
+    "ENV": env("APP_ENV", env("MODAL_ENVIRONMENT", "dev")),
+    "RELEASE": env("RELEASE", ""),
+}
+
+# Agent defaults
+DEFAULT_AGENT_BUDGET_MICRO = env("DEFAULT_AGENT_BUDGET_MICRO", "1000000", cast=int)
+DEFAULT_AGENT_CONCURRENCY = env("DEFAULT_AGENT_CONCURRENCY", "5", cast=int)
+
 
 # Graphene settings
 GRAPHENE = {

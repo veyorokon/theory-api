@@ -99,7 +99,7 @@ def _tool_dir(ref: str) -> Path:
     except ValueError:
         raise CommandError("Invalid --ref. Expected format: ns/name@ver")
 
-    roots = getattr(settings, "TOOLS_ROOTS", [])
+    roots = settings.TOOLS_ROOTS
     if not roots:
         raise CommandError("TOOLS_ROOTS not configured in settings")
 
@@ -226,8 +226,8 @@ def cmd_start(args: argparse.Namespace, stdout=None) -> None:
     app_name = _modal_app_name(
         ref=ref,
         env=env,
-        branch=getattr(settings, "GIT_BRANCH", None),
-        user=getattr(settings, "GIT_USER", None),
+        branch=settings.GIT_BRANCH,
+        user=settings.GIT_USER,
     )
 
     src = _script_deploy(app_name, oci, required_secrets, runtime_config)
@@ -246,8 +246,8 @@ def cmd_stop(args: argparse.Namespace, stdout=None) -> None:
     app_name = _modal_app_name(
         ref=ref,
         env=env,
-        branch=getattr(settings, "GIT_BRANCH", None),
-        user=getattr(settings, "GIT_USER", None),
+        branch=settings.GIT_BRANCH,
+        user=settings.GIT_USER,
     )
 
     _ensure_modal_cli()
@@ -267,8 +267,8 @@ def cmd_status(args: argparse.Namespace) -> dict:
     app_name = _modal_app_name(
         ref=ref,
         env=env,
-        branch=getattr(settings, "GIT_USER", None),
-        user=getattr(settings, "GIT_USER", None),
+        branch=settings.GIT_BRANCH,
+        user=settings.GIT_USER,
     )
 
     src = _script_status_json(app_name)
@@ -296,8 +296,8 @@ def cmd_logs(args: argparse.Namespace, stdout=None) -> None:
     app_name = _modal_app_name(
         ref=ref,
         env=env,
-        branch=getattr(settings, "GIT_BRANCH", None),
-        user=getattr(settings, "GIT_USER", None),
+        branch=settings.GIT_BRANCH,
+        user=settings.GIT_USER,
     )
 
     _ensure_modal_cli()

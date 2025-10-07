@@ -16,7 +16,7 @@ class MinIOAdapter(StorageInterface):
     """MinIO storage adapter for local development"""
 
     def __init__(self):
-        storage = getattr(settings, "STORAGE", {})
+        storage = settings.STORAGE
         minio_config = storage.get("MINIO", {})
 
         endpoint = minio_config.get("ENDPOINT", "localhost:9000")
@@ -130,7 +130,7 @@ class S3Adapter(StorageInterface):
     def __init__(self):
         from botocore.config import Config
 
-        storage = getattr(settings, "STORAGE", {})
+        storage = settings.STORAGE
         region = storage.get("REGION", "us-east-1")
 
         config = Config(signature_version="s3v4")

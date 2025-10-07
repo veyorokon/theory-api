@@ -55,11 +55,11 @@ class Agent(models.Model):
 
     def effective_budget_micro(self) -> int:
         """Resolve budget with fallback to settings default."""
-        return self.budget_micro_cap or getattr(settings, "DEFAULT_AGENT_BUDGET_MICRO", 1_000_000)
+        return self.budget_micro_cap or settings.DEFAULT_AGENT_BUDGET_MICRO
 
     def effective_concurrency(self) -> int:
         """Resolve concurrency with fallback to settings default."""
-        return self.concurrency_limit or getattr(settings, "DEFAULT_AGENT_CONCURRENCY", 5)
+        return self.concurrency_limit or settings.DEFAULT_AGENT_CONCURRENCY
 
 
 class AgentCredential(models.Model):

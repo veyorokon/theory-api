@@ -2,7 +2,7 @@
 Pytest configuration and shared fixtures for all test types.
 
 Test Adapter Selection:
-- Set TEST_ADAPTER=local (default) or TEST_ADAPTER=modal
+- Set TEST_ADAPTER=local or TEST_ADAPTER=modal (required)
 - Local: Uses docker containers via localctl
 - Modal: Uses Modal functions (requires MODAL_TOKEN_ID/SECRET)
 
@@ -15,6 +15,26 @@ import os
 import sys
 import pathlib
 import pytest
+
+
+def require_env(name: str) -> str:
+    """
+    Load environment variable or fail test.
+
+    Args:
+        name: Environment variable name
+
+    Returns:
+        str: Environment variable value
+
+    Raises:
+        pytest.fail: If environment variable is not set
+    """
+    val = os.getenv(name)
+    if val is None:
+        pytest.fail(f"{name} environment variable required")
+    return val
+
 
 # Ensure code/ is importable
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -74,7 +94,7 @@ def adapter_type():
     Returns:
         str: "local" or "modal"
     """
-    return os.getenv("TEST_ADAPTER", "local")
+    return require_env("TEST_ADAPTER")
 
 
 @pytest.fixture(scope="session")
@@ -83,6 +103,6 @@ def test_env():
     Get test environment for Modal adapter.
 
     Returns:
-        str: "dev", "staging", or "prod"
+        str: "dev", "staging", or "main"
     """
-    return os.getenv("TEST_ENV", "dev")
+    return require_env("MODAL_ENVIRONMENT")

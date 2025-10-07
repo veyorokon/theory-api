@@ -78,7 +78,9 @@ def _stream():
     Choose output stream. Default to stderr to preserve stdout purity.
     Override by setting LOG_STREAM=stdout|stderr.
     """
-    stream_name = (os.getenv("LOG_STREAM") or "stderr").lower()
+    from django.conf import settings
+
+    stream_name = settings.LOG_CONFIG["STREAM"].lower()
     return sys.stdout if stream_name == "stdout" else sys.stderr
 
 
@@ -98,14 +100,16 @@ def log(level: str, event: str, **fields: Any) -> None:
       - JSON_LOGS (1/0)  -> pretty console output when disabled
       - LOG_SAMPLE_DEBUG (0.0..1.0) for debug throttling via debug()
     """
+    from django.conf import settings
+
     # Build base shape
     base: Dict[str, Any] = {
         "ts": _ts(),
         "level": level,
         "event": event,
-        "service": os.getenv("SERVICE", "theory"),
-        "env": os.getenv("APP_ENV", os.getenv("MODAL_ENVIRONMENT", "dev")),
-        "version": os.getenv("RELEASE", ""),
+        "service": settings.LOG_CONFIG["SERVICE"],
+        "env": settings.LOG_CONFIG["ENV"],
+        "version": settings.LOG_CONFIG["RELEASE"],
     }
 
     # Merge bound context then fields (fields win)
@@ -123,7 +127,7 @@ def log(level: str, event: str, **fields: Any) -> None:
     base.update(safe_fields)
 
     stream = _stream()
-    json_mode = os.getenv("JSON_LOGS", "1").lower() not in ("0", "false", "no")
+    json_mode = settings.LOG_CONFIG["JSON"]
 
     if json_mode:
         stream.write(_as_json(base) + "\n")

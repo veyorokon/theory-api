@@ -24,6 +24,8 @@ jobs:
       ENV: dev
       PLATFORM: amd64
       MODAL_ENVIRONMENT: dev
+      TEST_ADAPTER: modal
+      MOCK_MISSING_SECRETS: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

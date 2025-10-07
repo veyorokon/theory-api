@@ -67,7 +67,7 @@ def _read_build_manifest(ref: str) -> Dict[str, Any]:
     except ValueError:
         raise RuntimeError(f"Invalid ref '{ref}'. Expected ns/name@ver")
 
-    roots = getattr(settings, "TOOLS_ROOTS", [])
+    roots = settings.TOOLS_ROOTS
     if not roots:
         raise RuntimeError("TOOLS_ROOTS not configured in settings")
 
@@ -160,7 +160,7 @@ def _write_build_manifest(ref: str, platform: str, tag_for_host: str) -> None:
         raise RuntimeError(f"Invalid ref '{ref}'. Expected ns/name@ver")
 
     # Use TOOLS_ROOTS from settings
-    roots = getattr(settings, "TOOLS_ROOTS", [])
+    roots = settings.TOOLS_ROOTS
     if not roots:
         raise RuntimeError("TOOLS_ROOTS not configured in settings")
 
@@ -224,7 +224,7 @@ def _build_image(
         raise RuntimeError(f"invalid ref '{ref}', expected ns/name@ver")
 
     # Use TOOLS_ROOTS from settings
-    roots = getattr(settings, "TOOLS_ROOTS", [])
+    roots = settings.TOOLS_ROOTS
     if not roots:
         raise RuntimeError("TOOLS_ROOTS not configured in settings")
 

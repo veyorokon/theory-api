@@ -66,7 +66,7 @@ class ToolRunner:
         if default_bucket is None:
             from django.conf import settings
 
-            storage = getattr(settings, "STORAGE", {})
+            storage = settings.STORAGE
             default_bucket = storage.get("BUCKET", "outputs")
         self.bucket = default_bucket
 
@@ -256,9 +256,9 @@ class ToolRunner:
         from django.conf import settings
 
         # Get Modal context from Django settings (required, no fallbacks)
-        env = getattr(settings, "MODAL_ENVIRONMENT", "dev")
-        user = getattr(settings, "GIT_USER", None)
-        branch = getattr(settings, "GIT_BRANCH", None)
+        env = settings.MODAL_ENVIRONMENT
+        user = settings.GIT_USER
+        branch = settings.GIT_BRANCH
 
         # Generate the canonical app name
         if env == "dev":

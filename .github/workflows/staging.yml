@@ -66,6 +66,8 @@ jobs:
       ENV: staging
       PLATFORM: amd64
       MODAL_ENVIRONMENT: staging
+      TEST_ADAPTER: modal
+      MOCK_MISSING_SECRETS: false
     steps:
       - uses: actions/checkout@v4
         with:

@@ -23,7 +23,7 @@ class StorageService:
 
     def _get_adapter(self) -> StorageInterface:
         """Factory method to get the appropriate storage adapter"""
-        storage_backend = getattr(settings, "STORAGE_BACKEND", "minio").lower()
+        storage_backend = settings.STORAGE_BACKEND.lower()
 
         if storage_backend == "s3":
             return S3Adapter()

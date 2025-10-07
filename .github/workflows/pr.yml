@@ -39,6 +39,8 @@ jobs:
       ADAPTER: local
       PLATFORM: amd64
       MOCK_MISSING_SECRETS: true
+      TEST_ADAPTER: local
+      MODAL_ENVIRONMENT: dev
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

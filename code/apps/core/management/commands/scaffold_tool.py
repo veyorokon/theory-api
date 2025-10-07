@@ -31,7 +31,7 @@ class Command(BaseCommand):
         ns, name, ver = m.group("ns"), m.group("name"), m.group("ver")
 
         # Use TOOLS_ROOTS (first root only)
-        roots = getattr(settings, "TOOLS_ROOTS", [])
+        roots = settings.TOOLS_ROOTS
         if not roots:
             raise CommandError("TOOLS_ROOTS not configured in settings")
 

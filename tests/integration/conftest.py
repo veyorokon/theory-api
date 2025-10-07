@@ -60,9 +60,12 @@ def prepare_tools(adapter_type, django_db_setup, django_db_blocker):
     if not enabled_refs:
         pytest.skip("No enabled tools found")
 
-    platform = os.getenv("PLATFORM", "amd64")
+    from tests.conftest import require_env
 
-    # Build and start each tool
+    platform = require_env("PLATFORM")
+    mock_missing = require_env("MOCK_MISSING_SECRETS")
+
+    # Start each tool (assumes images already built/published)
     for ref in enabled_refs:
         try:
             import time
@@ -70,10 +73,11 @@ def prepare_tools(adapter_type, django_db_setup, django_db_blocker):
             import json
             from io import StringIO
 
-            # Build image
-            call_command("imagectl", "build", "--ref", ref, "--platform", platform)
-            # Start container
-            call_command("localctl", "start", "--ref", ref, "--platform", platform)
+            # Start container from pinned registry image
+            start_args = ["localctl", "start", "--ref", ref, "--platform", platform]
+            if mock_missing.lower() == "true":
+                start_args.append("--mock-missing-secrets")
+            call_command(*start_args)
 
             # Get URL from localctl
             url_output = StringIO()
