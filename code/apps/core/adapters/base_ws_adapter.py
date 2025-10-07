@@ -119,13 +119,15 @@ class BaseWsAdapter:
         )
 
         return {
-            "execution_id": str(run.id),
+            "run_id": str(run.id),
             "mode": run.mode,
             "inputs": hydrated_inputs,
             "outputs": outputs,
         }
 
-    def _hydrate_inputs(self, inputs: Dict[str, Any], world_id: str, bucket: str, storage, timeout: int) -> Dict[str, Any]:
+    def _hydrate_inputs(
+        self, inputs: Dict[str, Any], world_id: str, bucket: str, storage, timeout: int
+    ) -> Dict[str, Any]:
         """
         Recursively hydrate world:// URIs to presigned GET URLs.
 
@@ -264,15 +266,10 @@ class BaseWsAdapter:
                 subprotocols=["theory.run.v1"],
             ) as ws:
                 self.logger(event="ws.connect.ok", ref=ref)
-                # Send RunOpen (first message)
+                # Send RunOpen (first message) - flattened structure
                 run_open = {
                     "kind": "RunOpen",
-                    "content": {
-                        "role": "client",
-                        "execution_id": payload.get("execution_id"),
-                        "start": True,
-                        "payload": payload,
-                    },
+                    "content": payload,
                     "t": _now_ms(),
                 }
                 await _send(ws, run_open)
@@ -343,13 +340,6 @@ class BaseWsAdapter:
         # Validate envelope has required status field
         if status not in ("success", "error"):
             raise WsError(f"Invalid envelope: missing or bad status (got {status!r})")
-
-        # For success envelopes, validate structure
-        if status == "success":
-            # index_path discipline (only for success)
-            index_path = env.get("index_path") or ""
-            if not index_path.endswith("outputs.json"):
-                raise WsError("Success envelope must have index_path ending with outputs.json")
 
         # For error envelopes, ensure error field present
         if status == "error" and "error" not in env:

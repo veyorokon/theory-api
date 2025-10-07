@@ -79,11 +79,8 @@ class ToolRunner:
         mode: str,  # "mock" | "real"
         inputs: Dict[str, Any],
         stream: bool,  # True => iterator of events; False => final envelope
-        settle: str = "fast",
         timeout_s: int = 600,
-        run_id: str | None = None,  # Primary parameter
-        execution_id: str | None = None,  # Backward compat
-        write_prefix: str | None = None,
+        run_id: str | None = None,
         adapter: str = "local",  # "local" | "modal"
         artifact_scope: str,  # "world" | "local" - where artifacts are written
         platform: str
@@ -102,30 +99,12 @@ class ToolRunner:
 
         # All tools now use WebSocket protocol (standardized)
 
-        outputs_decl = reg.get("outputs") or []
-        # 2) Compute run_id + prefix (support both run_id and execution_id during transition)
-        rid = run_id or execution_id or str(uuid.uuid4())
+        outputs_decl = reg.get("outputs") or {}
+        # 2) Compute run_id
+        rid = run_id or str(uuid.uuid4())
 
         # Compute ref_slug for storage namespacing: llm/litellm@1 → llm_litellm
         ref_slug = ref.split("@", 1)[0].replace("/", "_")
-
-        if write_prefix:
-            wprefix = write_prefix
-        else:
-            # Default: /artifacts/outputs/{ref_slug}/{run_id}/
-            # Example: /artifacts/outputs/llm_litellm/abc-123/
-            wprefix = f"/artifacts/outputs/{ref_slug}/{rid}/"
-
-        # Support both {run_id} and {execution_id} placeholders during transition
-        if "{run_id}" in wprefix:
-            wprefix = wprefix.replace("{run_id}", rid)
-        if "{execution_id}" in wprefix:
-            wprefix = wprefix.replace("{execution_id}", rid)
-        if not wprefix.endswith("/"):
-            wprefix += "/"
-
-        # Guard against outputs duplication
-        assert not wprefix.rstrip("/").endswith("/outputs"), f"write_prefix must not contain '/outputs': {wprefix}"
 
         # 3) Extract expected digest from registry (for drift validation)
         expected_digest = self._get_expected_digest(reg, adapter, platform)
@@ -135,9 +114,9 @@ class ToolRunner:
         # artifact_scope="local" → omit outputs, protocol writes to /artifacts/
         outputs_map = None
         if artifact_scope == "world":
-            outputs_map = self._prepare_put_urls(wprefix, outputs_decl)
+            outputs_map = self._prepare_put_urls(ref_slug, rid, outputs_decl)
 
-        # 5) Construct payload
+        # 5) Construct payload (flattened - no nested payload wrapper)
         # Note: Secrets are managed separately:
         #   - local: injected by localctl start
         #   - modal: synced by modalctl sync-secrets
@@ -145,8 +124,6 @@ class ToolRunner:
             "run_id": rid,
             "mode": mode,
             "inputs": inputs,
-            "write_prefix": wprefix,
-            "settle": settle,
         }
 
         # Only include outputs if artifact_scope="world"
@@ -157,14 +134,14 @@ class ToolRunner:
         adapter_instance, oci = self._pick_adapter(adapter, expected_digest, ref, reg)
 
         # 7) Invoke over WS
-        info("invoke.ws.start", ref=ref, adapter=adapter, run_id=rid, write_prefix=wprefix)
+        info("invoke.ws.start", ref=ref, adapter=adapter, run_id=rid)
         if stream:
             # Streaming iterator (yield events and final RunResult)
             return adapter_instance.invoke(ref, payload, timeout_s, oci, stream=True)
         else:
             # Final envelope only
             env = adapter_instance.invoke(ref, payload, timeout_s, oci, stream=False)
-            info("invoke.ws.settle", ref=ref, status=env.get("status"), run_id=rid)
+            info("invoke.ws.complete", ref=ref, status=env.get("status"), run_id=rid)
             return env
 
     # ---------- Digest resolution ----------
@@ -195,40 +172,22 @@ class ToolRunner:
 
     # ---------- Presigned PUT helpers ----------
 
-    def _prepare_put_urls(self, write_prefix: str, outputs_decl: List[Dict[str, Any]]) -> Dict[str, str]:
+    def _prepare_put_urls(self, ref_slug: str, run_id: str, outputs_decl: Dict[str, Any]) -> Dict[str, str]:
         """
-        Produce presigned PUT URLs for:
-          - outputs.json (index, always at write_prefix/outputs.json)
-          - each declared output path (relative to outputs/)
-        Keys in the dict are OBJECT KEYS relative to bucket root, matching what the tool will write.
+        Produce presigned PUT URLs for declared outputs.
+        Keys in dict match registry output keys (e.g., "response", "usage").
+        S3 path: artifacts/outputs/{ref_slug}/{run_id}/{output_key}
         """
         put_urls: Dict[str, str] = {}
-        # Index last
-        index_key = self._key(write_prefix, "outputs.json")
-        put_urls["outputs.json"] = self._presign_put(index_key, content_type="application/json")
+        properties = outputs_decl.get("properties") or {}
 
-        # Declared outputs
-        for o in outputs_decl:
-            rel = o.get("path")
-            if not rel:
-                continue
-            key = self._key(write_prefix, f"outputs/{rel}")
-            ctype = o.get("mime") or "application/octet-stream"
-            put_urls[f"outputs/{rel}"] = self._presign_put(key, content_type=ctype)
+        for output_key, spec in properties.items():
+            # S3 key: artifacts/outputs/llm_litellm/abc-123/response
+            s3_key = f"artifacts/outputs/{ref_slug}/{run_id}/{output_key}"
+            ctype = spec.get("mime") or "application/octet-stream"
+            put_urls[output_key] = self._presign_put(s3_key, content_type=ctype)
+
         return put_urls
-
-    def _key(self, write_prefix: str, tail: str) -> str:
-        """
-        Convert logical write_prefix + tail into an object key under the bucket.
-        - If write_prefix begins with "/artifacts/", strip the leading slash to form the key
-        """
-        # Normalize leading slash; you can map world facet to real bucket prefixes if needed
-        path = write_prefix
-        if path.startswith("/"):
-            path = path[1:]
-        if not path.endswith("/"):
-            path += "/"
-        return f"{path}{tail}"
 
     def _presign_put(self, key: str, *, content_type: str | None = None, expires_s: int = 900) -> str:
         # Use the existing get_upload_url method from storage service

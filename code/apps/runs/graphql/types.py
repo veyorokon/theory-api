@@ -33,8 +33,6 @@ class RunType:
     status: auto
     error_code: auto
     error_message: auto
-    write_prefix: auto
-    index_path: auto
     image_digest_expected: auto
     image_digest_actual: auto
     drift_ok: auto

@@ -27,9 +27,6 @@ class Run(models.Model):
     error_code = models.CharField(max_length=64, null=True, blank=True)
     error_message = models.TextField(null=True, blank=True)
 
-    write_prefix = models.CharField(max_length=512)  # "/{world_id}/{run_id}/"
-    index_path = models.CharField(max_length=512, blank=True)  # set on settle - outputs.json
-
     image_digest_expected = models.CharField(max_length=71, null=True, blank=True)  # "sha256:…"
     image_digest_actual = models.CharField(max_length=71, null=True, blank=True)
     drift_ok = models.BooleanField(default=True)
@@ -80,7 +77,6 @@ class Run(models.Model):
 
         self.status = envelope.get("status", self.Status.FAILED)
         self.meta = envelope.get("meta", {})
-        self.index_path = envelope.get("index_path", "")
         self.ended_at = timezone.now()
 
         # Extract error details if present
@@ -96,26 +92,52 @@ class Run(models.Model):
         self.save()
 
         # Create Artifact + RunArtifact records for each output
-        outputs = envelope.get("outputs", [])
-        for output in outputs:
-            path = output["path"].lstrip("/")  # Remove leading slash
-            key = path.split("/")[-1].rsplit(".", 1)[0]  # Extract key from path
-            uri = f"world://{self.world.id}/{self.id}/{path}"
+        # Outputs now dict: {key: uri, ...}
+        outputs = envelope.get("outputs", {})
+        for key, uri in outputs.items():
+            # Parse URI to determine if scalar or file
+            is_scalar = "?data=" in uri
 
-            # Create or get Artifact
-            artifact, created = Artifact.objects.get_or_create(
-                world=self.world,
-                uri=uri,
-                defaults={
-                    "path": f"{self.world.id}/{self.id}/{path}",
-                    "data": None,
-                    "is_scalar": False,
-                    "content_type": output.get("content_type", ""),
-                    "size_bytes": output.get("size"),
-                    "etag": output.get("etag", "").strip('"'),
-                    "sha256": output.get("sha256", ""),
-                }
-            )
+            if is_scalar:
+                # Scalar artifact - extract data from URI
+                from libs.runtime_common.hydration import resolve_artifact_uri
+
+                data = resolve_artifact_uri(uri)
+
+                artifact, created = Artifact.objects.get_or_create(
+                    world=self.world,
+                    uri=uri,
+                    defaults={
+                        "path": "",
+                        "data": data,
+                        "is_scalar": True,
+                        "content_type": "application/json" if isinstance(data, (dict, list)) else "text/plain",
+                    },
+                )
+            else:
+                # File artifact - extract path from URI
+                # URI format: world://world_id/run_id/path or local://run_id/path
+                if uri.startswith("world://"):
+                    path_part = uri.split("://", 1)[1]
+                    parts = path_part.split("/", 2)
+                    path = parts[2] if len(parts) > 2 else key
+                elif uri.startswith("local://"):
+                    path_part = uri.split("://", 1)[1]
+                    parts = path_part.split("/", 1)
+                    path = parts[1] if len(parts) > 1 else key
+                else:
+                    path = key
+
+                artifact, created = Artifact.objects.get_or_create(
+                    world=self.world,
+                    uri=uri,
+                    defaults={
+                        "path": f"{self.world.id}/{self.id}/{path}",
+                        "data": None,
+                        "is_scalar": False,
+                        "content_type": "application/octet-stream",
+                    },
+                )
 
             # Link to run as output
             RunArtifact.objects.create(
@@ -123,18 +145,6 @@ class Run(models.Model):
                 artifact=artifact,
                 direction=RunArtifact.DIRECTION_OUT,
                 key=key,
-            )
-
-            # Also create legacy RunOutput for backwards compat (temporary)
-            RunOutput.objects.create(
-                run=self,
-                key=key,
-                uri=uri,
-                path=path,
-                content_type=output.get("content_type", ""),
-                size_bytes=output.get("size"),
-                etag=output.get("etag", ""),
-                sha256=output.get("sha256", ""),
             )
 
 

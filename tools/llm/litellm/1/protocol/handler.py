@@ -1,18 +1,37 @@
 import os
 import io
 import json
+import yaml
 from pathlib import Path
 from typing import Any, Dict, Callable, Optional
-from libs.runtime_common.protocol.uploader import put_object, ensure_outputs_json
-from libs.runtime_common.hydration import resolve_inputs
+from libs.runtime_common.protocol.uploader import put_object
+from libs.runtime_common.hydration import resolve_inputs, make_scalar_uri
+
+
+def _load_env_fingerprint() -> str:
+    """Load runtime spec from registry.yaml and construct env_fingerprint."""
+    try:
+        registry_path = Path(__file__).parent.parent / "registry.yaml"
+        with open(registry_path) as f:
+            reg = yaml.safe_load(f)
+        runtime = reg.get("runtime") or {}
+        cpu = runtime.get("cpu", "1")
+        memory_gb = runtime.get("memory_gb", 2)
+        gpu = runtime.get("gpu")
+
+        parts = [f"cpu:{cpu}", f"memory:{memory_gb}Gi"]
+        if gpu:
+            parts.append(f"gpu:{gpu}")
+        return ";".join(parts)
+    except Exception:
+        # Fallback if registry not readable
+        return "cpu:1;memory:2Gi"
 
 
 # entry(payload, emit, ctrl) -> envelope
 def entry(payload: Dict[str, Any], emit: Callable[[Dict], None] | None = None, ctrl=None) -> Dict[str, Any]:
-    # Support both run_id and execution_id during transition
-    run_id = str(payload.get("run_id") or payload.get("execution_id", "")).strip()
+    run_id = str(payload.get("run_id", "")).strip()
     mode = str(payload.get("mode", "mock")).strip()
-    write_prefix = str(payload.get("write_prefix", "")).strip()
 
     # Hydrate inputs: resolve world:// URIs to actual data
     raw_inputs = payload.get("inputs") or {}
@@ -29,18 +48,29 @@ def entry(payload: Dict[str, Any], emit: Callable[[Dict], None] | None = None, c
             "meta": {},
         }
 
-    # Expand run_id placeholder (support both single and double braces)
-    write_prefix = write_prefix.replace("{{run_id}}", run_id).replace("{run_id}", run_id)
-    # Default write_prefix if not provided
-    if not write_prefix:
-        write_prefix = f"{run_id}/"
-    # Ensure trailing slash
-    if not write_prefix.endswith("/"):
-        write_prefix += "/"
-
     params = (inputs or {}).get("params") or {}
     messages = params.get("messages") or []
     model = params.get("model") or "gpt-4o-mini"
+    strict = (inputs or {}).get("strict", False)
+
+    env_fingerprint = _load_env_fingerprint()
+
+    # Validate inputs if strict mode or real mode
+    if strict or mode == "real":
+        if not messages:
+            return {
+                "status": "error",
+                "run_id": run_id,
+                "error": {"code": "ERR_VALIDATION", "message": "messages cannot be empty"},
+                "meta": {"env_fingerprint": env_fingerprint},
+            }
+        if not all(isinstance(m, dict) and "role" in m and "content" in m for m in messages):
+            return {
+                "status": "error",
+                "run_id": run_id,
+                "error": {"code": "ERR_VALIDATION", "message": "messages must be [{role, content}, ...]"},
+                "meta": {"env_fingerprint": env_fingerprint},
+            }
 
     if emit:
         emit({"kind": "Event", "content": {"phase": "started"}})
@@ -93,76 +123,65 @@ def entry(payload: Dict[str, Any], emit: Callable[[Dict], None] | None = None, c
         }
 
     etags = {}
-    reply_key = "text/response.txt"
+    outputs_result = {}
 
     if outputs:
         # S3 artifact flow - upload to presigned URLs
-        if reply_key not in outputs:
+        if "response" not in outputs:
             return {
                 "status": "error",
                 "run_id": run_id,
-                "error": {"code": "ERR_UPLOAD_PLAN", "message": f"missing put_url for {reply_key}"},
+                "error": {"code": "ERR_UPLOAD_PLAN", "message": "missing put_url for response"},
                 "meta": {},
             }
         try:
-            etags[reply_key] = put_object(
-                outputs[reply_key], io.BytesIO(text.encode("utf-8")), content_type="text/plain"
+            etags["response"] = put_object(
+                outputs["response"], io.BytesIO(text.encode("utf-8")), content_type="text/plain"
             )
+            # Response is scalar - embed in URI
+            outputs_result["response"] = make_scalar_uri("world", "unknown", run_id, "response", text)
         except Exception as e:
             return {
                 "status": "error",
                 "run_id": run_id,
-                "error": {"code": "ERR_UPLOAD", "message": f"Failed to upload {reply_key}: {str(e)}"},
+                "error": {"code": "ERR_UPLOAD", "message": f"Failed to upload response: {str(e)}"},
                 "meta": {},
             }
 
-        # outputs.json LAST
-        index_key = "outputs.json"
-
-        # Extract world_id from write_prefix (format: world_id/run_id/)
-        parts = write_prefix.strip("/").split("/")
-        world_id = parts[0] if len(parts) >= 2 else "unknown"
-
-        outputs_list = [{"path": f"world://{world_id}/{run_id}/text/response.txt"}]
-        index_bytes = ensure_outputs_json(outputs_list)
-
-        if index_key not in outputs:
-            return {
-                "status": "error",
-                "run_id": run_id,
-                "error": {"code": "ERR_UPLOAD_PLAN", "message": f"missing put_url for {index_key}"},
-                "meta": {},
-            }
-        try:
-            etags[index_key] = put_object(outputs[index_key], io.BytesIO(index_bytes), content_type="application/json")
-        except Exception as e:
-            return {
-                "status": "error",
-                "run_id": run_id,
-                "error": {"code": "ERR_UPLOAD", "message": f"Failed to upload {index_key}: {str(e)}"},
-                "meta": {},
-            }
-
-        outputs_list = [{"path": f"world://{world_id}/{run_id}/text/response.txt"}]
-        index_path = f"world://{world_id}/{run_id}/{index_key}"
+        # Usage output
+        if "usage" in outputs:
+            usage_data = {"prompt_tokens": 0, "completion_tokens": len(text.split())}
+            try:
+                etags["usage"] = put_object(
+                    outputs["usage"],
+                    io.BytesIO(json.dumps(usage_data).encode("utf-8")),
+                    content_type="application/json",
+                )
+                outputs_result["usage"] = make_scalar_uri("world", "unknown", run_id, "usage", usage_data)
+            except Exception as e:
+                return {
+                    "status": "error",
+                    "run_id": run_id,
+                    "error": {"code": "ERR_UPLOAD", "message": f"Failed to upload usage: {str(e)}"},
+                    "meta": {},
+                }
     else:
         # Local container flow - write to /artifacts/{run_id}/
-        local_path = Path(f"/artifacts/{run_id}/text/response.txt")
+        local_path = Path(f"/artifacts/{run_id}/response.txt")
         local_path.parent.mkdir(parents=True, exist_ok=True)
         local_path.write_bytes(text.encode("utf-8"))
 
-        # outputs.json LAST
-        index_key = "outputs.json"
-        outputs_list = [{"path": f"local://{run_id}/text/response.txt"}]
-        index_bytes = ensure_outputs_json(outputs_list)
+        # Response is scalar - embed in URI
+        outputs_result["response"] = make_scalar_uri("local", run_id, run_id, "response", text)
 
-        index_local_path = Path(f"/artifacts/{run_id}/{index_key}")
-        index_local_path.write_bytes(index_bytes)
-
-        index_path = f"local://{run_id}/{index_key}"
+        # Usage output
+        usage_data = {"prompt_tokens": 0, "completion_tokens": len(text.split())}
+        usage_path = Path(f"/artifacts/{run_id}/usage.json")
+        usage_path.write_bytes(json.dumps(usage_data).encode("utf-8"))
+        outputs_result["usage"] = make_scalar_uri("local", run_id, run_id, "usage", usage_data)
 
     meta = {
-        "env_fingerprint": "cpu:1;memory:2Gi",
+        "env_fingerprint": env_fingerprint,
         "image_digest": image_digest,
         "model": model,
         "proof": {"etag_map": etags} if outputs else {},
@@ -172,7 +191,6 @@ def entry(payload: Dict[str, Any], emit: Callable[[Dict], None] | None = None, c
     return {
         "status": "success",
         "run_id": run_id,
-        "outputs": outputs_list,
-        "index_path": index_path,
+        "outputs": outputs_result,
         "meta": meta,
     }

@@ -16,6 +16,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from apps.core.utils import run_utils
+from apps.core.management.utils import capture_stdout
 from backend.middleware import logging as core_logging
 from libs.runtime_common.envelope import resolve_mode, ModeSafetyError
 
@@ -245,7 +246,8 @@ def _find_containers(ref: str | None = None, all_theory: bool = False) -> List[D
     return containers
 
 
-def cmd_start(args: argparse.Namespace) -> None:
+@capture_stdout
+def cmd_start(args: argparse.Namespace) -> dict:
     """Start reusable container for tool ref."""
     ref = args.ref
     platform = args.platform
@@ -275,18 +277,13 @@ def cmd_start(args: argparse.Namespace) -> None:
     if existing:
         container = existing[0]
         if "Up" in container["status"]:
-            print(
-                json.dumps(
-                    {
-                        "status": "success",
-                        "note": "already_running",
-                        "container": container["name"],
-                        "port": port,
-                        "ref": ref,
-                    }
-                )
-            )
-            return
+            return {
+                "status": "success",
+                "note": "already_running",
+                "container": container["name"],
+                "port": port,
+                "ref": ref,
+            }
         else:
             # Remove stopped container
             subprocess.run(["docker", "rm", "-f", container["container_id"]], capture_output=True)
@@ -368,21 +365,18 @@ def cmd_start(args: argparse.Namespace) -> None:
     if result.returncode != 0:
         raise CommandError(f"Failed to start container: {result.stderr}")
 
-    print(
-        json.dumps(
-            {
-                "status": "success",
-                "container": container_name,
-                "container_id": result.stdout.strip(),
-                "port": port,
-                "ref": ref,
-                "image": image_ref,
-            }
-        )
-    )
+    return {
+        "status": "success",
+        "container": container_name,
+        "container_id": result.stdout.strip(),
+        "port": port,
+        "ref": ref,
+        "image": image_ref,
+    }
 
 
-def cmd_stop(args: argparse.Namespace) -> None:
+@capture_stdout
+def cmd_stop(args: argparse.Namespace) -> dict:
     """Stop containers by ref or all theory containers."""
     if args.all:
         containers = _find_containers(all_theory=True)
@@ -392,46 +386,64 @@ def cmd_stop(args: argparse.Namespace) -> None:
         raise CommandError("Either --ref or --all is required")
 
     if not containers:
-        print(json.dumps({"status": "success", "note": "no_containers_found", "stopped": []}))
-        return
+        return {"status": "success", "note": "no_containers_found", "stopped": []}
 
     stopped = []
+    stopped_refs = []
     for c in containers:
         result = subprocess.run(["docker", "rm", "-f", c["container_id"]], capture_output=True, text=True)
         if result.returncode == 0:
             stopped.append(c["name"])
+            if c.get("ref"):
+                stopped_refs.append(c["ref"])
 
-    print(
-        json.dumps(
-            {
-                "status": "success",
-                "stopped": stopped,
-                "count": len(stopped),
-            }
-        )
-    )
+    # Remove port allocations for stopped containers
+    if stopped_refs:
+        state = _load_port_state()
+        for ref in stopped_refs:
+            state.pop(ref, None)
+        _save_port_state(state)
+
+    return {
+        "status": "success",
+        "stopped": stopped,
+        "count": len(stopped),
+    }
 
 
-def cmd_status(args: argparse.Namespace) -> None:
+@capture_stdout
+def cmd_status(args: argparse.Namespace) -> dict:
     """Show running containers."""
     if args.ref:
         containers = _find_containers(ref=args.ref)
     else:
         containers = _find_containers(all_theory=True)
 
-    print(
-        json.dumps(
-            {
-                "status": "success",
-                "containers": containers,
-                "count": len(containers),
-            },
-            indent=2,
-        )
-    )
+    return {
+        "status": "success",
+        "containers": containers,
+        "count": len(containers),
+    }
 
 
-def cmd_logs(args: argparse.Namespace) -> None:
+@capture_stdout
+def cmd_url(args: argparse.Namespace) -> dict:
+    """Get URL for tool ref."""
+    ref = args.ref
+    if not ref:
+        raise CommandError("--ref is required")
+
+    state = _load_port_state()
+    port = state.get(ref)
+
+    if not port:
+        raise CommandError(f"No port allocated for {ref}")
+
+    url = f"http://127.0.0.1:{port}"
+    return {"ref": ref, "port": port, "url": url}
+
+
+def cmd_logs(args: argparse.Namespace, stdout=None) -> None:
     """Show container logs."""
     ref = args.ref
     if not ref:
@@ -455,7 +467,7 @@ def cmd_logs(args: argparse.Namespace) -> None:
         raise CommandError(f"docker logs failed with rc={proc.returncode}")
 
 
-def cmd_run(args: argparse.Namespace) -> None:
+def cmd_run(args: argparse.Namespace, stdout=None) -> None:
     """Run tool with local adapter."""
     # Support both run_id and execution_id during transition
     run_id = str(uuid.uuid4())
@@ -585,6 +597,11 @@ class Command(BaseCommand):
         p_status.add_argument("--ref", help="Filter by specific ref")
         p_status.set_defaults(func=cmd_status)
 
+        # url
+        p_url = sub.add_parser("url", help="Get URL for tool ref")
+        p_url.add_argument("--ref", required=True, help="Tool ref")
+        p_url.set_defaults(func=cmd_url)
+
         # logs
         p_logs = sub.add_parser("logs", help="Show container logs")
         p_logs.add_argument("--ref", required=True, help="Tool ref")
@@ -617,4 +634,4 @@ class Command(BaseCommand):
         func = options.get("func")
         if not func:
             raise CommandError("No subcommand specified")
-        func(argparse.Namespace(**options))
+        func(argparse.Namespace(**options), stdout=self.stdout)

@@ -25,7 +25,7 @@ def _run(payload: Dict[str, Any], q, cancel_ev):
         q.put({"kind": "RunResult", "content": env})
     except Exception as e:
         # Never raise; always finalize with error envelope
-        run_id = str(payload.get("run_id") or payload.get("execution_id", ""))
+        run_id = str(payload.get("run_id", ""))
         q.put(
             {
                 "kind": "RunResult",

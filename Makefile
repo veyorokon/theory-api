@@ -33,7 +33,7 @@ define run_pytest
    DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) \
    TEST_ADAPTER=$(ADAPTER) TEST_ENV=$(ENV) \
    LOG_STREAM=stderr JSON_LOGS=1 \
-   $(PY) -m pytest -m '$(1)' $(if $(VERBOSE),-v,-q)
+   $(PY) -m pytest -m '$(1)' $(if $(VERBOSE),-v,-q) $(2)
 endef
 
 require = @test -n "$($(1))" || { echo "Missing: $(1)"; exit 1; }
@@ -114,7 +114,7 @@ endif
 # ============================================================================
 .PHONY: test-unit test-contracts test-integration test-acceptance test-all
 test-unit:
-	$(call run_pytest,$(MARK_UNIT))
+	$(call run_pytest,$(MARK_UNIT),--ignore=tests/integration)
 
 test-contracts:
 	$(call run_pytest,$(MARK_CONTRACTS))

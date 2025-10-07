@@ -11,8 +11,31 @@ from __future__ import annotations
 
 import json
 import urllib.parse
-from typing import Any, Dict
+from typing import Any, Dict, Union
 import httpx
+
+
+def make_scalar_uri(scheme: str, world_or_run: str, run_id: str, key: str, data: Any) -> str:
+    """
+    Create scalar artifact URI with embedded data.
+
+    Args:
+        scheme: "world" or "local"
+        world_or_run: world_id for world://, run_id for local://
+        run_id: run_id (used for world:// path)
+        key: output key name
+        data: JSON-serializable data to embed
+
+    Returns:
+        URI like "world://w/r/key?data=..." or "local://r/key?data=..."
+    """
+    if scheme == "world":
+        base = f"world://{world_or_run}/{run_id}/{key}"
+    else:  # local
+        base = f"local://{world_or_run}/{key}"
+
+    encoded_data = urllib.parse.quote(json.dumps(data, ensure_ascii=False))
+    return f"{base}?data={encoded_data}"
 
 
 def resolve_artifact_uri(uri: str, timeout: int = 30) -> Any:

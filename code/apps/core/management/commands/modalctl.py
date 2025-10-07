@@ -19,6 +19,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.conf import settings
 
 from apps.core.utils import run_utils
+from apps.core.management.utils import capture_stdout
 from backend.middleware import logging as core_logging
 from libs.runtime_common.envelope import resolve_mode, ModeSafetyError
 
@@ -195,7 +196,7 @@ def _script_upsert_single_secret() -> str:
 # --- Subcommand implementations --------------------------------------------
 
 
-def cmd_start(args: argparse.Namespace) -> None:
+def cmd_start(args: argparse.Namespace, stdout=None) -> None:
     ref = _require(args.ref, "--ref is required (ns/name@ver)")
     oci = args.oci  # Optional now
 
@@ -238,7 +239,7 @@ def cmd_start(args: argparse.Namespace) -> None:
     print(json.dumps({"status": "success", "app_name": app_name, "oci": oci, "env": env, "secrets": required_secrets}))
 
 
-def cmd_stop(args: argparse.Namespace) -> None:
+def cmd_stop(args: argparse.Namespace, stdout=None) -> None:
     ref = _require(args.ref, "--ref is required")
 
     env = settings.MODAL_ENVIRONMENT
@@ -255,14 +256,18 @@ def cmd_stop(args: argparse.Namespace) -> None:
     print(json.dumps({"status": "success", "app_name": app_name, "env": env}))
 
 
-def cmd_status(args: argparse.Namespace) -> None:
+@capture_stdout
+def cmd_status(args: argparse.Namespace) -> dict:
+    """Show app/functions status including web URL."""
+    from apps.core.utils.adapters import get_modal_web_url
+
     ref = _require(args.ref, "--ref is required")
 
     env = settings.MODAL_ENVIRONMENT
     app_name = _modal_app_name(
         ref=ref,
         env=env,
-        branch=getattr(settings, "GIT_BRANCH", None),
+        branch=getattr(settings, "GIT_USER", None),
         user=getattr(settings, "GIT_USER", None),
     )
 
@@ -271,10 +276,19 @@ def cmd_status(args: argparse.Namespace) -> None:
 
     _ensure_modal_cli()
     proc = _run([sys.executable, str(path)], check=True)
-    sys.stdout.write(proc.stdout)
+    status_data = json.loads(proc.stdout)
+
+    # Add URL to status
+    try:
+        url = get_modal_web_url(app_name, "tool_func")
+        status_data["url"] = url
+    except Exception:
+        status_data["url"] = None
+
+    return status_data
 
 
-def cmd_logs(args: argparse.Namespace) -> None:
+def cmd_logs(args: argparse.Namespace, stdout=None) -> None:
     ref = _require(args.ref, "--ref is required")
     limit = str(args.limit or 50)
 
@@ -308,7 +322,7 @@ def _resolve_required_secret_names(ref: str) -> list[str]:
     return names
 
 
-def cmd_sync_secrets(args: argparse.Namespace) -> None:
+def cmd_sync_secrets(args: argparse.Namespace, stdout=None) -> None:
     ref = _require(args.ref, "--ref is required (ns/name@ver)")
     env = settings.MODAL_ENVIRONMENT
 
@@ -409,7 +423,7 @@ def cmd_sync_secrets(args: argparse.Namespace) -> None:
         print(json.dumps(result, indent=2))
 
 
-def cmd_run(args: argparse.Namespace) -> None:
+def cmd_run(args: argparse.Namespace, stdout=None) -> None:
     """Run tool with modal adapter."""
     # Support both run_id and execution_id during transition
     run_id = str(uuid.uuid4())
@@ -539,7 +553,7 @@ class Command(BaseCommand):
         p_stop.set_defaults(func=cmd_stop)
 
         # status
-        p_status = sub.add_parser("status", help="Show app/functions and their bound images (JSON)")
+        p_status = sub.add_parser("status", help="Show app/functions status with URL (JSON)")
         p_status.add_argument("--ref", required=True, help="ns/name@ver")
         p_status.set_defaults(func=cmd_status)
 
@@ -581,4 +595,4 @@ class Command(BaseCommand):
         p_sync.set_defaults(func=cmd_sync_secrets)
 
     def handle(self, *args, **options):
-        return options["func"](argparse.Namespace(**options))
+        return options["func"](argparse.Namespace(**options), stdout=self.stdout)

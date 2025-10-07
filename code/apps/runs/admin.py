@@ -12,13 +12,13 @@ class RunOutputInline(admin.TabularInline):
 class RunAdmin(admin.ModelAdmin):
     list_display = ("id", "ref", "world", "caller_agent", "status", "mode", "adapter", "started_at")
     list_filter = ("status", "mode", "adapter", "started_at")
-    search_fields = ("id", "ref", "write_prefix")
-    readonly_fields = ("id", "started_at", "ended_at", "duration_ms", "write_prefix", "index_path")
+    search_fields = ("id", "ref")
+    readonly_fields = ("id", "started_at", "ended_at", "duration_ms")
     inlines = [RunOutputInline]
 
     fieldsets = (
         ("Identity", {"fields": ("id", "ref", "world", "caller_agent")}),
-        ("Execution", {"fields": ("mode", "adapter", "status", "write_prefix", "index_path")}),
+        ("Execution", {"fields": ("mode", "adapter", "status")}),
         ("Timing", {"fields": ("started_at", "ended_at", "duration_ms")}),
         ("Error", {"fields": ("error_code", "error_message")}),
         ("Image", {"fields": ("image_digest_expected", "image_digest_actual", "drift_ok")}),

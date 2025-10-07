@@ -20,7 +20,7 @@ def healthz():
 
 @app.websocket("/run")
 async def run_ws(ws: WebSocket):
-    # One supervisor process per container; one worker process per execution
+    # One supervisor process per container; one worker process per run
     # Validate subprotocol BEFORE accepting - reject handshake if not offered
     required = "theory.run.v1"
     offered = [p.strip() for p in (ws.headers.get("sec-websocket-protocol") or "").split(",") if p.strip()]
@@ -31,7 +31,7 @@ async def run_ws(ws: WebSocket):
 
     await ws.accept(subprotocol=required)
     connection_id = f"conn-{int(time.time() * 1000)}"
-    execution_id: str | None = None
+    run_id: str | None = None
     role: ConnectionRole | None = None
 
     try:
@@ -41,14 +41,17 @@ async def run_ws(ws: WebSocket):
             await ws.close(code=1002)
             return
         content = msg.get("content") or {}
-        role_s = str(content.get("role", "")).lower()
-        run_id = str(content.get("run_id") or content.get("execution_id", "")).strip()
-        payload = content.get("payload") or {}
+        run_id = str(content.get("run_id", "")).strip()
 
-        if role_s not in ("client", "controller", "observer") or not run_id:
+        if not run_id:
             await ws.close(code=1008)
             return
-        role = ConnectionRole[role_s.upper()]
+
+        # Payload is flattened - content is the payload
+        payload = content
+
+        # Default role to client (simplified - no multi-role protocol)
+        role = ConnectionRole.CLIENT
 
         # Register connection
         run = await registry.get_or_create(run_id)

@@ -216,7 +216,7 @@ override.tf.json
 terraform.rc
 
 # Project local data
-.theory/
+**/.theory/
 .Trash-*
 
 # Agents: raw turns and local dumps (keep canonical files only)

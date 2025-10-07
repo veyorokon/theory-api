@@ -15,9 +15,8 @@ from typing import Any, Dict, List, Literal, Mapping
 
 
 def success_envelope(
-    execution_id: str,
-    outputs: List[Dict[str, Any]],
-    index_path: str,
+    run_id: str,
+    outputs: Dict[str, str],
     image_digest: str,
     env_fingerprint: str,
     duration_ms: int,
@@ -30,15 +29,14 @@ def success_envelope(
 
     return {
         "status": "success",
-        "execution_id": execution_id,
+        "run_id": run_id,
         "outputs": outputs,
-        "index_path": index_path,
         "meta": meta,
     }
 
 
 def error_envelope(
-    execution_id: str,
+    run_id: str,
     code: str,
     message: str,
     env_fingerprint: str,
@@ -61,18 +59,7 @@ def error_envelope(
     if meta_extra:
         meta.update(meta_extra)
 
-    return {"status": "error", "execution_id": execution_id, "error": {"code": code, "message": message}, "meta": meta}
-
-
-def write_outputs_index(index_path: str, entries: List[Dict[str, Any]]) -> bytes:
-    """
-    Write {"outputs":[...]} with sorted entries.
-    Returns the JSON bytes for storage via artifact_store.
-    """
-    # Sort by path for deterministic output
-    sorted_entries = sorted(entries, key=lambda e: e["path"])
-    idx = {"outputs": sorted_entries}
-    return json.dumps(idx, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return {"status": "error", "run_id": run_id, "error": {"code": code, "message": message}, "meta": meta}
 
 
 def is_valid_envelope(obj: Any) -> tuple[bool, str]:
@@ -84,14 +71,12 @@ def is_valid_envelope(obj: Any) -> tuple[bool, str]:
     if status not in ("success", "error"):
         return False, f"invalid_status_{status}"
 
-    if not obj.get("execution_id"):
-        return False, "missing_execution_id"
+    if not obj.get("run_id"):
+        return False, "missing_run_id"
 
     if status == "success":
-        if not isinstance(obj.get("outputs"), list):
-            return False, "outputs_not_list"
-        if not isinstance(obj.get("index_path"), str):
-            return False, "index_path_not_string"
+        if not isinstance(obj.get("outputs"), dict):
+            return False, "outputs_not_dict"
     else:  # status == "error"
         error = obj.get("error")
         if not isinstance(error, dict):

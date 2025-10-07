@@ -25,8 +25,3 @@ def put_object(
             continue
         r.raise_for_status()
     raise RuntimeError("unreachable")
-
-
-def ensure_outputs_json(outputs: List[Dict]) -> bytes:
-    outs = sorted(outputs, key=lambda o: o.get("path", ""))
-    return json.dumps({"outputs": outs}, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
