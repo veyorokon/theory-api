@@ -32,69 +32,32 @@ jobs:
   integration:
     runs-on: ubuntu-latest
     env:
-      DJANGO_SETTINGS_MODULE: backend.settings.unittest
-      TEST_LANE: pr
-      STORAGE_BACKEND: minio
-      ARTIFACTS_BUCKET: theory-artifacts-dev
-      ARTIFACTS_REGION: us-east-1
-      ARTIFACTS_PREFIX: artifacts/
-      MINIO_STORAGE_ENDPOINT: minio.local:9000
-      MINIO_STORAGE_ACCESS_KEY: minioadmin
-      MINIO_STORAGE_SECRET_KEY: minioadmin
-      MINIO_STORAGE_USE_HTTPS: "false"
+      DJANGO_SETTINGS_MODULE: backend.settings.dev_local
+      ADAPTER: local
+      PLATFORM: amd64
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt -r requirements-dev.txt
 
-      - name: Add minio.local to /etc/hosts
-        run: echo "127.0.0.1 minio.local" | sudo tee -a /etc/hosts
+      - name: Integration tests (local adapter)
+        run: make test-integration
 
-      - name: Start test services (MinIO)
-        run: make services-up
-
-      - name: Build processor image
-        run: make build-processor REF=llm/litellm@1
-
-      - name: Integration tests
-        run: make integration-local-build
-
-      - name: Stop services
+      - name: Cleanup
         if: always()
-        run: make services-down
+        run: make tools-cleanup && make services-down
 
   contracts:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
       DJANGO_SETTINGS_MODULE: backend.settings.unittest
-      TEST_LANE: pr
-      STORAGE_BACKEND: minio
-      ARTIFACTS_BUCKET: theory-artifacts-dev
-      ARTIFACTS_REGION: us-east-1
-      ARTIFACTS_PREFIX: artifacts/
-      MINIO_STORAGE_ENDPOINT: minio.local:9000
-      MINIO_STORAGE_ACCESS_KEY: minioadmin
-      MINIO_STORAGE_SECRET_KEY: minioadmin
-      MINIO_STORAGE_USE_HTTPS: "false"
-      LOG_STREAM: stderr
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt -r requirements-dev.txt
 
-      - name: Add minio.local to /etc/hosts
-        run: echo "127.0.0.1 minio.local" | sudo tee -a /etc/hosts
-
-      - name: Start test services (MinIO)
-        run: make services-up
-
-      - name: Contract tests (PR lane, mock, hermetic)
+      - name: Contract tests
         run: make test-contracts
-
-      - name: Stop services
-        if: always()
-        run: make services-down

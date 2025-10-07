@@ -15,32 +15,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  sync-secrets-dev:
-    name: Sync secrets to Modal (dev)
+  deploy-and-test:
+    name: Deploy to Modal (dev) and test
     runs-on: ubuntu-latest
     env:
+      DJANGO_SETTINGS_MODULE: backend.settings.dev_remote
+      ADAPTER: modal
+      ENV: dev
+      PLATFORM: amd64
       MODAL_ENVIRONMENT: dev
-      DJANGO_SETTINGS_MODULE: backend.settings.unittest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt -r requirements-dev.txt
-      - name: Sync secrets to Modal (dev)
+
+      - name: Deploy and sync secrets
         env:
-          # Modal authentication
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-          # Expose GitHub secrets as process environment variables
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: |
-          make modal-sync-secrets REF=llm/litellm@1 ENV=dev
+        run: make test-integration
 
   promote_to_staging:
     name: "Open PR: dev -> staging"
-    needs: sync-secrets-dev
+    needs: deploy-and-test
     runs-on: ubuntu-latest
     permissions:
       contents: write

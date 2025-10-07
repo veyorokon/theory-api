@@ -15,13 +15,16 @@ env:
   MODAL_ENVIRONMENT: staging
 
 jobs:
-  build_and_pin:
-    name: Build & Pin (linux/amd64)
+  build_and_publish:
+    name: Build & Publish (amd64)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
       contents: write  # commit pins to staging
       packages: write  # push GHCR
+    env:
+      DJANGO_SETTINGS_MODULE: backend.settings.dev_local
+      PLATFORM: amd64
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -33,30 +36,36 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt -r requirements-dev.txt
-      - name: Build & Pin (linux/amd64 only)
-        run: make build-and-pin REGISTRY=ghcr.io/veyorokon/theory-api PLATFORM=amd64
+
+      - name: Build and publish all tools
+        run: make build-and-publish-all
+
       - name: Commit pin updates to staging (if any)
         env:
           ADMIN_GITHUB_TOKEN: ${{ secrets.ADMIN_GITHUB_TOKEN }}
         run: |
           git config user.name "pin-bot"
           git config user.email "pin-bot@users.noreply.github.com"
-          if ! git diff --quiet; then
-            git add -A
-            git commit -m "pin: update processor digests (staging)"
+          if ! git diff --quiet tools/; then
+            git add tools/
+            git commit -m "pin: update tool digests (staging)"
             git config --unset http.https://github.com/.extraheader || true
             git remote set-url origin https://x-access-token:${ADMIN_GITHUB_TOKEN}@github.com/veyorokon/theory-api.git
             git pull --rebase origin staging
             git push
           fi
 
-  sync-secrets-staging:
-    name: Sync secrets to Modal (staging)
-    needs: build_and_pin
+  deploy-and-test:
+    name: Deploy to Modal (staging) and test
+    needs: build_and_publish
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
+      DJANGO_SETTINGS_MODULE: backend.settings.dev_remote
+      ADAPTER: modal
+      ENV: staging
+      PLATFORM: amd64
       MODAL_ENVIRONMENT: staging
-      DJANGO_SETTINGS_MODULE: backend.settings.unittest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -64,73 +73,19 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt -r requirements-dev.txt
-      - name: Sync secrets to Modal (staging)
+
+      - name: Deploy and test (tools-prepare + integration tests)
         env:
-          # Modal authentication
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-          # Expose GitHub secrets as process environment variables
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: |
-          make modal-sync-secrets REF=llm/litellm@1 ENV=staging
-
-  deploy:
-    name: Deploy to Modal (staging)
-    needs: sync-secrets-staging
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      DJANGO_SETTINGS_MODULE: backend.settings.unittest
-      MODAL_ENABLED: "true"
-      MODAL_ENVIRONMENT: staging
-      BRANCH: ${{ github.ref_name }}
-      USER: ${{ github.actor }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: staging  # Get latest staging with pin commits
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.11" }
-      - run: pip install -r requirements.txt -r requirements-dev.txt
-      - name: Install yq
-        run: |
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
-      - name: Deploy functions (digest-only via modalctl)
-        env:
-          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-        run: |
-          OCI=$(yq eval '.image.platforms.amd64' code/apps/core/processors/llm_litellm/registry.yaml)
-          make modal-deploy REF=llm/litellm@1 ENV=staging OCI="$OCI"
-
-  post_deploy_checks:
-    name: Smoke tests
-    needs: deploy
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      DJANGO_SETTINGS_MODULE: backend.settings.unittest
-      MODAL_ENABLED: "true"
-      MODAL_ENVIRONMENT: staging
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: staging  # Get latest staging with pin commits
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.11" }
-      - run: pip install -r requirements.txt -r requirements-dev.txt
-      - name: Smoke tests (timeout protected)
-        env:
-          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-        run: make test-smoke ENV=staging
+        run: make test-integration
 
   release_pr_to_main:
     name: "Open PR: staging -> main"
-    needs: post_deploy_checks
+    needs: deploy-and-test
     runs-on: ubuntu-latest
     permissions:
       contents: write

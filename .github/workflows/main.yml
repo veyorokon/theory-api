@@ -18,73 +18,27 @@ env:
   MODAL_ENVIRONMENT: main
 
 jobs:
-  sync-secrets-prod:
-    name: Sync secrets to Modal (prod)
+  deploy-and-test:
+    name: Deploy to Modal (prod) and test
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
+      DJANGO_SETTINGS_MODULE: backend.settings.dev_remote
+      ADAPTER: modal
+      ENV: main
+      PLATFORM: amd64
       MODAL_ENVIRONMENT: main
-      DJANGO_SETTINGS_MODULE: backend.settings.unittest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt -r requirements-dev.txt
-      - name: Sync secrets to Modal (main)
+
+      - name: Deploy and test (tools-prepare + integration tests)
         env:
-          # Modal authentication
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-          # Expose GitHub secrets as process environment variables
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: |
-          make modal-sync-secrets REF=llm/litellm@1 ENV=main
-
-  deploy:
-    name: Deploy to Modal (prod)
-    needs: sync-secrets-prod
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      DJANGO_SETTINGS_MODULE: backend.settings.unittest
-      MODAL_ENABLED: "true"
-      MODAL_ENVIRONMENT: main
-      BRANCH: ${{ github.ref_name }}
-      USER: ${{ github.actor }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.11" }
-      - run: pip install -r requirements.txt -r requirements-dev.txt
-      - name: Install yq
-        run: |
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
-      - name: Deploy functions (digest-only via modalctl)
-        env:
-          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-        run: |
-          OCI=$(yq eval '.image.platforms.amd64' code/apps/core/processors/llm_litellm/registry.yaml)
-          make modal-deploy REF=llm/litellm@1 ENV=main OCI="$OCI"
-
-  post_deploy_checks:
-    name: Smoke tests
-    needs: deploy
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      DJANGO_SETTINGS_MODULE: backend.settings.unittest
-      MODAL_ENABLED: "true"
-      MODAL_ENVIRONMENT: main
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.11" }
-      - run: pip install -r requirements.txt -r requirements-dev.txt
-      - name: Smoke tests (timeout protected)
-        env:
-          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-        run: make test-smoke ENV=main
+        run: make test-integration
