@@ -224,3 +224,4 @@ terraform.rc
 /agents/chats/*/*-to-*.md
 *.harvest.json
 *.jsonl
+Makefile_old
