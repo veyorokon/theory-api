@@ -256,17 +256,23 @@ def cmd_start(args: argparse.Namespace) -> dict:
     if not platform:
         raise CommandError("--platform is required")
 
-    # Get image tag for platform
+    # Get pinned OCI ref from registry (same logic as modalctl)
     try:
-        from apps.core.management.commands.imagectl import _read_build_manifest, _normalize_platform
+        from apps.core.management.commands.imagectl import _normalize_platform
+        from apps.core.registry.loader import load_processor_spec
 
         platform = _normalize_platform(platform)
-        manifest = _read_build_manifest(ref)
-        image_ref = manifest.get("tags", {}).get(platform)
+        spec = load_processor_spec(ref)
+        image = spec.get("image") or {}
+        platforms = image.get("platforms") or {}
+        image_ref = platforms.get(platform)
+
         if not image_ref:
-            raise RuntimeError(f"No build found for platform {platform}")
+            raise RuntimeError(
+                f"No {platform} platform pinned in registry.yaml for {ref}. Build and publish the image first."
+            )
     except Exception as e:
-        raise CommandError(f"Could not find built image for {ref} platform {platform}: {e}")
+        raise CommandError(f"Could not find pinned image for {ref} platform {platform}: {e}")
 
     # Generate container name and allocate port
     container_name = _container_name(ref, image_ref)
