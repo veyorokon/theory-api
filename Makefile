@@ -10,12 +10,13 @@ SHELL := /bin/bash
 MAKEFLAGS += --no-builtin-rules --no-print-directory
 
 # --- Core config (env overridable) ------------------------------------------
-CODE_DIR            ?= code
-PY                  ?= python
-DJANGO_SETTINGS     ?= backend.settings.unittest   # set to dev/prod in CI/stacks
-ADAPTER             ?= local                       # local | modal
-ENV                 ?= dev                         # modal env: dev|staging|prod
-PLATFORM            ?= $(shell uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
+CODE_DIR               ?= code
+PY                     ?= python
+DJANGO_SETTINGS_MODULE ?= backend.settings.unittest   # set to dev/prod in CI/stacks
+ADAPTER                ?= local                       # local | modal
+ENV                    ?= dev                         # modal env: dev|staging|prod
+PLATFORM               ?= $(shell uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
+MOCK_MISSING_SECRETS   ?= false                       # true to generate mock values for missing secrets
 
 # Pytest markers (keep simple)
 MARK_UNIT          := unit
@@ -25,12 +26,12 @@ MARK_ACCEPTANCE    := acceptance
 
 # Helpers
 define run_manage
-  (cd $(CODE_DIR) && DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) $(PY) manage.py $(1))
+  (cd $(CODE_DIR) && DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS_MODULE) $(PY) manage.py $(1))
 endef
 
 define run_pytest
   @PYTHONPATH=$(CODE_DIR) \
-   DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS) \
+   DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS_MODULE) \
    TEST_ADAPTER=$(ADAPTER) TEST_ENV=$(ENV) \
    LOG_STREAM=stderr JSON_LOGS=1 \
    $(PY) -m pytest -m '$(1)' $(if $(VERBOSE),-v,-q) $(2)
@@ -50,7 +51,7 @@ services-up:
 	done
 	# Ensure dev bucket exists
 	@docker run --rm --network theory_api_app_network \
-	  --entrypoint sh quay.io/minio/mc:latest -c ' \
+	  --entrypoint sh quay.io/minio/mc:RELEASE.2025-01-11T19-15-23Z -c ' \
 	    mc alias set local http://minio:9000 minioadmin minioadmin && \
 	    mc mb --ignore-existing local/$$ARTIFACTS_BUCKET' || true
 	@echo "✅ Services ready"
@@ -84,7 +85,8 @@ tools-prepare-local: services-ensure
 		echo "  • $$ref: build"; \
 		$(call run_manage,imagectl build --ref $$ref --platform $(PLATFORM) --json >/dev/null); \
 		echo "  • $$ref: start"; \
-		$(call run_manage,localctl start --ref $$ref --platform $(PLATFORM) >/dev/null); \
+		$(call run_manage,localctl start --ref $$ref --platform $(PLATFORM) \
+			$(if $(filter true,$(MOCK_MISSING_SECRETS)),--mock-missing-secrets,) >/dev/null); \
 	done
 	@echo "✓ Local tools ready (ports allocated dynamically by localctl)"
 
@@ -96,9 +98,11 @@ tools-prepare-modal:
 		oci="$$( $(call run_manage,toolctl get-oci --ref $$ref --platform $(PLATFORM)) )"; \
 		test -n "$$oci" || { echo "No pinned OCI for $$ref ($(PLATFORM))"; exit 1; } ; \
 		echo "  • $$ref: deploy $$oci"; \
-		MODAL_ENVIRONMENT=$(ENV) $(call run_manage,modalctl start --ref $$ref --oci "$$oci"); \
+		MODAL_ENVIRONMENT=$(ENV) $(call run_manage,modalctl start --ref $$ref --oci "$$oci" \
+			$(if $(filter true,$(MOCK_MISSING_SECRETS)),--mock-missing-secrets,)); \
 		echo "  • $$ref: sync secrets"; \
-		MODAL_ENVIRONMENT=$(ENV) $(call run_manage,modalctl sync-secrets --ref $$ref); \
+		MODAL_ENVIRONMENT=$(ENV) $(call run_manage,modalctl sync-secrets --ref $$ref \
+			$(if $(filter true,$(MOCK_MISSING_SECRETS)),--mock-missing-secrets,)); \
 	done
 	@echo "✓ Modal tools ready"
 

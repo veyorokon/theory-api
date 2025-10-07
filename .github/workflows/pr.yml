@@ -35,6 +35,7 @@ jobs:
       DJANGO_SETTINGS_MODULE: backend.settings.dev_local
       ADAPTER: local
       PLATFORM: amd64
+      MOCK_MISSING_SECRETS: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

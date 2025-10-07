@@ -335,11 +335,15 @@ def cmd_sync_secrets(args: argparse.Namespace, stdout=None) -> None:
     # 2) Collect from environment only
     kv: dict[str, str] = {}
     missing: list[str] = []
+    mock_missing = getattr(args, "mock_missing_secrets", False)
 
     for key in required:
         val = os.getenv(key)
         if val is None or str(val) == "":
-            missing.append(key)
+            if mock_missing:
+                kv[key] = f"sk-mock-{key.lower()}"
+            else:
+                missing.append(key)
         else:
             kv[key] = str(val)
 
@@ -545,6 +549,9 @@ class Command(BaseCommand):
         p_start = sub.add_parser("start", help="Start (deploy) app")
         p_start.add_argument("--ref", required=True, help="ns/name@ver")
         p_start.add_argument("--oci", help="ghcr.io/...@sha256:... (default: read from registry.yaml)")
+        p_start.add_argument(
+            "--mock-missing-secrets", action="store_true", help="Generate mock values for missing required secrets"
+        )
         p_start.set_defaults(func=cmd_start)
 
         # stop

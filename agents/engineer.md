@@ -93,8 +93,10 @@
 {
   "status": "success",
   "run_id": "uuid-or-user-supplied",
-  "outputs": [{"path": "world://world-id/run-id/text/response.txt"}],
-  "index_path": "world://world-id/run-id/outputs.json",
+  "outputs": {
+    "response": "world://world-id/run-id/text/response.txt?data=base64...",
+    "summary": "world://world-id/run-id/text/summary.txt"
+  },
   "meta": {
     "env_fingerprint": "cpu:1;memory:2Gi",
     "image_digest": "sha256:abc123...",
@@ -127,12 +129,11 @@
 
 * `GET /healthz` → `{"ok": true}` (200) [HTTP - unchanged]
 * `WebSocket /run`
-  - Client sends JSON payload: `{"run_id":"<uuid>","mode":"mock|real","inputs":{...},"write_prefix":"/path/","outputs":{...},"settle":"fast"}`
-  - `outputs` field presence determines storage mode:
-    - **Present**: S3 mode - presigned PUT URLs, world:// URIs
-    - **Absent**: Local mode - writes to /artifacts/, local:// URIs
+  - Client sends RunOpen message: `{"kind":"RunOpen","content":{"role":"client","run_id":"<uuid>","mode":"mock|real","inputs":{...},"outputs":{...}}}`
+  - `inputs` dict maps keys to URIs (world:// or local://)
+  - `outputs` dict maps keys to presigned PUT URLs (world:// with ?url=... query) or empty dict for local mode
   - Server streams: `{"kind":"Token|Event|Log","content":{...}}`
-  - Final envelope streamed as data, connection closes
+  - Final envelope: `{"kind":"RunResult","content":<envelope>}`, connection closes
 
 #### HTTP Contract (Legacy - Deprecation Path)
 
@@ -160,15 +161,14 @@
 ## Determinism Rules (must pass everywhere)
 
 * Canonicalize envelope JSON (stable key order; consistent float/number formatting).
-* Sort `outputs[]` lexicographically by normalized path.
-* Absolute paths only; all under expanded `write_prefix`; reject `..` or symlink escapes.
-* No timestamps, PIDs, hostnames, or random IDs in envelopes (use `execution_id` supplied or derived once).
+* `outputs` dict with stable key ordering (sorted lexicographically).
+* No timestamps, PIDs, hostnames, or random IDs in envelopes (use `run_id` supplied or derived once).
 
 ---
 
 ## Logging Canon (stderr NDJSON)
 
-Emit concise, structured events with `ts, level, event, target, ref, execution_id, elapsed_ms, details…`. Examples:
+Emit concise, structured events with `ts, level, event, target, ref, run_id, elapsed_ms, details…`. Examples:
 
 ```
 {"event":"adapter.selected","target":"local","ref":"ns/name@ver"}
@@ -177,10 +177,10 @@ Emit concise, structured events with `ts, level, event, target, ref, execution_i
 {"event":"adapter.health.ok","ms":420}
 {"event":"ws.connect.start","ws_url":"wss://…/run"}
 {"event":"ws.connect.ok","subprotocol":"theory.run.v1"}
-{"event":"ws.run.start","execution_id":"…"}
+{"event":"ws.run.start","run_id":"…"}
 {"event":"ws.run.settle","status":"success","ms":2450}
 {"event":"ws.connect.error","code":"ERR_WS_TIMEOUT","ms":15000}
-{"event":"http.run.start","execution_id":"…"}
+{"event":"http.run.start","run_id":"…"}
 {"event":"http.run.settle","status":"success","ms":2450}
 ```
 
@@ -198,18 +198,18 @@ sequenceDiagram
   participant O as Orchestrator
   participant A as Adapter (Transport only)
   participant P as Processor WS App
-  participant S as Storage (write_prefix)
-  O->>A: select (adapter="local"|"modal") + payload + presigned PUTs
+  participant S as Storage
+  O->>A: select (adapter="local"|"modal") + payload (inputs/outputs dicts)
   A->>P: GET /healthz
   P-->>A: 200 {"ok": true}
   A->>P: WebSocket /run (subprotocol: theory.run.v1)
-  A->>P: {"kind":"RunOpen","content":{"role":"client",...}}
+  A->>P: {"kind":"RunOpen","content":{"role":"client","run_id":"...","inputs":{...},"outputs":{...}}}
   P-->>A: {"kind":"Ack","content":{...}}
   P->>P: process + emit events
-  P->>S: PUT artifacts via presigned URLs
+  P->>S: PUT artifacts (presigned URLs for world:// or local /artifacts/)
   P-->>A: {"kind":"RunResult","content":<envelope>}
   A-->>O: final envelope
-  O->>O: validate invariants (schema, paths, determinism, drift)
+  O->>O: validate invariants (schema, determinism, drift)
   O-->>Caller: final envelope (stdout if CLI)
 ```
 
@@ -221,16 +221,15 @@ sequenceDiagram
   participant O as Orchestrator
   participant A as Adapter (Transport only)
   participant P as Processor HTTP App
-  participant S as Storage (write_prefix)
+  participant S as Storage
   O->>A: select (RUN_TARGET or env) + payload
   A->>P: GET /healthz
   P-->>A: 200 {"ok": true}
   A->>P: POST /run {payload}
-  P->>S: write artifacts/index under write_prefix
+  P->>S: write artifacts
   P-->>A: 200 envelope (success or error)
   A-->>O: InvokeResult {envelope, http_status, url}
-  O->>O: validate invariants (schema, paths, determinism, drift)
-  O->>S: persist envelope/index (if applicable)
+  O->>O: validate invariants (schema, determinism, drift)
   O-->>Caller: final envelope (stdout if CLI)
 ```
 
@@ -249,7 +248,7 @@ sequenceDiagram
 * **Positive parity:** Run integration suite with **transport=A** and **transport=B**; assert byte-identical envelopes (ignoring allowed diagnostics).
 * **Negative parity:** Simulate a resolvable error on each transport: missing remote endpoint (`ERR_ENDPOINT_MISSING`), missing local image (`ERR_IMAGE_NOT_FOUND`).
 * **Contract tests:** 415 wrong content-type → 415 + `ERR_INPUTS`; malformed JSON → 400 + `ERR_INPUTS`; crash → 500 + `ERR_INTERNAL`.
-* **Determinism tests:** randomize `execution_id`/paths; ensure outputs stay under prefix; canonicalization unchanged.
+* **Determinism tests:** randomize `run_id`; canonicalization unchanged.
 * **Supply-chain tests:** when `expected_oci` provided and envelope has `meta.image_digest` ≠ expected → `ERR_REGISTRY_MISMATCH`.
 
 ---
@@ -376,14 +375,14 @@ python manage.py modalctl status --ref llm/litellm@1
   - No image lookup, no auto-building, no auto-starting in adapters or ToolRunner
 
 * **Secret Management:**
-  - **Local**: Secrets injected at container start time (`localctl start`) from environment variables. Fails fast if required secrets missing.
-  - **Modal**: Secrets synced separately via `modalctl sync-secrets`. Orchestrator does not validate secrets for either adapter.
+  - **Local**: Secrets injected at container start time (`localctl start`) from environment variables. Use `--mock-missing-secrets` to generate `sk-mock-{name}` values for missing secrets (testing/CI).
+  - **Modal**: Secrets synced separately via `modalctl sync-secrets`. Use `--mock-missing-secrets` on both start and sync-secrets to generate mock values for missing secrets.
 
 * **Envelopes:** Must be **byte-identical** across local and Modal (allowing only transport diagnostics in stderr logs). Write prefix defaults to `/artifacts/outputs/{ref_slug}/{run_id}/` when not specified.
 
 * **Artifact Scope:** Explicit parameter to ToolRunner.invoke() controls storage destination:
-  - `artifact_scope="world"`: Generate presigned S3 URLs, outputs field present in payload, world:// URIs in envelope
-  - `artifact_scope="local"`: Omit outputs field, protocol writes to /artifacts/, local:// URIs in envelope
+  - `artifact_scope="world"`: Generate presigned S3 URLs in outputs dict (world:// URIs with ?url=... query), envelope has world:// URIs
+  - `artifact_scope="local"`: Empty outputs dict, protocol writes to /artifacts/, envelope has local:// URIs
   - localctl always uses `artifact_scope="local"`
   - modalctl determines from STORAGE_BACKEND setting (s3→world, minio→local)
 

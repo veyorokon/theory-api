@@ -342,13 +342,17 @@ def cmd_start(args: argparse.Namespace) -> dict:
     ]
 
     # Inject required secrets from environment (fail fast if missing)
+    mock_missing = getattr(args, "mock_missing_secrets", False)
     for secret_name in required_secrets:
         secret_value = resolve_secret(secret_name)
         if not secret_value:
-            raise CommandError(
-                f"Missing required secret: {secret_name}. "
-                f"Set {secret_name} in your environment before starting the container."
-            )
+            if mock_missing:
+                secret_value = f"sk-mock-{secret_name.lower()}"
+            else:
+                raise CommandError(
+                    f"Missing required secret: {secret_name}. "
+                    f"Set {secret_name} in your environment before starting the container."
+                )
         docker_cmd.extend(["-e", f"{secret_name}={secret_value}"])
 
     docker_cmd.extend(
@@ -584,6 +588,9 @@ class Command(BaseCommand):
         p_start.add_argument("--ref", required=True, help="Tool ref: ns/name@ver")
         p_start.add_argument("--platform", required=True, help="Platform (amd64 or arm64)")
         p_start.add_argument("--port", type=int, help="Override host port (default: auto-assign from 40000+)")
+        p_start.add_argument(
+            "--mock-missing-secrets", action="store_true", help="Generate mock values for missing required secrets"
+        )
         p_start.set_defaults(func=cmd_start)
 
         # stop

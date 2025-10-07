@@ -1,7 +1,7 @@
 services:
   postgres:
     profiles: [ "base", "full" ]
-    image: postgres:15
+    image: postgres:15.10
     ports:
       - "5432:5432"
     volumes:
@@ -21,7 +21,7 @@ services:
 
   minio:
     profiles: [ "full" ]
-    image: minio/minio
+    image: quay.io/minio/minio:RELEASE.2025-01-11T19-56-20Z
     ports:
       - "9000:9000"
       - "9001:9001"
