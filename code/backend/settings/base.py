@@ -28,10 +28,90 @@ def environ_setting(name, default=None, isNoneAllowed=False):
     return os.environ.get(name, default)
 
 
+def env(name, default=None, required=False, cast=str):
+    """
+    Fetch setting from environment with optional type casting.
+
+    Args:
+        name: Environment variable name
+        default: Default value if not set
+        required: Raise ImproperlyConfigured if not set and no default
+        cast: Type to cast value to (str, bool, int, etc.)
+    """
+    v = os.getenv(name, default)
+    if required and v is None:
+        from django.core.exceptions import ImproperlyConfigured
+
+        raise ImproperlyConfigured(f"The {name} ENVVAR is not set.")
+
+    if v is not None and cast is not str:
+        if cast is bool:
+            return str(v).lower() in ("1", "true", "t", "yes", "y", "on")
+        return cast(v)
+    return v
+
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, BASE_DIR)
 sys.path.insert(0, os.path.join(BASE_DIR, "apps"))
+
+# Tool roots (outside Django apps - formerly processors)
+TOOLS_ROOTS = [
+    BASE_DIR.parent / "tools",
+]
+# Override: TOOLS_EXTRA_ROOTS=/vendor/tools,/builds/tools
+extra_roots = os.getenv("TOOLS_EXTRA_ROOTS", "")
+if extra_roots:
+    TOOLS_ROOTS.extend([Path(p.strip()) for p in extra_roots.split(",") if p.strip()])
+
+
+# ============================================================================
+# Git and Registry Configuration
+# ============================================================================
+
+
+def _get_git_info():
+    """Auto-detect git branch, user, and org from repository."""
+    try:
+        from git import Repo
+
+        repo = Repo(search_parent_directories=True)
+        branch = repo.active_branch.name
+
+        # Extract GitHub org and username from remote origin URL
+        org = None
+        username = None
+        try:
+            url = repo.remotes.origin.url  # e.g., git@github.com:veyorokon/theory-api.git
+            if "github.com" in url:
+                parts = url.split("github.com")[1].strip("/:").split("/")
+                if parts:
+                    org = parts[0]
+                    # For user-specific naming, use the org/owner as username
+                    username = parts[0]
+        except Exception:
+            pass
+
+        # Fallback to git config user.name if we couldn't extract from URL
+        if not username:
+            username = repo.config_reader().get_value("user", "name", default="unknown")
+
+        return branch, username, org
+    except Exception:
+        return None, None, None
+
+
+_git_branch, _git_user, _git_org = _get_git_info()
+
+# Git context (used for dev environment naming)
+GIT_BRANCH = env("GIT_BRANCH", _git_branch or "")
+GIT_USER = env("GIT_USER", _git_user or "")
+
+# Container registry configuration
+REGISTRY_HOST = env("REGISTRY_HOST", "ghcr.io")
+REGISTRY_ORG = env("REGISTRY_ORG", "veyorokon")
+LOCAL_REGISTRY_PREFIX = env("LOCAL_REGISTRY_PREFIX", "theory-local/")
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
@@ -43,15 +123,18 @@ AUTH_USER_MODEL = "core.User"
 
 LOCAL_APPS = [
     "apps.core",
-    "apps.storage",
-    "apps.plans",
-    "apps.runtime",
-    "apps.ledger",
+    "apps.agents",
+    "apps.worlds",
+    "apps.tools",
     "apps.artifacts",
+    "apps.plans",
+    "apps.goals",
+    "apps.runs",
+    "apps.billing",
 ]
 THIRD_PARTY_APPS = [
     "rest_framework",
-    "channels",
+    "strawberry.django",
 ]
 DJANGO_APPS = [
     "django.contrib.admin",
@@ -64,7 +147,7 @@ DJANGO_APPS = [
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 MIDDLEWARE = [
-    "apps.core.middleware.request_id.RequestIdMiddleware",
+    "backend.middleware.request_id.RequestIdMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -145,39 +228,48 @@ STATIC_URL = "static/"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# Channels / Channel layers (Redis)
-REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-CHANNELS_REDIS_URL = os.environ.get("CHANNELS_REDIS_URL") or REDIS_URL
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {"hosts": [CHANNELS_REDIS_URL]},
-    }
+# Storage configuration (12-factor pattern)
+STORAGE_BACKEND = env("STORAGE_BACKEND", "minio")
+ARTIFACTS_BUCKET = env("ARTIFACTS_BUCKET", "theory-artifacts-dev")
+ARTIFACTS_REGION = env("ARTIFACTS_REGION", "us-east-1")
+
+STORAGE = {
+    "BACKEND": STORAGE_BACKEND,
+    "BUCKET": ARTIFACTS_BUCKET,
+    "REGION": ARTIFACTS_REGION,
+    "MINIO": {
+        "ENDPOINT": env("MINIO_STORAGE_ENDPOINT", "minio.local:9000"),
+        "ACCESS_KEY": env("MINIO_STORAGE_ACCESS_KEY", "minioadmin"),
+        "SECRET_KEY": env("MINIO_STORAGE_SECRET_KEY", "minioadmin"),
+        "USE_HTTPS": env("MINIO_STORAGE_USE_HTTPS", "false", cast=bool),
+    },
 }
 
-LLM_SETTINGS = {
-    "default_model": os.environ.get("LLM_MODEL_DEFAULT", "openai/gpt-4o-mini"),
-    "api_base": os.environ.get("LLM_API_BASE", ""),
+# Logging settings
+LOG_CONFIG = {
+    "STREAM": env("LOG_STREAM", "stderr"),
+    "JSON": env("JSON_LOGS", "1", cast=bool),
+    "SERVICE": env("SERVICE", "theory"),
+    "ENV": env("APP_ENV", env("MODAL_ENVIRONMENT", "dev")),
+    "RELEASE": env("RELEASE", ""),
 }
+
+# Agent defaults
+DEFAULT_AGENT_BUDGET_MICRO = env("DEFAULT_AGENT_BUDGET_MICRO", "1000000", cast=int)
+DEFAULT_AGENT_CONCURRENCY = env("DEFAULT_AGENT_CONCURRENCY", "5", cast=int)
+
+
+# Graphene settings
+GRAPHENE = {
+    "SCHEMA": "backend.schema.schema",
+    "MIDDLEWARE": [
+        "graphene_django.debug.DjangoDebugMiddleware",
+    ],
+}
+
+# Note: We use StorageService directly, not Django's file storage backend
+# If Django file fields are needed, configure DEFAULT_FILE_STORAGE appropriately
 
 # Feature flags
 # Modal adapter gating comes from Django settings (not raw env var). Map env→setting here.
-MODAL_ENABLED = os.environ.get("MODAL_ENABLED", "false").lower() == "true"
-# Modal environment name for Function.from_name(..., environment_name=...)
-MODAL_ENVIRONMENT = os.environ.get("MODAL_ENVIRONMENT", "").strip() or "dev"
-# Stable Modal app name (module uses this); env is selected at deploy/invoke time
-MODAL_APP_NAME = os.environ.get("MODAL_APP_NAME", "theory-rt")
-# Modal app naming context (for dev branch/user pattern)
-MODAL_BRANCH = os.environ.get("GITHUB_HEAD_REF") or os.environ.get("BRANCH", "").strip()
-MODAL_USER = os.environ.get("USER") or os.environ.get("BUILD_USER", "").strip()
-
-# Lease management feature flag
-LEASES_ENABLED = False
-
-# Django Management Commands configuration
-# Enable discovery of commands in subdirectories
-MANAGEMENT_COMMANDS_SUBMODULES = [
-    "management.commands.processors",
-    "management.commands.modal",
-    "management.commands.docs",
-]
+MODAL_ENABLED = env("MODAL_ENABLED", default=True, required=True, cast=bool)

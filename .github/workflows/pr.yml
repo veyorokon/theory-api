@@ -31,35 +31,55 @@ jobs:
 
   integration:
     runs-on: ubuntu-latest
-    needs: unit
+    permissions:
+      contents: read
+      packages: write
     env:
-      DJANGO_SETTINGS_MODULE: backend.settings.unittest
-      TEST_LANE: pr
+      DJANGO_SETTINGS_MODULE: backend.settings.dev_local
+      ADAPTER: local
+      PLATFORM: amd64
+      MOCK_MISSING_SECRETS: true
+      TEST_ADAPTER: local
+      MODAL_ENVIRONMENT: dev
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt -r requirements-dev.txt
-      - name: Build processor image
-        run: make build-processor REF=llm/litellm@1
-      - name: Integration tests
-        run: make integration-local-build
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run migrations
+        run: cd code && python manage.py migrate --run-syncdb
+
+      - name: Build and publish images
+        run: make build-and-publish-all PLATFORM=amd64
+
+      - name: Start tools from registry
+        run: make start-tools ADAPTER=local
+
+      - name: Integration tests (local adapter)
+        run: make test-integration
+
+      - name: Cleanup
+        if: always()
+        run: make stop-tools && make services-down
 
   contracts:
     runs-on: ubuntu-latest
-    needs: integration
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       DJANGO_SETTINGS_MODULE: backend.settings.unittest
-      TEST_LANE: pr
-      # PR lane invariants:
-      LOG_STREAM: stderr               # keep stdout clean for --json
-      RUN_TRANSPORT: "http"            # NEW: drive HTTP processors locally
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt -r requirements-dev.txt
-      - name: Contract tests (PR lane, mock, hermetic)
+
+      - name: Contract tests
         run: make test-contracts

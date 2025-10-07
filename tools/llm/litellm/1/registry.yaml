@@ -1,0 +1,74 @@
+api:
+  healthz: /healthz
+  path: /run
+  protocol: ws
+build:
+  context: .
+  dockerfile: Dockerfile
+  port: 8000
+enabled: true
+image:
+  platforms:
+    amd64: ghcr.io/veyorokon/theory-api/llm-litellm@sha256:33c8c6b1292a05161c00a23dc6e5bd3753c2b715c711f1a74506d3ea059ea75d
+    arm64: theory-local/llm-litellm-1:build-20251007225315
+inputs:
+  $schema: https://json-schema.org/draft-07/schema#
+  additionalProperties: false
+  properties:
+    params:
+      additionalProperties: false
+      properties:
+        messages:
+          items:
+            properties:
+              content:
+                minLength: 1
+                type: string
+              role:
+                enum:
+                - user
+                - system
+                - assistant
+            required:
+            - role
+            - content
+            type: object
+          minItems: 1
+          type: array
+        model:
+          type: string
+      required:
+      - messages
+      type: object
+    schema:
+      const: v1
+  required:
+  - schema
+  - params
+  title: llm/litellm inputs v1
+  type: object
+outputs:
+  $schema: https://json-schema.org/draft-07/schema#
+  additionalProperties: false
+  properties:
+    response:
+      description: LLM response text
+      mime: text/plain
+      type: string
+    usage:
+      description: Token usage statistics
+      mime: application/json
+      type: object
+  required:
+  - response
+  - usage
+  type: object
+ref: llm/litellm@1
+runtime:
+  cpu: '1'
+  gpu: null
+  memory_gb: 2
+  timeout_s: 600
+secrets:
+  required:
+  - OPENAI_API_KEY

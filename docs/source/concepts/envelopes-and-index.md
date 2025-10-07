@@ -69,7 +69,7 @@ Both adapters (local and modal) emit the same envelope format. The local adapter
 - **mode="mock"** – Hermetic; writes outputs locally without Docker/ArtifactStore.
 - **mode="real"** – Uses Docker and ArtifactStore (or Modal runtime) to persist artifacts.
 
-Modal deploy workflows run `run_processor … --mode mock` for smoke tests; the resulting envelope is identical.
+Modal deploy workflows run `modalctl run --mode mock` for smoke tests; the resulting envelope is identical.
 
 ## Index Artifacts
 
@@ -99,20 +99,60 @@ Properties:
 
 Common codes surfaced in envelopes:
 
-- `ERR_MISSING_SECRET`
-- `ERR_OUTPUT_DUPLICATE`
-- `ERR_TIMEOUT`
-- `ERR_IMAGE_PULL`
-- `ERR_FUNCTION_NOT_FOUND`
+- `ERR_INPUTS` – Invalid or malformed input payload
+- `ERR_PROVIDER` – Provider/model API failure
+- `ERR_UPLOAD_PLAN` – Missing or invalid presigned upload URLs
+- `ERR_RUNTIME` – Unexpected runtime error in processor
+- `ERR_MISSING_SECRET` – Required secret not provided
+- `ERR_OUTPUT_DUPLICATE` – Duplicate output path detected
+- `ERR_TIMEOUT` – Processor execution timeout
+- `ERR_IMAGE_PULL` – Failed to pull container image
+- `ERR_FUNCTION_NOT_FOUND` – Modal function not deployed
+
+## Contract: Envelopes vs Exceptions
+
+**Processors always return an envelope.** They never raise exceptions to the client.
+
+### What Returns Error Envelopes
+
+User/processor errors → `status="error"` envelope:
+- Invalid inputs → `ERR_INPUTS`
+- Provider failures → `ERR_PROVIDER`
+- Upload issues → `ERR_UPLOAD_PLAN`
+- Runtime errors → `ERR_RUNTIME`
+
+### What Raises Exceptions
+
+Only orchestration/transport failures raise:
+- `WsError` – Connection timeout, protocol violation, bad frames
+- `DriftError` – Image digest mismatch (supply chain security)
+- `ToolRunnerError` – Missing secrets, registry issues, build failures
+
+### Testing Guidance
+
+```python
+# ✅ Correct: Assert on envelope
+env = invoke_processor("llm/litellm@1", inputs={"bad": "data"})
+assert env["status"] == "error"
+assert env["error"]["code"] == "ERR_INPUTS"
+
+# ❌ Wrong: Expect exception for processor errors
+with pytest.raises(Exception):  # NO - processor errors are envelopes
+    invoke_processor("llm/litellm@1", inputs={"bad": "data"})
+
+# ✅ Correct: Expect exception for orchestration failures
+with pytest.raises(ToolRunnerError):
+    invoke_processor("nonexistent/processor@1", inputs={...})
+```
 
 ## CLI Output
 
 ```bash
-# Default (path only)
-$ python manage.py run_processor --ref ... --adapter local --mode mock
-/artifacts/execution/E123/outputs.json
+# Local execution with JSON output
+$ python manage.py localctl run --ref llm/litellm@1 --mode mock --json
+{"status":"success", ... }
 
-# With --json
-$ python manage.py run_processor --ref ... --adapter local --mode real --json
+# Modal execution with JSON output
+$ python manage.py modalctl run --ref llm/litellm@1 --mode mock --json
 {"status":"success", ... }
 ```

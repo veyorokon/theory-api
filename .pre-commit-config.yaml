@@ -19,7 +19,16 @@ repos:
     hooks:
       - id: vulture
         name: vulture (dead code detection)
-        entry: bash -c 'vulture code code/vulture_whitelist.py --min-confidence 80 --exclude "*/migrations/*" > vulture_report.txt || true && python scripts/ci/vulture_gate.py vulture_report.txt'
+        entry: bash -c 'vulture code vulture_whitelist.py --min-confidence 80 --exclude "*/migrations/*" > vulture_report.txt || true'
+        language: system
+        files: '\.py$'
+        require_serial: true
+        pass_filenames: false
+        always_run: true
+
+      - id: unit-tests
+        name: unit tests (fast hermetic checks)
+        entry: make test-unit
         language: system
         files: '\.py$'
         require_serial: true

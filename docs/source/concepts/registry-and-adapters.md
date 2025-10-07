@@ -94,8 +94,8 @@ leases:
 
 ## Adapter System
 
-- local: Docker container → HTTP (`/healthz`, `/run`, `/run-stream`)
-- modal: Web endpoint → HTTP (same payload/envelope; deployed by digest)
+- local: Docker container → WebSocket (`/healthz`, `/run` with `theory.run.v1` subprotocol)
+- modal: Web endpoint → WebSocket (same payload/envelope; deployed by digest)
 
 ## Uniform Adapter API
 
@@ -143,17 +143,25 @@ Secrets are resolved outside the adapter; adapters receive `secrets_present` (na
 
 ## Adapter Selection
 
-Use the CLI `--adapter` flag and provide `--mode mock|real` as needed:
+Use `localctl` or `modalctl` commands. Containers must be started before invoking:
 
 ```bash
-# Local mock run (no external dependencies)
-python manage.py run_processor --adapter local --mode mock --ref llm/litellm@1 ...
+# Local mock run - start container, run, stop
+OPENAI_API_KEY=$OPENAI_API_KEY python manage.py localctl start --ref llm/litellm@1
+python manage.py localctl run --ref llm/litellm@1 --mode mock --inputs-json '{...}'
+python manage.py localctl stop --ref llm/litellm@1
 
-# Local real run (Docker container)
-python manage.py run_processor --adapter local --mode real --ref llm/litellm@1 ...
+# Local real run - same workflow with mode=real
+OPENAI_API_KEY=$OPENAI_API_KEY python manage.py localctl start --ref llm/litellm@1
+python manage.py localctl run --ref llm/litellm@1 --mode real --inputs-json '{...}'
+python manage.py localctl stop --ref llm/litellm@1
 
-# Modal run (always real mode)
-python manage.py run_processor --adapter modal --mode real --ref llm/litellm@1 ...
+# Modal run - deploy, sync secrets, run, stop
+GIT_BRANCH=feat/test GIT_USER=veyorokon \
+  python manage.py modalctl start --ref llm/litellm@1 --env dev --oci ghcr.io/...@sha256:...
+python manage.py modalctl sync-secrets --ref llm/litellm@1 --env dev
+python manage.py modalctl run --ref llm/litellm@1 --mode mock --inputs-json '{...}'
+python manage.py modalctl stop --ref llm/litellm@1 --env dev
 ```
 
 ## Best Practices

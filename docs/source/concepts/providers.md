@@ -29,17 +29,22 @@ Providers implement transport (OpenAI, Replicate, Ollama, etc.); models represen
 ### CLI Selection
 
 ```bash
-# Mock mode (hermetic)
-python manage.py run_processor --ref llm/litellm@1 --adapter local --mode mock
+# Local mock mode (container must be started first)
+OPENAI_API_KEY=$OPENAI_API_KEY python manage.py localctl start --ref llm/litellm@1
+python manage.py localctl run --ref llm/litellm@1 --mode mock --inputs-json '{...}'
 
-# Real mode (Docker)
-python manage.py run_processor --ref llm/litellm@1 --adapter local --mode real
+# Local real mode (Docker)
+OPENAI_API_KEY=$OPENAI_API_KEY python manage.py localctl start --ref llm/litellm@1
+python manage.py localctl run --ref llm/litellm@1 --mode real --inputs-json '{...}'
 
-# Modal real run
-python manage.py run_processor --ref llm/litellm@1 --adapter modal --mode real
+# Modal real run (deployment must exist first)
+GIT_BRANCH=feat/test GIT_USER=veyorokon \
+  python manage.py modalctl start --ref llm/litellm@1 --env dev --oci ghcr.io/...@sha256:...
+python manage.py modalctl sync-secrets --ref llm/litellm@1 --env dev
+python manage.py modalctl run --ref llm/litellm@1 --mode real --inputs-json '{...}'
 
 # Attachments (still mock mode)
-python manage.py run_processor --ref llm/litellm@1 --adapter local --mode mock --attach image=photo.jpg
+python manage.py localctl run --ref llm/litellm@1 --mode mock --attach image=photo.jpg --inputs-json '{...}'
 ```
 
 ### Programmatic Usage

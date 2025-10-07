@@ -12,27 +12,14 @@ ALLOWED_HOSTS = environ_setting("ALLOWED_HOSTS", "").split(",")
 DATABASE_URL = environ_setting("DATABASE_URL")
 DATABASES = {"default": dj_database_url.parse(DATABASE_URL)}
 
-# Storage settings for production (S3)
-STORAGE_BACKEND = "s3"
-AWS_ACCESS_KEY_ID = environ_setting("AWS_ACCESS_KEY_ID")
-AWS_SECRET_ACCESS_KEY = environ_setting("AWS_SECRET_ACCESS_KEY")
-AWS_S3_REGION_NAME = environ_setting("AWS_S3_REGION_NAME", "us-east-1")
-DEFAULT_FILE_STORAGE_BUCKET = environ_setting("AWS_STORAGE_BUCKET_NAME")
+# Security: HTTPS-only cookies in production
+CSRF_COOKIE_SECURE = True
+SESSION_COOKIE_SECURE = True
+SECURE_SSL_REDIRECT = True  # Redirect HTTP to HTTPS
+SECURE_HSTS_SECONDS = 31536000  # 1 year HSTS
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 
-# Django file storage
-DEFAULT_FILE_STORAGE = "apps.storage.backends.VendorNeutralStorage"
-MEDIA_URL = f"https://{DEFAULT_FILE_STORAGE_BUCKET}.s3.{AWS_S3_REGION_NAME}.amazonaws.com/"
-
-# Redis settings
-REDIS_URL = environ_setting("REDIS_URL")
-
-# Cache settings
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.redis.RedisCache",
-        "LOCATION": REDIS_URL,
-        "OPTIONS": {
-            "CLIENT_CLASS": "django_redis.client.DefaultClient",
-        },
-    }
-}
+# Storage settings are configured in base.py using STORAGE dict
+# In production, set STORAGE_BACKEND=s3 and ARTIFACTS_BUCKET/REGION via env vars
+# AWS credentials are sourced from environment (preferably IAM role)
+MODAL_ENVIRONMENT = env("MODAL_ENVIRONMENT", default="staging", required=MODAL_ENABLED)

@@ -1,8 +1,7 @@
-
 services:
   postgres:
-    profiles: ["base", "full"]
-    image: postgres:15
+    profiles: [ "base", "full" ]
+    image: postgres:15.10
     ports:
       - "5432:5432"
     volumes:
@@ -12,7 +11,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres_password
     networks:
-      - app_network
+      - theory_api_app_network
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U postgres -d postgres" ]
       interval: 5s
@@ -20,36 +19,22 @@ services:
       retries: 5
       start_period: 10s
 
-  redis:
-    profiles: ["base", "full"]
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    networks:
-      - app_network
-    healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-      start_period: 10s
-
   minio:
-    profiles: ["full"]
-    image: minio/minio
+    profiles: [ "full" ]
+    image: quay.io/minio/minio:RELEASE.2025-01-20T14-49-07Z
     ports:
       - "9000:9000"
       - "9001:9001"
     volumes:
-      - minio_data:/data
+      - ./minio_data:/data
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     command: server /data --console-address ":9001"
     networks:
-      - app_network
+      theory_api_app_network:
+        aliases:
+          - minio.local
     healthcheck:
       test: [ "CMD", "mc", "ready", "local" ]
       interval: 5s
@@ -103,5 +88,5 @@ volumes:
 
 
 networks:
-  app_network:
+  theory_api_app_network:
     driver: bridge

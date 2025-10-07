@@ -4,7 +4,7 @@ Unit test settings for theory_api project.
 Uses SQLite for fast, isolated unit tests.
 """
 
-from .base import *  # noqa
+from .dev_local import *  # noqa
 
 # Hermetic settings for fast unit tests
 DEBUG = False
@@ -22,21 +22,12 @@ CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
-# Use in-memory channel layer for unit tests
-CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
-
 # Test-specific settings
 SECRET_KEY = "test-secret-key-not-for-production-unit-tests"
 
-# Disable migrations for faster test runs
-MIGRATION_MODULES = {
-    "core": None,
-    "storage": None,
-    "plans": None,
-    "ledger": None,
-    "artifacts": None,
-    "runtime": None,
-}
+# Disable migrations for faster test runs (only for apps without FK dependencies)
+# Keep enabled for: agents, worlds, tools, goals, plans, runs (interdependent)
+MIGRATION_MODULES = {}
 
 # Minimal logging for unit tests
 LOGGING = {

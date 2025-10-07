@@ -30,6 +30,9 @@ MANIFEST
 *.manifest
 *.spec
 
+# MinIO local data
+minio_data/
+
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
@@ -195,6 +198,25 @@ $RECYCLE.BIN/
 
 # Linux
 .directory
+
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+*.tfplan
+.terraformrc
+terraform.rc
+
+# Project local data
+**/.theory/
 .Trash-*
 
 # Agents: raw turns and local dumps (keep canonical files only)
@@ -202,3 +224,4 @@ $RECYCLE.BIN/
 /agents/chats/*/*-to-*.md
 *.harvest.json
 *.jsonl
+Makefile_old
