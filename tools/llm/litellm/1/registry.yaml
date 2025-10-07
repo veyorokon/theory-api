@@ -9,8 +9,8 @@ build:
 enabled: true
 image:
   platforms:
-    amd64: ghcr.io/veyorokon/theory-api/llm-litellm@sha256:48e069d4a98372eb9b604600ec5205708acd1cae32a74099a592d6deb9b5d113
-    arm64: theory-local/llm-litellm-1:build-20251006180605
+    amd64: ghcr.io/veyorokon/theory-api/llm-litellm@sha256:33c8c6b1292a05161c00a23dc6e5bd3753c2b715c711f1a74506d3ea059ea75d
+    arm64: theory-local/llm-litellm-1:build-20251007225315
 inputs:
   $schema: https://json-schema.org/draft-07/schema#
   additionalProperties: false

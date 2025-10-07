@@ -165,11 +165,11 @@ def _find_containers(ref: str | None = None, all_theory: bool = False) -> List[D
         )
         results.append(r2.stdout)
 
-        # 3. Find all theory-local image patterns (llm-litellm, replicate-generic, etc.)
+        # 3. Find all local registry image patterns (llm-litellm, replicate-generic, etc.)
         # Get unique images from actual containers (not from docker images which has duplicates)
         images_result = subprocess.run(["docker", "ps", "-a", "--format", "{{.Image}}"], capture_output=True, text=True)
         all_images = images_result.stdout.strip().split("\n")
-        unique_images = {img for img in all_images if img.startswith("theory-local/")}
+        unique_images = {img for img in all_images if img.startswith(settings.LOCAL_REGISTRY_PREFIX)}
 
         for image in unique_images:
             if image:
@@ -313,17 +313,21 @@ def cmd_start(args: argparse.Namespace) -> dict:
     gid = os.getgid() if hasattr(os, "getgid") else 1000
     mount_dir = os.getcwd()
 
-    # Get image digest from docker inspect
-    try:
-        inspect_result = subprocess.run(
-            ["docker", "image", "inspect", "--format={{.Id}}", image_ref],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        image_digest = inspect_result.stdout.strip()
-    except subprocess.CalledProcessError as e:
-        raise CommandError(f"Image not found: {image_ref}")
+    # Get image digest - extract from pinned ref for registry images
+    if image_ref.startswith(settings.REGISTRY_HOST) and "@sha256:" in image_ref:
+        image_digest = image_ref.split("@", 1)[1]
+    else:
+        # Local image - use image ID
+        try:
+            inspect_result = subprocess.run(
+                ["docker", "image", "inspect", "--format={{.Id}}", image_ref],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            image_digest = inspect_result.stdout.strip()
+        except subprocess.CalledProcessError as e:
+            raise CommandError(f"Image not found: {image_ref}")
 
     # Resolve required secrets from registry
     from apps.core.registry.loader import load_processor_spec
@@ -394,6 +398,7 @@ def cmd_start(args: argparse.Namespace) -> dict:
         "port": port,
         "ref": ref,
         "image": image_ref,
+        "digest": image_digest,
     }
 
 

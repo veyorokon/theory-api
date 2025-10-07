@@ -111,6 +111,7 @@ GIT_USER = env("GIT_USER", _git_user or "")
 # Container registry configuration
 REGISTRY_HOST = env("REGISTRY_HOST", "ghcr.io")
 REGISTRY_ORG = env("REGISTRY_ORG", "veyorokon")
+LOCAL_REGISTRY_PREFIX = env("LOCAL_REGISTRY_PREFIX", "theory-local/")
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 

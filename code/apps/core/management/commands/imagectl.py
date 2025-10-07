@@ -215,7 +215,7 @@ def _build_image(
     else:
         slug = _slugify_ref(ref)
         stamp = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S")
-        image_tag = f"theory-local/{slug}:build-{stamp}"
+        image_tag = f"{settings.LOCAL_REGISTRY_PREFIX}{slug}:build-{stamp}"
 
     try:
         ns, rest = ref.split("/", 1)
@@ -407,29 +407,34 @@ def cmd_pin(args: argparse.Namespace) -> None:
     json_mode = getattr(args, "json", False)
 
     try:
-        # Get digest
-        if tag:
-            # User specified explicit tag - look it up
-            remote_path = _construct_remote_path(ref)
-            full_tag = f"{remote_path}:{tag}"
-            digest = _get_digest_for_tag(full_tag)
+        # Detect local vs remote image
+        if tag and tag.startswith(settings.LOCAL_REGISTRY_PREFIX):
+            # Local image - write tag directly without digest resolution
+            oci_ref = tag
         else:
-            # Use latest from manifest
-            source_tag = _get_latest_tag(ref, platform)
-            digest = _get_digest_for_tag(source_tag)
+            # Remote image - resolve digest
+            if tag:
+                # User specified explicit tag - look it up
+                remote_path = _construct_remote_path(ref)
+                full_tag = f"{remote_path}:{tag}"
+                digest = _get_digest_for_tag(full_tag)
+            else:
+                # Use latest from manifest
+                source_tag = _get_latest_tag(ref, platform)
+                digest = _get_digest_for_tag(source_tag)
 
-        # Construct OCI ref
-        remote_path = _construct_remote_path(ref)
-        oci_ref = f"{remote_path}@{digest}"
+            # Construct OCI ref
+            remote_path = _construct_remote_path(ref)
+            oci_ref = f"{remote_path}@{digest}"
 
-        # Verify if requested
-        if verify:
-            try:
-                _verify_digest(oci_ref)
-            except subprocess.CalledProcessError as exc:
-                stderr = exc.stderr or exc.stdout or "<no output>"
-                _err("ERR_IMAGE_UNAVAILABLE", f"Digest not found for {oci_ref}: {stderr}", json_mode=json_mode)
-                return
+            # Verify if requested
+            if verify:
+                try:
+                    _verify_digest(oci_ref)
+                except subprocess.CalledProcessError as exc:
+                    stderr = exc.stderr or exc.stdout or "<no output>"
+                    _err("ERR_IMAGE_UNAVAILABLE", f"Digest not found for {oci_ref}: {stderr}", json_mode=json_mode)
+                    return
 
         # Update registry.yaml
         yaml_path = _update_registry_yaml(ref, platform, oci_ref)
@@ -440,7 +445,7 @@ def cmd_pin(args: argparse.Namespace) -> None:
             "platform": platform,
             "pinned_oci": oci_ref,
             "registry_yaml": str(yaml_path),
-            "verified": verify,
+            "verified": verify if not (tag and tag.startswith(settings.LOCAL_REGISTRY_PREFIX)) else False,
         }
 
         if json_mode:
