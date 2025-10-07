@@ -117,7 +117,6 @@ start-tools-local: services-ensure
 	@echo "✓ Local tools ready (from registry)"
 
 start-tools-modal:
-	$(call require,ENV)
 	@echo "→ Deploying tools to Modal ($(ENV)) with pinned digests..."
 	@refs="$$( $(call run_manage,toolctl list --enabled-only --format refs) )"; \
 	for ref in $$refs; do \
