@@ -26,15 +26,11 @@ MARK_ACCEPTANCE    := acceptance
 
 # Helpers
 define run_manage
-  (cd $(CODE_DIR) && DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS_MODULE) $(PY) manage.py $(1))
+(cd $(CODE_DIR) && DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS_MODULE) $(PY) manage.py $(1))
 endef
 
 define run_pytest
-  @PYTHONPATH=$(CODE_DIR) \
-   DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS_MODULE) \
-   TEST_ADAPTER=$(ADAPTER) TEST_ENV=$(ENV) \
-   LOG_STREAM=stderr JSON_LOGS=1 \
-   $(PY) -m pytest -m '$(1)' $(if $(VERBOSE),-v,-q) $(2)
+@PYTHONPATH=$(CODE_DIR) DJANGO_SETTINGS_MODULE=$(DJANGO_SETTINGS_MODULE) $(PY) -m pytest -m '$(1)' $(if $(VERBOSE),-v,-q) $(2)
 endef
 
 require = @test -n "$($(1))" || { echo "Missing: $(1)"; exit 1; }
@@ -123,10 +119,10 @@ start-tools-modal:
 		oci="$$( $(call run_manage,toolctl get-oci --ref $$ref --platform $(PLATFORM)) )"; \
 		test -n "$$oci" || { echo "No pinned OCI for $$ref ($(PLATFORM))"; exit 1; }; \
 		echo "  • $$ref: deploy $$oci"; \
-		MODAL_ENVIRONMENT=$(ENV) $(call run_manage,modalctl start --ref $$ref --oci "$$oci" \
+		$(call run_manage,modalctl start --ref $$ref --oci "$$oci" \
 			$(if $(filter true,$(MOCK_MISSING_SECRETS)),--mock-missing-secrets,)); \
 		echo "  • $$ref: sync secrets"; \
-		MODAL_ENVIRONMENT=$(ENV) $(call run_manage,modalctl sync-secrets --ref $$ref \
+		$(call run_manage,modalctl sync-secrets --ref $$ref \
 			$(if $(filter true,$(MOCK_MISSING_SECRETS)),--mock-missing-secrets,)); \
 	done
 	@echo "✓ Modal tools ready"
