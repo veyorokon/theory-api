@@ -51,61 +51,24 @@ jobs:
       - run: make start-tools
       - run: make test-integration
 
-  release_pr_to_main:
-    name: "Open PR: staging -> main"
+  promote-to-main:
+    name: Promote to main
     needs: deploy-and-test
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Need full history for branch operations
-      - name: Create PR from staging to main
+          fetch-depth: 0
+          ref: staging
+      - name: Push staging to main
         env:
-          GH_TOKEN: ${{ github.token }}
+          ADMIN_GITHUB_TOKEN: ${{ secrets.ADMIN_GITHUB_TOKEN }}
         run: |
-          # Check if PR already exists for this staging SHA
-          EXISTING_PR=$(gh pr list --base main --head staging --state open --json number --jq '.[0].number' || echo "")
-
-          if [ -z "$EXISTING_PR" ]; then
-            echo "Creating new PR from staging to main"
-            gh pr create \
-              --base main \
-              --head staging \
-              --title "Release: Promote staging -> main" \
-              --body "## 🚀 Production Release
-
-          This PR promotes validated changes from staging to main for production deployment.
-
-          ### Validation Status
-          - ✅ **Build & Pin**: Completed successfully
-          - ✅ **Deploy to staging**: Deployed and verified
-          - ✅ **Smoke tests**: All tests passed
-
-          ### Release Info
-          - **Run ID**: ${{ github.run_id }}
-          - **SHA**: ${{ github.sha }}
-          - **Workflow**: [View run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-
-          ---
-
-          **⚠️ Action Required:** Add a release label to set version:
-          - \`release:patch\` - for bug fixes (1.0.0 → 1.0.1)
-          - \`release:minor\` - for new features (1.0.0 → 1.1.0)
-          - \`release:major\` - for breaking changes (1.0.0 → 2.0.0)
-
-          Version will be created automatically when label is added."
-
-            echo "✅ PR created successfully"
-          else
-            echo "⚠️ PR #$EXISTING_PR already exists from staging to main"
-            echo "Updating existing PR with latest run info"
-
-            gh pr comment $EXISTING_PR --body "## Updated from Run #${{ github.run_id }}
-
-          - **SHA**: ${{ github.sha }}
-          - **Workflow**: [View run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          - **Status**: ✅ All validations passed"
-          fi
+          git config user.name "promotion-bot"
+          git config user.email "promotion-bot@users.noreply.github.com"
+          git config --unset http.https://github.com/.extraheader || true
+          git remote set-url origin https://x-access-token:${ADMIN_GITHUB_TOKEN}@github.com/veyorokon/theory-api.git
+          git push origin staging:main --force-with-lease
+          echo "✅ Promoted staging to main"
