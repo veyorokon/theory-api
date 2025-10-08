@@ -125,21 +125,29 @@ class MinIOAdapter(StorageInterface):
 
 
 class S3Adapter(StorageInterface):
-    """AWS S3 storage adapter for production"""
+    """S3-compatible storage adapter (AWS S3, DigitalOcean Spaces, etc.)"""
 
     def __init__(self):
         from botocore.config import Config
 
         storage = settings.STORAGE
         region = storage.get("REGION", "us-east-1")
+        endpoint_url = storage.get("ENDPOINT")  # For DO Spaces or custom S3
+        access_key = storage.get("ACCESS_KEY")
+        secret_key = storage.get("SECRET_KEY")
 
         config = Config(signature_version="s3v4")
-        self.client = boto3.client(
-            "s3",
-            region_name=region,
-            config=config,
-        )
+        client_kwargs = {"region_name": region, "config": config}
+
+        if endpoint_url:
+            client_kwargs["endpoint_url"] = endpoint_url
+        if access_key and secret_key:
+            client_kwargs["aws_access_key_id"] = access_key
+            client_kwargs["aws_secret_access_key"] = secret_key
+
+        self.client = boto3.client("s3", **client_kwargs)
         self.region = region
+        self.endpoint_url = endpoint_url
 
     def upload_file(
         self,

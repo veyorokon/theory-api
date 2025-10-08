@@ -41,45 +41,27 @@ services:
       timeout: 3s
       retries: 12
       start_period: 10s
-  # django:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile
-  #   volumes:
-  #     - ./code:/app
-  #   ports:
-  #     - "8000:8000"
-  #   environment:
-  #     - DJANGO_SETTINGS_MODULE=backend.settings.development
-  #     - SECRET_KEY=django-insecure-dev-key-only-for-development
-  #     - DATABASE_URL=postgres://postgres:postgres_password@postgres:5432/postgres
-  #     - MINIO_STORAGE_ENDPOINT=minio:9000
-  #     - MINIO_STORAGE_ACCESS_KEY=minioadmin
-  #     - MINIO_STORAGE_SECRET_KEY=minioadmin
-  #     - MINIO_STORAGE_USE_HTTPS=false
-  #     - MINIO_STORAGE_MEDIA_BUCKET_NAME=media
-  #     - REDIS_URL=redis://redis:6379/0
-  #     - CHANNELS_REDIS_URL=redis://redis:6379/0
-  #     # LLM defaults (optional; harmless if unused)
-  #     - LLM_PROVIDER_DEFAULT=mock
-  #     - LLM_MODEL_DEFAULT=openai/gpt-4o-mini
-  #     - LLM_API_BASE=
-  #     - PYTHONUNBUFFERED=1
-  #   entrypoint: [ "/bin/bash", "-c" ]
-  #   command:
-  #     - >
-  #       python manage.py migrate &&
-  #       echo "from django.contrib.auth import get_user_model;U=get_user_model();U.objects.filter(email='admin@example.com').exists() or U.objects.create_superuser('admin','admin@example.com','admin123')" | python manage.py shell &&
-  #       daphne -b 0.0.0.0 -p 8000 backend.asgi:application
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #     minio:
-  #       condition: service_healthy
-  #     redis:
-  #       condition: service_healthy
-  #   networks:
-  #     - app_network
+
+  django:
+    profiles: [ "full" ]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONPATH=/app
+      - DJANGO_SETTINGS_MODULE=backend.settings.production
+      - DJANGO_SECRET_KEY=test-key-only-for-local-testing
+      - DATABASE_URL=postgres://postgres:postgres_password@postgres:5432/postgres
+      - ALLOWED_HOSTS=localhost,127.0.0.1
+      - SECURE_SSL_REDIRECT=False
+      - STORAGE_BACKEND=minio
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - theory_api_app_network
 
 volumes:
   postgres_data:

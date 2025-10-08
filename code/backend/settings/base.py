@@ -149,6 +149,7 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 MIDDLEWARE = [
     "backend.middleware.request_id.RequestIdMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -222,6 +223,15 @@ SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
 # https://docs.djangoproject.com/en/4.2/howto/static-files/
 
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
@@ -232,11 +242,17 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 STORAGE_BACKEND = env("STORAGE_BACKEND", "minio")
 ARTIFACTS_BUCKET = env("ARTIFACTS_BUCKET", "theory-artifacts-dev")
 ARTIFACTS_REGION = env("ARTIFACTS_REGION", "us-east-1")
+ARTIFACTS_ENDPOINT = env("ARTIFACTS_ENDPOINT", None)  # For DO Spaces or custom S3
+STORAGE_ACCESS_KEY = env("STORAGE_ACCESS_KEY", None)  # Generic access key
+STORAGE_SECRET_KEY = env("STORAGE_SECRET_KEY", None)  # Generic secret key
 
 STORAGE = {
     "BACKEND": STORAGE_BACKEND,
     "BUCKET": ARTIFACTS_BUCKET,
     "REGION": ARTIFACTS_REGION,
+    "ENDPOINT": ARTIFACTS_ENDPOINT,
+    "ACCESS_KEY": STORAGE_ACCESS_KEY,
+    "SECRET_KEY": STORAGE_SECRET_KEY,
     "MINIO": {
         "ENDPOINT": env("MINIO_STORAGE_ENDPOINT", "minio.local:9000"),
         "ACCESS_KEY": env("MINIO_STORAGE_ACCESS_KEY", "minioadmin"),

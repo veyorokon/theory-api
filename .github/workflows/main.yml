@@ -30,6 +30,8 @@ jobs:
       MODAL_ENVIRONMENT: main
       TEST_ADAPTER: modal
       MOCK_MISSING_SECRETS: false
+      # Django secret key
+      DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
       # AWS credentials for S3 artifact storage
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -53,3 +55,17 @@ jobs:
       - run: cd code && python manage.py toolctl sync
       - run: make start-tools
       - run: make test-integration
+      - name: Build and push Django image to ECR
+        run: |
+          aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 819625563092.dkr.ecr.us-east-1.amazonaws.com
+          ECR_REPO=$(aws ecr describe-repositories --repository-names theory-django-main --query 'repositories[0].repositoryUri' --output text)
+          docker build -t ${ECR_REPO}:latest -t ${ECR_REPO}:${GITHUB_SHA} -f Dockerfile .
+          docker push ${ECR_REPO}:latest
+          docker push ${ECR_REPO}:${GITHUB_SHA}
+      - name: Deploy Django to ECS
+        run: |
+          aws ecs update-service \
+            --cluster theory-django-main \
+            --service theory-django-main \
+            --force-new-deployment \
+            --region us-east-1
