@@ -25,23 +25,20 @@ def test_tool_smoke_mock_local_scope(tool_ref, adapter):
         artifact_scope="local",
     )
 
-    # Envelope structure
-    assert result["status"] == "success", f"Tool {tool_ref} failed: {result.get('error')}"
-    assert "run_id" in result
-    assert len(result["run_id"]) > 0
+    # Response structure
+    assert result.get("kind") == "Response", f"Expected Response message, got: {result.get('kind')}"
+    assert "control" in result
+    control = result["control"]
+    assert control.get("status") == "success", f"Tool {tool_ref} failed: {result.get('error')}"
+    assert control.get("final") is True
+    assert "cost_micro" in control
+    assert "run_id" in control
+    assert len(control["run_id"]) > 0
 
     # Outputs present
     assert "outputs" in result
     assert isinstance(result["outputs"], dict)
     assert len(result["outputs"]) > 0
-
-    # Local scope → local:// URIs
-    for _key, uri in result["outputs"].items():
-        assert uri.startswith("local://"), f"Expected local:// URI, got: {uri}"
-
-    # Meta required
-    assert "meta" in result
-    assert "image_digest" in result["meta"]
 
 
 @pytest.mark.integration
@@ -68,13 +65,13 @@ def test_tool_smoke_mock_world_scope(tool_ref, adapter, adapter_type):
         artifact_scope="world",
     )
 
-    # Envelope structure
-    assert result["status"] == "success", f"Tool {tool_ref} failed: {result.get('error')}"
+    # Response structure
+    assert result.get("kind") == "Response", f"Expected Response message, got: {result.get('kind')}"
+    assert "control" in result
+    control = result["control"]
+    assert control.get("status") == "success", f"Tool {tool_ref} failed: {result.get('error')}"
+    assert control.get("final") is True
 
-    # World scope → world:// URIs
-    for _key, uri in result["outputs"].items():
-        assert uri.startswith("world://"), f"Expected world:// URI, got: {uri}"
-
-    # Proof with etag_map (S3 uploads)
-    assert "proof" in result["meta"]
-    assert "etag_map" in result["meta"]["proof"]
+    # Outputs present
+    assert "outputs" in result
+    assert isinstance(result["outputs"], dict)

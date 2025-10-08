@@ -35,20 +35,26 @@ async def run_ws(ws: WebSocket):
     role: ConnectionRole | None = None
 
     try:
-        # First frame must be RunOpen
+        # First frame must be Request
         msg = await ws.receive_json()
-        if not isinstance(msg, dict) or msg.get("kind") != "RunOpen":
+        if not isinstance(msg, dict) or msg.get("kind") != "Request":
             await ws.close(code=1002)
             return
-        content = msg.get("content") or {}
-        run_id = str(content.get("run_id", "")).strip()
+
+        control = msg.get("control", {})
+        run_id = str(control.get("run_id", "")).strip()
 
         if not run_id:
             await ws.close(code=1008)
             return
 
-        # Payload is flattened - content is the payload
-        payload = content
+        # Build payload for handler
+        payload = {
+            "run_id": run_id,
+            "mode": control.get("mode", "mock"),
+            "inputs": msg.get("inputs", {}),
+            "outputs": msg.get("outputs", {}),
+        }
 
         # Default role to client (simplified - no multi-role protocol)
         role = ConnectionRole.CLIENT
@@ -77,9 +83,9 @@ async def run_ws(ws: WebSocket):
                         ev = await loop.run_in_executor(None, events_q.get)  # blocking get
                         if ev is None:
                             break
-                        # If terminal result, update state and log settlement
-                        if ev.get("kind") == "RunResult":
-                            status = (ev.get("content") or {}).get("status")
+                        # If terminal Response, update state and log settlement
+                        if ev.get("kind") == "Response" and ev.get("control", {}).get("final"):
+                            status = ev.get("control", {}).get("status")
                             new_state = RunState.COMPLETED if status == "success" else RunState.ERROR
                             await registry.update_state(run_id, new_state)
                             elapsed_ms = int((time.time() - run_start_time) * 1000)

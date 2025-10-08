@@ -36,12 +36,10 @@ class RunType:
     image_digest_expected: auto
     image_digest_actual: auto
     drift_ok: auto
-    meta: auto
     inputs: auto
     started_at: auto
     ended_at: auto
     cost_micro: auto
-    usage: auto
 
     @strawberry.field
     def outputs(self) -> List[RunOutputType]:

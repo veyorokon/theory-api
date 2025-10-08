@@ -21,20 +21,23 @@ def _emit_to_q(q):
 
 def _run(payload: Dict[str, Any], q, cancel_ev):
     try:
-        env = entry(payload, emit=_emit_to_q(q), ctrl=cancel_ev)
-        q.put({"kind": "RunResult", "content": env})
+        response = entry(payload, emit=_emit_to_q(q), ctrl=cancel_ev)
+
+        # Ensure Response has final=true
+        if response.get("kind") == "Response":
+            if "control" not in response:
+                response["control"] = {}
+            response["control"]["final"] = True
+
+        q.put(response)
     except Exception as e:
-        # Never raise; always finalize with error envelope
+        # Never raise; always finalize with error Response
         run_id = str(payload.get("run_id", ""))
         q.put(
             {
-                "kind": "RunResult",
-                "content": {
-                    "status": "error",
-                    "run_id": run_id,
-                    "error": {"code": "ERR_RUNTIME", "message": f"{type(e).__name__}: {e}"},
-                    "meta": {},
-                },
+                "kind": "Response",
+                "control": {"run_id": run_id, "status": "error", "cost_micro": 0, "final": True},
+                "error": {"code": "ERR_RUNTIME", "message": f"{type(e).__name__}: {e}"},
             }
         )
 

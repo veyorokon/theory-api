@@ -31,14 +31,12 @@ class Run(models.Model):
     image_digest_actual = models.CharField(max_length=71, null=True, blank=True)
     drift_ok = models.BooleanField(default=True)
 
-    meta = models.JSONField(default=dict)  # envelope.meta snapshot
     inputs = models.JSONField(default=dict)  # redacted input snapshot (for audit)
 
     started_at = models.DateTimeField(auto_now_add=True)
     ended_at = models.DateTimeField(null=True, blank=True)
 
     cost_micro = models.BigIntegerField(default=0)  # total micro-dollars
-    usage = models.JSONField(null=True, blank=True)  # e.g. {"tokens_in":..., "tokens_out":...}
 
     class Meta:
         indexes = [
@@ -71,29 +69,37 @@ class Run(models.Model):
     def duration_min(self) -> int:
         return self.duration_sec // 60
 
-    def finalize(self, envelope: dict) -> None:
-        """Update run from terminal envelope (status, meta, outputs)."""
+    def finalize(self, response: dict) -> None:
+        """Update run from terminal Response message."""
         from apps.artifacts.models import Artifact
 
-        self.status = envelope.get("status", self.Status.FAILED)
-        self.meta = envelope.get("meta", {})
+        control = response.get("control", {})
+
+        # Status from control layer
+        status = control.get("status")
+        if status == "success":
+            self.status = self.Status.SUCCEEDED
+        elif status == "error":
+            self.status = self.Status.FAILED
+        else:
+            self.status = self.Status.FAILED
+
         self.ended_at = timezone.now()
 
-        # Extract error details if present
-        if "error" in envelope:
-            error = envelope["error"]
-            self.error_code = error.get("code", "")
-            self.error_message = error.get("message", "")
+        # Cost from control layer (container calculates)
+        self.cost_micro = control.get("cost_micro", 0)
 
-        # Extract cost if available
-        if "cost_micro" in envelope.get("meta", {}):
-            self.cost_micro = envelope["meta"]["cost_micro"]
+        # Error details
+        if status == "error":
+            error = response.get("error", {})
+            self.error_code = error.get("code", "UNKNOWN")
+            self.error_message = error.get("message", "")
 
         self.save()
 
         # Create Artifact + RunArtifact records for each output
         # Outputs now dict: {key: uri, ...}
-        outputs = envelope.get("outputs", {})
+        outputs = response.get("outputs", {})
         for key, uri in outputs.items():
             # Parse URI to determine if scalar or file
             is_scalar = "?data=" in uri

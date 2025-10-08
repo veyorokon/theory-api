@@ -116,19 +116,16 @@ class ToolRunner:
         if artifact_scope == "world":
             outputs_map = self._prepare_put_urls(ref_slug, rid, outputs_decl)
 
-        # 5) Construct payload (flattened - no nested payload wrapper)
+        # 5) Construct Request message
         # Note: Secrets are managed separately:
         #   - local: injected by localctl start
         #   - modal: synced by modalctl sync-secrets
-        payload = {
-            "run_id": rid,
-            "mode": mode,
+        request = {
+            "kind": "Request",
+            "control": {"run_id": rid, "mode": mode},
             "inputs": inputs,
+            "outputs": outputs_map or {},
         }
-
-        # Only include outputs if artifact_scope="world"
-        if outputs_map is not None:
-            payload["outputs"] = outputs_map
 
         # 6) Pick adapter (local vs modal)
         adapter_instance, oci = self._pick_adapter(adapter, expected_digest, ref, reg)
@@ -136,13 +133,13 @@ class ToolRunner:
         # 7) Invoke over WS
         info("invoke.ws.start", ref=ref, adapter=adapter, run_id=rid)
         if stream:
-            # Streaming iterator (yield events and final RunResult)
-            return adapter_instance.invoke(ref, payload, timeout_s, oci, stream=True)
+            # Streaming iterator (yield events and final Response)
+            return adapter_instance.invoke(ref, request, timeout_s, oci, stream=True)
         else:
-            # Final envelope only
-            env = adapter_instance.invoke(ref, payload, timeout_s, oci, stream=False)
-            info("invoke.ws.complete", ref=ref, status=env.get("status"), run_id=rid)
-            return env
+            # Final Response only
+            response = adapter_instance.invoke(ref, request, timeout_s, oci, stream=False)
+            info("invoke.ws.complete", ref=ref, status=response.get("control", {}).get("status"), run_id=rid)
+            return response
 
     # ---------- Digest resolution ----------
 
