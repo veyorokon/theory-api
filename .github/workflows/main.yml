@@ -41,8 +41,9 @@ jobs:
             requirements-dev.txt
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - run: cd code && python manage.py migrate --noinput
+      - run: cd code && python manage.py toolctl sync
 
-      - name: Start tools on Modal (prod)
+      - name: Deploy and sync tools to Modal (prod)
         env:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}

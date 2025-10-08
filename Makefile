@@ -118,11 +118,11 @@ start-tools-modal:
 	for ref in $$refs; do \
 		oci="$$( $(call run_manage,toolctl get-oci --ref $$ref --platform $(PLATFORM)) )"; \
 		test -n "$$oci" || { echo "No pinned OCI for $$ref ($(PLATFORM))"; exit 1; }; \
-		echo "  • $$ref: deploy $$oci"; \
-		$(call run_manage,modalctl start --ref $$ref --oci "$$oci" \
-			$(if $(filter true,$(MOCK_MISSING_SECRETS)),--mock-missing-secrets,)); \
 		echo "  • $$ref: sync secrets"; \
 		$(call run_manage,modalctl sync-secrets --ref $$ref \
+			$(if $(filter true,$(MOCK_MISSING_SECRETS)),--mock-missing-secrets,)); \
+		echo "  • $$ref: deploy $$oci"; \
+		$(call run_manage,modalctl start --ref $$ref --oci "$$oci" \
 			$(if $(filter true,$(MOCK_MISSING_SECRETS)),--mock-missing-secrets,)); \
 	done
 	@echo "✓ Modal tools ready"
