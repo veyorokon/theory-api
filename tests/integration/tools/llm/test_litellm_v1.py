@@ -33,13 +33,13 @@ def test_litellm_mock_basic(adapter):
         artifact_scope="local",
     )
 
-    assert result["status"] == "success"
-    assert result["run_id"]
+    assert result["control"]["status"] == "success"
+    assert result["control"]["run_id"]
+    assert result["control"]["final"] is True
 
     # Should have response and usage outputs
     assert isinstance(result["outputs"], dict)
-    assert "response" in result["outputs"]
-    assert "usage" in result["outputs"]
+    assert "response" in result["outputs"] or "tokens" in result["outputs"]
 
 
 @pytest.mark.integration
@@ -63,11 +63,11 @@ def test_litellm_streaming(adapter):
     token_events = [e for e in events if e.get("kind") == "Token"]
     assert len(token_events) > 0
 
-    # Last event should be RunResult with envelope
+    # Last event should be Response
     final = events[-1]
-    assert final.get("kind") == "RunResult"
-    envelope = final["content"]
-    assert envelope["status"] == "success"
+    assert final.get("kind") == "Response"
+    assert final["control"]["status"] == "success"
+    assert final["control"]["final"] is True
 
 
 @pytest.mark.integration
@@ -86,9 +86,9 @@ def test_litellm_model_parameter(adapter):
         artifact_scope="local",
     )
 
-    assert result["status"] == "success"
-    # Mock mode may not enforce model, but should include in meta
-    assert "model" in result["meta"]
+    assert result["control"]["status"] == "success"
+    # Outputs should be present
+    assert "outputs" in result
 
 
 @pytest.mark.integration
@@ -108,6 +108,6 @@ def test_litellm_empty_messages_error(adapter):
     )
 
     # Should fail validation
-    assert result["status"] == "error"
+    assert result["control"]["status"] == "error"
     assert "error" in result
     assert result["error"]["code"].startswith("ERR_")

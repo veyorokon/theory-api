@@ -21,7 +21,7 @@ from django.conf import settings
 from apps.core.utils import run_utils
 from apps.core.management.utils import capture_stdout
 from backend.middleware import logging as core_logging
-from libs.runtime_common.envelope import resolve_mode, ModeSafetyError
+from libs.runtime_common.mode_utils import resolve_mode, ModeSafetyError
 
 # --- Helpers ---------------------------------------------------------------
 
@@ -236,7 +236,32 @@ def cmd_start(args: argparse.Namespace, stdout=None) -> None:
     _ensure_modal_cli()
     _run(["modal", "deploy", str(path), "--env", env])
 
-    print(json.dumps({"status": "success", "app_name": app_name, "oci": oci, "env": env, "secrets": required_secrets}))
+    # Get image created timestamp
+    import subprocess
+
+    try:
+        created_result = subprocess.run(
+            ["docker", "image", "inspect", "--format={{.Created}}", oci],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        image_created = created_result.stdout.strip()
+    except subprocess.CalledProcessError:
+        image_created = None
+
+    print(
+        json.dumps(
+            {
+                "status": "success",
+                "app_name": app_name,
+                "oci": oci,
+                "env": env,
+                "secrets": required_secrets,
+                "image_created": image_created,
+            }
+        )
+    )
 
 
 def cmd_stop(args: argparse.Namespace, stdout=None) -> None:

@@ -225,3 +225,5 @@ terraform.rc
 *.harvest.json
 *.jsonl
 Makefile_old
+PROTOCOL_MIGRATION.md
+PROTOCOL_REFACTOR.md

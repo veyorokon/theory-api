@@ -50,16 +50,44 @@ def entry(payload: Dict[str, Any], emit: Callable[[Dict], None] | None = None, c
     Generic mock handler - replace with tool-specific logic.
 
     To customize: create tools/{ns}/{name}/{ver}/protocol/handler.py with this signature.
+
+    Args:
+        payload: {
+            "run_id": str,
+            "mode": "mock" | "real",
+            "inputs": {
+                "key": <presigned_url> | <local_path> | <inline_value>
+            },
+            "outputs": {
+                "key": <presigned_put_url> | <local_path>
+            }
+        }
+
+    Returns:
+        {
+            "kind": "Response",
+            "control": {
+                "run_id": str,
+                "status": "success" | "error",
+                "cost_micro": int,
+                "final": bool
+            },
+            "outputs": {
+                "key": <value>
+            },
+            "error": {  // Only if status == "error"
+                "code": str,
+                "message": str
+            }
+        }
     """
     run_id = str(payload.get("run_id", "")).strip()
-    env_fingerprint = _load_env_fingerprint()
 
     if not run_id:
         return {
-            "status": "error",
-            "run_id": "",
+            "kind": "Response",
+            "control": {"run_id": "", "status": "error", "cost_micro": 0, "final": True},
             "error": {"code": "ERR_INPUTS", "message": "missing run_id"},
-            "meta": {"env_fingerprint": env_fingerprint},
         }
 
     if emit:
@@ -68,8 +96,7 @@ def entry(payload: Dict[str, Any], emit: Callable[[Dict], None] | None = None, c
         emit({"kind": "Event", "content": {"phase": "completed"}})
 
     return {
-        "status": "success",
-        "run_id": run_id,
+        "kind": "Response",
+        "control": {"run_id": run_id, "status": "success", "cost_micro": 0, "final": True},
         "outputs": {},
-        "meta": {"env_fingerprint": env_fingerprint, "note": "Override protocol/handler.py with tool-specific logic"},
     }

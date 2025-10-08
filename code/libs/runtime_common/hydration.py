@@ -125,34 +125,73 @@ def write_output(url: str, data: bytes, content_type: str = "application/octet-s
     response.raise_for_status()
 
 
-def write_outputs(output_urls: Dict[str, str], results: Dict[str, Any], timeout: int = 30) -> None:
+def hydrate_inputs(inputs: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Write multiple outputs to their presigned PUT URLs.
+    Fetch inputs from presigned URLs or local paths.
 
     Args:
-        output_urls: Dict mapping keys to presigned PUT URLs
-        results: Dict with output data (matching keys)
-        timeout: HTTP timeout in seconds
+        inputs: {
+            "key": "https://s3.../presigned-get" | "/artifacts/..." | <inline>
+        }
+
+    Returns:
+        Hydrated dict with actual values
     """
-    for key, url in output_urls.items():
+    from pathlib import Path
+
+    result = {}
+
+    for key, value in inputs.items():
+        if isinstance(value, str) and value.startswith("https://"):
+            # Fetch from presigned GET URL
+            response = httpx.get(value, timeout=30)
+            response.raise_for_status()
+            result[key] = response.content
+        elif isinstance(value, str) and value.startswith("/artifacts/"):
+            # Read from local filesystem
+            result[key] = Path(value).read_bytes()
+        else:
+            # Inline value
+            result[key] = value
+
+    return result
+
+
+def write_outputs(outputs_schema: Dict[str, str], results: Dict[str, Any]) -> None:
+    """
+    Write outputs to presigned PUT URLs or local paths.
+
+    Args:
+        outputs_schema: {
+            "key": "https://s3.../presigned-put" | "/artifacts/..."
+        }
+        results: Tool's output data
+    """
+    from pathlib import Path
+
+    for key, url in outputs_schema.items():
         if key not in results:
             continue
 
         data = results[key]
 
-        # Convert to bytes if needed
+        # Convert to bytes
         if isinstance(data, str):
             content = data.encode("utf-8")
-            content_type = "text/plain"
         elif isinstance(data, (dict, list)):
             content = json.dumps(data).encode("utf-8")
-            content_type = "application/json"
         elif isinstance(data, bytes):
             content = data
-            content_type = "application/octet-stream"
         else:
-            # Fallback: JSON encode
             content = json.dumps(data).encode("utf-8")
-            content_type = "application/json"
 
-        write_output(url, content, content_type, timeout)
+        # Write to destination
+        if url.startswith("https://"):
+            # Upload to presigned PUT URL
+            response = httpx.put(url, content=content)
+            response.raise_for_status()
+        elif url.startswith("/artifacts/"):
+            # Write to local filesystem
+            path = Path(url)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)

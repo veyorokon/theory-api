@@ -18,7 +18,7 @@ from django.core.management.base import BaseCommand, CommandError
 from apps.core.utils import run_utils
 from apps.core.management.utils import capture_stdout
 from backend.middleware import logging as core_logging
-from libs.runtime_common.envelope import resolve_mode, ModeSafetyError
+from libs.runtime_common.mode_utils import resolve_mode, ModeSafetyError
 
 
 # Port state file location
@@ -391,6 +391,18 @@ def cmd_start(args: argparse.Namespace) -> dict:
     if result.returncode != 0:
         raise CommandError(f"Failed to start container: {result.stderr}")
 
+    # Get image created timestamp
+    try:
+        created_result = subprocess.run(
+            ["docker", "image", "inspect", "--format={{.Created}}", image_ref],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        image_created = created_result.stdout.strip()
+    except subprocess.CalledProcessError:
+        image_created = None
+
     return {
         "status": "success",
         "container": container_name,
@@ -399,6 +411,7 @@ def cmd_start(args: argparse.Namespace) -> dict:
         "ref": ref,
         "image": image_ref,
         "digest": image_digest,
+        "image_created": image_created,
     }
 
 
