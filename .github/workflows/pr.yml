@@ -38,7 +38,7 @@ jobs:
     name: Integration tests (local adapter)
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
     env:
       DJANGO_SETTINGS_MODULE: backend.settings.dev_local
@@ -70,6 +70,16 @@ jobs:
 
       - name: Build and publish images
         run: make build-and-publish-all PLATFORM=amd64
+
+      - name: Commit pin updates (if any)
+        run: |
+          git config user.name "pr-pin-bot"
+          git config user.email "pr-pin-bot@users.noreply.github.com"
+          if ! git diff --quiet tools/; then
+            git add tools/
+            git commit -m "pin: update tool digests (pr)"
+            git push
+          fi
 
       - name: Start tools from registry
         run: make start-tools ADAPTER=local
