@@ -191,8 +191,8 @@ class S3Adapter(StorageInterface):
     def get_upload_url(self, key: str, bucket: str, expires_in: int = 3600, content_type: str | None = None) -> str:
         try:
             params = {"Bucket": bucket, "Key": key}
-            if content_type:
-                params["ContentType"] = content_type
+            # Don't include ContentType in presigned URL signature - it restricts what Content-Type the client can send
+            # The client should be free to send any Content-Type based on the actual data
 
             return self.client.generate_presigned_url("put_object", Params=params, ExpiresIn=expires_in)
         except Exception as e:
