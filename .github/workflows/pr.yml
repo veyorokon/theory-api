@@ -29,7 +29,7 @@ jobs:
       - name: Unit tests
         run: make test-unit
 
-  integration-local:
+  integration:
     name: Integration tests (local adapter)
     runs-on: ubuntu-latest
     permissions:
@@ -71,37 +71,8 @@ jobs:
         if: always()
         run: make stop-tools && make services-down
 
-  integration-modal:
-    name: Integration tests (modal adapter)
-    runs-on: ubuntu-latest
-    env:
-      DJANGO_SETTINGS_MODULE: backend.settings.dev_remote
-      ADAPTER: modal
-      PLATFORM: amd64
-      MODAL_ENVIRONMENT: dev
-      TEST_ADAPTER: modal
-      MOCK_MISSING_SECRETS: false
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.11" }
-      - run: pip install -r requirements.txt -r requirements-dev.txt
-      - run: cd code && python manage.py migrate --noinput
-
-      - name: Start tools on Modal (dev)
-        env:
-          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: make start-tools
-
-      - name: Integration tests
-        run: make test-integration
-
+  # Note: Modal adapter testing happens in dev lane after merge
   # TODO: Add parity job to compare local vs modal envelopes (byte-identical in mock mode)
-  # Validates spec requirement: "Adapters differ only in transport, no business policy"
 
   contracts:
     runs-on: ubuntu-latest
