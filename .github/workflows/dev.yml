@@ -15,8 +15,48 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  build-and-publish:
+    name: Build & Publish (amd64)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    env:
+      DJANGO_SETTINGS_MODULE: backend.settings.dev_local
+      PLATFORM: amd64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Build and publish all tools
+        run: make build-and-publish-all
+
+      - name: Commit pin updates to dev (if any)
+        env:
+          ADMIN_GITHUB_TOKEN: ${{ secrets.ADMIN_GITHUB_TOKEN }}
+        run: |
+          git config user.name "pin-bot"
+          git config user.email "pin-bot@users.noreply.github.com"
+          if ! git diff --quiet tools/; then
+            git add tools/
+            git commit -m "pin: update tool digests (dev)"
+            git config --unset http.https://github.com/.extraheader || true
+            git remote set-url origin https://x-access-token:${ADMIN_GITHUB_TOKEN}@github.com/veyorokon/theory-api.git
+            git pull --rebase origin dev
+            git push
+          fi
+
   deploy-and-test:
     name: Deploy to Modal (dev) and test
+    needs: build-and-publish
     runs-on: ubuntu-latest
     env:
       DJANGO_SETTINGS_MODULE: backend.settings.dev_remote
@@ -28,6 +68,8 @@ jobs:
       MOCK_MISSING_SECRETS: false
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: dev  # Get latest dev with pin commits
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install -r requirements.txt -r requirements-dev.txt
@@ -45,57 +87,24 @@ jobs:
       - name: Integration tests
         run: make test-integration
 
-  promote_to_staging:
-    name: "Open PR: dev -> staging"
+  promote-to-staging:
+    name: Promote to staging
     needs: deploy-and-test
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Need full history for branch operations
-      - name: Create PR from dev to staging
+          fetch-depth: 0
+          ref: dev
+      - name: Push dev to staging
         env:
-          GH_TOKEN: ${{ github.token }}
+          ADMIN_GITHUB_TOKEN: ${{ secrets.ADMIN_GITHUB_TOKEN }}
         run: |
-          # Check if PR already exists for this dev SHA
-          EXISTING_PR=$(gh pr list --base staging --head dev --state open --json number --jq '.[0].number' || echo "")
-
-          if [ -z "$EXISTING_PR" ]; then
-            echo "Creating new PR from dev to staging"
-            gh pr create \
-              --base staging \
-              --head dev \
-              --title "Promote: dev -> staging" \
-              --body "## 🚀 Staging Promotion
-
-          This PR promotes validated changes from dev to staging for build and deployment.
-
-          ### Validation Status
-          - ✅ **Unit tests**: All tests passed
-          - ✅ **Build verification**: Processor image built successfully
-          - ✅ **Integration tests**: Local integration tests passed
-          - ✅ **Secret sync**: Dev environment secrets synced
-
-          ### Dev Info
-          - **Run ID**: ${{ github.run_id }}
-          - **SHA**: ${{ github.sha }}
-          - **Workflow**: [View run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-
-          ---
-
-          **Ready for staging build and deployment.**"
-
-            echo "✅ PR created successfully"
-          else
-            echo "⚠️ PR #$EXISTING_PR already exists from dev to staging"
-            echo "Updating existing PR with latest run info"
-
-            gh pr comment $EXISTING_PR --body "## Updated from Run #${{ github.run_id }}
-
-          - **SHA**: ${{ github.sha }}
-          - **Workflow**: [View run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          - **Status**: ✅ All validations passed"
-          fi
+          git config user.name "promotion-bot"
+          git config user.email "promotion-bot@users.noreply.github.com"
+          git config --unset http.https://github.com/.extraheader || true
+          git remote set-url origin https://x-access-token:${ADMIN_GITHUB_TOKEN}@github.com/veyorokon/theory-api.git
+          git push origin dev:staging --force-with-lease
+          echo "✅ Promoted dev to staging"

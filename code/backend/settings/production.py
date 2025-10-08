@@ -1,4 +1,4 @@
-from .base import *
+from .staging import *
 import dj_database_url
 
 # SECURITY WARNING: keep the secret key used in production secret!
@@ -22,4 +22,4 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 # Storage settings are configured in base.py using STORAGE dict
 # In production, set STORAGE_BACKEND=s3 and ARTIFACTS_BUCKET/REGION via env vars
 # AWS credentials are sourced from environment (preferably IAM role)
-MODAL_ENVIRONMENT = env("MODAL_ENVIRONMENT", default="staging", required=MODAL_ENABLED)
+MODAL_ENVIRONMENT = env("MODAL_ENVIRONMENT", default="main", required=MODAL_ENABLED)
