@@ -114,13 +114,13 @@ resource "digitalocean_app" "django" {
 
     # Custom domain
     domain {
-      name = "intheoryapi.com"
+      name = local.env == "main" ? "intheoryapi.com" : "${local.env}.intheoryapi.com"
       type = "PRIMARY"
       zone = "intheoryapi.com"
     }
 
     domain {
-      name = "www.intheoryapi.com"
+      name = local.env == "main" ? "www.intheoryapi.com" : "www.${local.env}.intheoryapi.com"
       type = "ALIAS"
       zone = "intheoryapi.com"
     }

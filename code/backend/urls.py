@@ -11,6 +11,10 @@ from backend.schema import schema
 @csrf_exempt
 def health_check(request):
     """Health check endpoint for App Runner / load balancers."""
+    import logging
+
+    logger = logging.getLogger(__name__)
+    logger.info(f"Health check - Host: {request.get_host()}, META.HTTP_HOST: {request.META.get('HTTP_HOST')}")
     return JsonResponse({"status": "ok"})
 
 
