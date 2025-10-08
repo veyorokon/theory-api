@@ -27,6 +27,9 @@ jobs:
       MODAL_ENVIRONMENT: staging
       TEST_ADAPTER: modal
       MOCK_MISSING_SECRETS: false
+      # AWS credentials for S3 artifact storage
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       # Modal and tool secrets (available to all steps)
       MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
       MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
