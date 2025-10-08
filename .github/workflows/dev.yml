@@ -72,6 +72,12 @@ jobs:
       MODAL_ENVIRONMENT: dev
       TEST_ADAPTER: modal
       MOCK_MISSING_SECRETS: false
+      # Modal and tool secrets (available to all steps)
+      MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+      MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -86,18 +92,8 @@ jobs:
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - run: cd code && python manage.py migrate --noinput
       - run: cd code && python manage.py toolctl sync
-
-      - name: Deploy and sync tools to Modal
-        env:
-          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: make start-tools
-
-      - name: Integration tests
-        run: make test-integration
+      - run: make start-tools
+      - run: make test-integration
 
   promote-to-staging:
     name: Promote to staging
