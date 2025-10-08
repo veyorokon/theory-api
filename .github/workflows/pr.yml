@@ -30,6 +30,7 @@ jobs:
         run: make test-unit
 
   integration:
+    name: Integration tests (local adapter)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -63,12 +64,15 @@ jobs:
       - name: Start tools from registry
         run: make start-tools ADAPTER=local
 
-      - name: Integration tests (local adapter)
+      - name: Integration tests
         run: make test-integration
 
       - name: Cleanup
         if: always()
         run: make stop-tools && make services-down
+
+  # Note: Modal adapter testing happens in dev lane after merge
+  # TODO: Add parity job to compare local vs modal envelopes (byte-identical in mock mode)
 
   contracts:
     runs-on: ubuntu-latest

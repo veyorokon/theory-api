@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      DJANGO_SETTINGS_MODULE: backend.settings.dev_remote
+      DJANGO_SETTINGS_MODULE: backend.settings.production
       ADAPTER: modal
       ENV: main
       PLATFORM: amd64
