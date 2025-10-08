@@ -1,0 +1,2 @@
+# Auto-resolve registry.yaml conflicts: always prefer theirs (target branch)
+tools/**/registry.yaml merge=ours
