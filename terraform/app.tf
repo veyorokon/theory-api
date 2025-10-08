@@ -15,8 +15,8 @@ resource "digitalocean_app" "django" {
       # GitHub source
       github {
         repo           = "veyorokon/theory-api"
-        branch         = local.env == "main" ? "main" : "staging"
-        deploy_on_push = true
+        branch         = local.env == "main" ? "main" : "feat/production-infrastructure"
+        deploy_on_push = false
       }
 
       # Dockerfile build
@@ -25,7 +25,7 @@ resource "digitalocean_app" "django" {
       # Health check
       health_check {
         http_path             = "/health/"
-        initial_delay_seconds = 60
+        initial_delay_seconds = 5
         period_seconds        = 30
         timeout_seconds       = 5
         success_threshold     = 1
@@ -78,11 +78,18 @@ resource "digitalocean_app" "django" {
         type  = "GENERAL"
       }
 
+      env {
+        key   = "SECURE_SSL_REDIRECT"
+        value = "false"
+        type  = "GENERAL"
+      }
+
       # Secrets - passed via TF_VAR_* environment variables
       env {
         key   = "DJANGO_SECRET_KEY"
         value = var.django_secret_key
         type  = "SECRET"
+        scope = "RUN_AND_BUILD_TIME"
       }
 
       env {
@@ -103,6 +110,19 @@ resource "digitalocean_app" "django" {
         type  = "GENERAL"
         scope = "RUN_TIME"
       }
+    }
+
+    # Custom domain
+    domain {
+      name = "intheoryapi.com"
+      type = "PRIMARY"
+      zone = "intheoryapi.com"
+    }
+
+    domain {
+      name = "www.intheoryapi.com"
+      type = "ALIAS"
+      zone = "intheoryapi.com"
     }
 
     # Link to database
