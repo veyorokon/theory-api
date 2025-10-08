@@ -187,8 +187,8 @@ def write_outputs(outputs_schema: Dict[str, str], results: Dict[str, Any]) -> No
 
         # Write to destination
         if url.startswith("https://"):
-            # Upload to presigned PUT URL
-            response = httpx.put(url, content=content)
+            # Upload to presigned PUT URL with Content-Type header (required for S3 presigned URLs)
+            response = httpx.put(url, content=content, headers={"Content-Type": "application/octet-stream"})
             response.raise_for_status()
         elif url.startswith("/artifacts/"):
             # Write to local filesystem
