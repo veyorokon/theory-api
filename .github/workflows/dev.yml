@@ -95,6 +95,7 @@ jobs:
     env:
       DJANGO_SETTINGS_MODULE: backend.settings.dev_local
       ADAPTER: modal
+      TEST_ADAPTER: modal
       PLATFORM: amd64
       APP_ENV: dev
       MOCK_MISSING_SECRETS: "false"
