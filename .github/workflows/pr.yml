@@ -72,8 +72,43 @@ jobs:
       - name: Run contract tests
         run: make test-contracts
 
+  build-django:
+    name: Build Django Container
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Django image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ghcr.io/veyorokon/theory-django:sha-${{ github.sha }}
+          cache-from: type=registry,ref=ghcr.io/veyorokon/theory-django:dev
+          cache-to: type=inline
+
+      - name: Test container startup
+        run: |
+          # Test that image can start and basic Django setup works
+          docker run --rm \
+            -e DJANGO_SETTINGS_MODULE=backend.settings.unittest \
+            -e DJANGO_SECRET_KEY=test-key \
+            -e APP_ENV=dev \
+            ghcr.io/veyorokon/theory-django:sha-${{ github.sha }} \
+            python -c "import django; django.setup(); print('✅ Django setup successful')"
+
   test-integration:
     name: Integration Tests (local adapter)
+    needs: build-django
     runs-on: ubuntu-latest
     permissions:
       contents: read

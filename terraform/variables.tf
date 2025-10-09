@@ -64,3 +64,15 @@ variable "storage_secret_key" {
   type        = string
   sensitive   = true
 }
+
+variable "django_image_tag" {
+  description = "Django container image tag to deploy"
+  type        = string
+  default     = ""
+}
+
+variable "ghcr_token" {
+  description = "GitHub Container Registry token for private image access"
+  type        = string
+  sensitive   = true
+}

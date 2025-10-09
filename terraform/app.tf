@@ -12,15 +12,14 @@ resource "digitalocean_app" "django" {
       instance_count     = 1
       instance_size_slug = var.app_size
 
-      # GitHub source
-      github {
-        repo           = "veyorokon/theory-api"
-        branch         = local.env == "main" ? "main" : "feat/production-infrastructure"
-        deploy_on_push = false
+      # GHCR image source
+      image {
+        registry_type        = "GHCR"
+        registry             = "veyorokon"
+        repository           = "theory-django"
+        tag                  = var.django_image_tag != "" ? var.django_image_tag : local.env
+        registry_credentials = "veyorokon:${var.ghcr_token}"
       }
-
-      # Dockerfile build
-      dockerfile_path = "Dockerfile"
 
       # Health check
       health_check {
