@@ -94,6 +94,8 @@ def _registry_path(ref: str) -> Path:
 
 def _get_modal_web_url(app_name: str, function_name: str = "fastapi_app") -> str:
     """Get Modal deployment web URL for a deployed app and function."""
+    from django.conf import settings
+
     try:
         import modal  # type: ignore
     except Exception as e:  # pragma: no cover
@@ -101,7 +103,7 @@ def _get_modal_web_url(app_name: str, function_name: str = "fastapi_app") -> str
 
     try:
         # Use Function.from_name to access deployed function directly
-        fn = modal.Function.from_name(app_name, function_name)
+        fn = modal.Function.from_name(app_name, function_name, environment_name=settings.APP_ENV)
         # Use get_web_url() method (web_url property is deprecated)
         url = fn.get_web_url() if hasattr(fn, "get_web_url") else fn.web_url  # type: ignore[attr-defined]
     except Exception as e:
