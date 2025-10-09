@@ -44,6 +44,7 @@ jobs:
     name: Provision Production Infrastructure
     needs: retag-django
     runs-on: ubuntu-latest
+    environment: main
     timeout-minutes: 30
     env:
       TF_VAR_django_secret_key: ${{ secrets.DJANGO_SECRET_KEY }}

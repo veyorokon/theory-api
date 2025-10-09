@@ -39,6 +39,7 @@ jobs:
     name: Provision Infrastructure
     needs: retag-django
     runs-on: ubuntu-latest
+    environment: staging
     env:
       TF_VAR_django_secret_key: ${{ secrets.DJANGO_SECRET_KEY }}
       TF_VAR_storage_access_key: ${{ secrets.DO_SPACES_ACCESS_KEY }}

@@ -17,8 +17,54 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  provision:
+    name: Provision Infrastructure
+    runs-on: ubuntu-latest
+    environment: dev
+    env:
+      TF_VAR_django_secret_key: ${{ secrets.DJANGO_SECRET_KEY }}
+      TF_VAR_storage_access_key: ${{ secrets.STORAGE_ACCESS_KEY }}
+      TF_VAR_storage_secret_key: ${{ secrets.STORAGE_SECRET_KEY }}
+      TF_VAR_django_image_tag: dev
+      TF_VAR_ghcr_token: ${{ secrets.GITHUB_TOKEN }}
+      DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init
+
+      - name: Terraform Workspace
+        working-directory: terraform
+        run: |
+          terraform workspace select dev || terraform workspace new dev
+
+      - name: Terraform Plan
+        working-directory: terraform
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        working-directory: terraform
+        run: terraform apply -auto-approve tfplan
+
+      - name: Get Spaces Bucket
+        id: spaces_bucket
+        working-directory: terraform
+        run: |
+          BUCKET=$(terraform output -raw spaces_bucket)
+          echo "bucket=$BUCKET" >> $GITHUB_OUTPUT
+          echo "📦 Spaces Bucket: $BUCKET"
+
+    outputs:
+      spaces_bucket: ${{ steps.spaces_bucket.outputs.bucket }}
+
   build-tools:
     name: Build & Publish Tool Images
+    needs: provision
     runs-on: ubuntu-latest
     permissions:
       contents: write
