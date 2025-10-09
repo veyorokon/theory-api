@@ -93,7 +93,14 @@ jobs:
     needs: build-tools
     runs-on: ubuntu-latest
     env:
-      DJANGO_SETTINGS_MODULE: backend.settings.dev_local
+      DJANGO_SETTINGS_MODULE: backend.settings.production
+      DJANGO_SECRET_KEY: test-key-for-ci
+      DATABASE_URL: sqlite:///test.db
+      STORAGE_BACKEND: s3
+      STORAGE_ACCESS_KEY: ${{ secrets.STORAGE_ACCESS_KEY }}
+      STORAGE_SECRET_KEY: ${{ secrets.STORAGE_SECRET_KEY }}
+      ARTIFACTS_REGION: nyc3
+      ARTIFACTS_ENDPOINT: https://nyc3.digitaloceanspaces.com
       ADAPTER: modal
       TEST_ADAPTER: modal
       PLATFORM: amd64
