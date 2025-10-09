@@ -18,7 +18,7 @@ def info(event: str, **fields):
         "level": "info",
         "event": event,
         "service": "tool",
-        "env": os.getenv("APP_ENV", os.getenv("MODAL_ENVIRONMENT", "dev")),
+        "env": os.getenv("APP_ENV"),
     }
     rec.update(fields)
     json.dump(rec, _stream(), separators=(",", ":"), sort_keys=False)

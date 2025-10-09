@@ -73,7 +73,7 @@ resource "digitalocean_app" "django" {
       }
 
       env {
-        key   = "MODAL_ENVIRONMENT"
+        key   = "APP_ENV"
         value = local.env
         type  = "GENERAL"
       }

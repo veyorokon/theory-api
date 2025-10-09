@@ -239,8 +239,12 @@ STORAGES = {
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Storage configuration (12-factor pattern)
+# App environment (replaces MODAL_ENVIRONMENT)
+APP_ENV = env("APP_ENV", "dev")
+
 STORAGE_BACKEND = env("STORAGE_BACKEND", "minio")
-ARTIFACTS_BUCKET = env("ARTIFACTS_BUCKET", "theory-artifacts-dev")
+ARTIFACTS_BUCKET_PREFIX = env("ARTIFACTS_BUCKET_PREFIX", "theory-artifacts")
+ARTIFACTS_BUCKET = f"{ARTIFACTS_BUCKET_PREFIX}-{APP_ENV}"
 ARTIFACTS_REGION = env("ARTIFACTS_REGION", "us-east-1")
 ARTIFACTS_ENDPOINT = env("ARTIFACTS_ENDPOINT", None)  # For DO Spaces or custom S3
 STORAGE_ACCESS_KEY = env("STORAGE_ACCESS_KEY", None)  # Generic access key
@@ -266,7 +270,7 @@ LOG_CONFIG = {
     "STREAM": env("LOG_STREAM", "stderr"),
     "JSON": env("JSON_LOGS", "1", cast=bool),
     "SERVICE": env("SERVICE", "theory"),
-    "ENV": env("APP_ENV", env("MODAL_ENVIRONMENT", "dev")),
+    "ENV": APP_ENV,
     "RELEASE": env("RELEASE", ""),
 }
 

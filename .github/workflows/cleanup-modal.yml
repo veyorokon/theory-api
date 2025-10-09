@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DJANGO_SETTINGS_MODULE: backend.settings.dev_remote
-      MODAL_ENVIRONMENT: dev
+      APP_ENV: dev
     steps:
       - uses: actions/checkout@v4
         with:

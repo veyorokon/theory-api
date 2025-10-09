@@ -57,6 +57,7 @@ services:
       - ALLOWED_HOSTS=localhost,127.0.0.1
       - SECURE_SSL_REDIRECT=False
       - STORAGE_BACKEND=minio
+      - APP_ENV=dev
     depends_on:
       postgres:
         condition: service_healthy

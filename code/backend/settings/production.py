@@ -22,4 +22,4 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = SECURE_SSL_REDIRECT
 # Storage settings are configured in base.py using STORAGE dict
 # In production, set STORAGE_BACKEND=s3 and ARTIFACTS_BUCKET/REGION via env vars
 # AWS credentials are sourced from environment (preferably IAM role)
-MODAL_ENVIRONMENT = env("MODAL_ENVIRONMENT", default="main", required=MODAL_ENABLED)
+APP_ENV = env("APP_ENV", default="main")

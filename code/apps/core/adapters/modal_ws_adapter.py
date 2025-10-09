@@ -47,7 +47,7 @@ class ModalWsAdapter(BaseWsAdapter):
         # Resolve app name from ref and environment settings
         app_name = modal_app_name(
             ref,
-            env=settings.MODAL_ENVIRONMENT,
+            env=settings.APP_ENV,
             branch=settings.GIT_BRANCH,
             user=settings.GIT_USER,
         )
