@@ -253,7 +253,7 @@ class ToolRunner:
         from django.conf import settings
 
         # Get Modal context from Django settings (required, no fallbacks)
-        env = settings.MODAL_ENVIRONMENT
+        env = settings.APP_ENV
         user = settings.GIT_USER
         branch = settings.GIT_BRANCH
 

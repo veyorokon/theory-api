@@ -29,8 +29,8 @@ class CreateRunInput:
     world_id: str
     agent_id: str
     tool_ref: str
-    input_data: Optional[strawberry.scalars.JSON] = None  # Inline data
-    input_references: Optional[strawberry.scalars.JSON] = None  # world:// URIs
+    input_data: strawberry.scalars.JSON | None = None  # Inline data
+    input_references: strawberry.scalars.JSON | None = None  # world:// URIs
     adapter: str = "local"
     mode: str = "mock"
 
@@ -71,12 +71,7 @@ class RunMutation:
         # Write inline data as artifacts
         if input.input_data:
             for key, value in input.input_data.items():
-                artifact = ArtifactService.create_inline_artifact(
-                    world=world,
-                    run_id=run_id,
-                    key=key,
-                    value=value
-                )
+                artifact = ArtifactService.create_inline_artifact(world=world, run_id=run_id, key=key, value=value)
                 final_inputs[key] = artifact.uri
 
         # Merge with references (references override inline if conflict)

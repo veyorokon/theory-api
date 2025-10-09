@@ -128,9 +128,7 @@ class ArtifactService:
         elif isinstance(value, str):
             # String - write as JSON file
             content = json.dumps(value).encode()
-            return ArtifactService.create_file_artifact(
-                world, run_id, f"{key}.json", content, "application/json"
-            )
+            return ArtifactService.create_file_artifact(world, run_id, f"{key}.json", content, "application/json")
         elif isinstance(value, bytes):
             # Binary - write as file
             return ArtifactService.create_file_artifact(world, run_id, key, value, "application/octet-stream")

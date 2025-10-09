@@ -118,7 +118,7 @@ def _print_json(obj: dict):
 # --- Ephemeral modal scripts (SDK one-shots) -------------------------------
 
 
-def _script_deploy(app_name: str, oci: str, required_secrets: list[str], runtime_config: dict) -> str:
+def _script_deploy(app_name: str, oci: str, required_secrets: list[str], runtime_config: dict, app_env: str) -> str:
     digest_part = oci.split("@")[1] if "@" in oci else oci
 
     # Build secrets list for function decorator
@@ -138,9 +138,9 @@ def _script_deploy(app_name: str, oci: str, required_secrets: list[str], runtime
     return textwrap.dedent(f"""
     import modal
 
-    # Extend registry image with IMAGE_DIGEST env var
+    # Extend registry image with IMAGE_DIGEST and APP_ENV env vars
     base_image = modal.Image.from_registry("{oci}")
-    image = base_image.env({{"IMAGE_DIGEST": "{digest_part}"}})
+    image = base_image.env({{"IMAGE_DIGEST": "{digest_part}", "APP_ENV": "{app_env}"}})
 
     app = modal.App("{app_name}", image=image)
 
@@ -222,7 +222,7 @@ def cmd_start(args: argparse.Namespace, stdout=None) -> None:
     # Get runtime config
     runtime_config = reg.get("runtime", {})
 
-    env = settings.MODAL_ENVIRONMENT
+    env = settings.APP_ENV
     app_name = _modal_app_name(
         ref=ref,
         env=env,
@@ -230,7 +230,7 @@ def cmd_start(args: argparse.Namespace, stdout=None) -> None:
         user=settings.GIT_USER,
     )
 
-    src = _script_deploy(app_name, oci, required_secrets, runtime_config)
+    src = _script_deploy(app_name, oci, required_secrets, runtime_config, env)
     path = _write_temp_modal_script(src)
 
     _ensure_modal_cli()
@@ -267,7 +267,7 @@ def cmd_start(args: argparse.Namespace, stdout=None) -> None:
 def cmd_stop(args: argparse.Namespace, stdout=None) -> None:
     ref = _require(args.ref, "--ref is required")
 
-    env = settings.MODAL_ENVIRONMENT
+    env = settings.APP_ENV
     app_name = _modal_app_name(
         ref=ref,
         env=env,
@@ -288,7 +288,7 @@ def cmd_status(args: argparse.Namespace) -> dict:
 
     ref = _require(args.ref, "--ref is required")
 
-    env = settings.MODAL_ENVIRONMENT
+    env = settings.APP_ENV
     app_name = _modal_app_name(
         ref=ref,
         env=env,
@@ -317,7 +317,7 @@ def cmd_logs(args: argparse.Namespace, stdout=None) -> None:
     ref = _require(args.ref, "--ref is required")
     limit = str(args.limit or 50)
 
-    env = settings.MODAL_ENVIRONMENT
+    env = settings.APP_ENV
     app_name = _modal_app_name(
         ref=ref,
         env=env,
@@ -349,7 +349,7 @@ def _resolve_required_secret_names(ref: str) -> list[str]:
 
 def cmd_sync_secrets(args: argparse.Namespace, stdout=None) -> None:
     ref = _require(args.ref, "--ref is required (ns/name@ver)")
-    env = settings.MODAL_ENVIRONMENT
+    env = settings.APP_ENV
 
     # 1) Figure out which secrets we need
     required = _resolve_required_secret_names(ref)

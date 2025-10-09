@@ -20,13 +20,13 @@ scripts
 _build
 docs/_generated
 
-# Server/test code not needed in image
+# Server/test code not needed in processor images (but needed for Django server)
 code/apps/**/tests
-code/apps/**/migrations
+# code/apps/**/migrations  # KEEP migrations for Django server
 code/apps/**/management
-code/apps/**/admin.py
-code/apps/**/views.py
-code/apps/**/urls.py
+# code/apps/**/admin.py  # KEEP admin for Django server
+# code/apps/**/views.py  # KEEP views for Django server
+# code/apps/**/urls.py   # KEEP urls for Django server
 
 # Allow essential processor and shared lib paths (Dockerfile COPY will reference them)
 !code/apps/core/processors/**

@@ -1,33 +1,68 @@
 # terraform/outputs.tf
-output "artifacts_bucket" {
-  value       = aws_s3_bucket.artifacts.bucket
-  description = "S3 bucket name for artifacts"
+
+# App Platform outputs
+output "app_url" {
+  value       = "https://${digitalocean_app.django.default_ingress}"
+  description = "Django application URL"
 }
 
-output "artifacts_region" {
-  value       = var.aws_region
-  description = "Region for the artifacts bucket"
+output "app_id" {
+  value       = digitalocean_app.django.id
+  description = "App Platform app ID"
 }
 
-output "artifacts_prefix" {
-  value       = local.artifacts_prefix
-  description = "Root prefix used for presigned keys"
-}
-
-# Only if created; mark secret as sensitive
-output "signer_access_key_id" {
-  value       = try(aws_iam_access_key.signer_key[0].id, null)
-  description = "Access key ID for the presigning IAM user (dev only)"
+# Database outputs
+output "database_host" {
+  value       = digitalocean_database_cluster.postgres.host
+  description = "Database host"
   sensitive   = true
 }
 
-output "signer_secret_access_key" {
-  value       = try(aws_iam_access_key.signer_key[0].secret, null)
-  description = "Secret access key for the presigning IAM user (dev only)"
+output "database_port" {
+  value       = digitalocean_database_cluster.postgres.port
+  description = "Database port"
+}
+
+output "database_name" {
+  value       = digitalocean_database_db.main.name
+  description = "Database name"
+}
+
+output "database_user" {
+  value       = digitalocean_database_cluster.postgres.user
+  description = "Database username"
   sensitive   = true
 }
 
-output "signer_user_arn" {
-  value       = try(aws_iam_user.signer[0].arn, null)
-  description = "IAM user ARN for presigning (dev only)"
+output "database_password" {
+  value       = digitalocean_database_cluster.postgres.password
+  description = "Database password"
+  sensitive   = true
+}
+
+output "database_uri" {
+  value       = digitalocean_database_cluster.postgres.uri
+  description = "Database connection URI"
+  sensitive   = true
+}
+
+# Spaces outputs
+output "spaces_bucket" {
+  value       = digitalocean_spaces_bucket.artifacts.name
+  description = "Spaces bucket name"
+}
+
+output "spaces_region" {
+  value       = digitalocean_spaces_bucket.artifacts.region
+  description = "Spaces region"
+}
+
+output "spaces_endpoint" {
+  value       = "https://${var.spaces_region}.digitaloceanspaces.com"
+  description = "Spaces endpoint URL"
+}
+
+output "spaces_bucket_endpoint" {
+  value       = digitalocean_spaces_bucket.artifacts.bucket_domain_name
+  description = "Spaces bucket domain name"
 }

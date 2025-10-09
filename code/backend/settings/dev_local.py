@@ -25,4 +25,5 @@ ALLOWED_HOSTS = ["*"]
 
 
 # Modal environment name for Function.from_name(..., environment_name=...)
-MODAL_ENVIRONMENT = env("MODAL_ENVIRONMENT", default="dev", required=MODAL_ENABLED)
+# Shimmed to APP_ENV for consistency
+MODAL_ENVIRONMENT = APP_ENV
