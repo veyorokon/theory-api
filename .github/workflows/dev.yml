@@ -48,6 +48,7 @@ jobs:
         run: make build-and-publish-all PLATFORM=amd64
 
       - name: Commit pin updates
+        if: ${{ !contains(github.event.head_commit.message, 'pin:') }}
         env:
           ADMIN_GITHUB_TOKEN: ${{ secrets.ADMIN_GITHUB_TOKEN }}
         run: |
@@ -106,7 +107,7 @@ jobs:
 
       - name: Run Django container health check
         run: |
-          docker run --rm --network theory_api_app_network \
+          docker run --rm --network theory_api_theory_api_app_network \
             -e DJANGO_SETTINGS_MODULE=backend.settings.dev_container \
             -e DJANGO_SECRET_KEY=test-key \
             -e DATABASE_URL=postgres://postgres:postgres_password@postgres:5432/postgres \
