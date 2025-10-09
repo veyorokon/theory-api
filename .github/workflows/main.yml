@@ -48,11 +48,13 @@ jobs:
     timeout-minutes: 30
     env:
       TF_VAR_django_secret_key: ${{ secrets.DJANGO_SECRET_KEY }}
-      TF_VAR_storage_access_key: ${{ secrets.DO_SPACES_ACCESS_KEY }}
-      TF_VAR_storage_secret_key: ${{ secrets.DO_SPACES_SECRET_KEY }}
+      TF_VAR_storage_access_key: ${{ secrets.SPACES_ACCESS_KEY_ID }}
+      TF_VAR_storage_secret_key: ${{ secrets.SPACES_SECRET_ACCESS_KEY }}
       TF_VAR_django_image_tag: main
       TF_VAR_ghcr_token: ${{ secrets.GHCR_TOKEN }}
       DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
+      SPACES_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_KEY_ID }}
+      SPACES_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_ACCESS_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
