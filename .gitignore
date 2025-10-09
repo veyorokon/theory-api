@@ -227,3 +227,6 @@ terraform.rc
 Makefile_old
 PROTOCOL_MIGRATION.md
 PROTOCOL_REFACTOR.md
+
+# Terraform
+.terraform.lock.hcl

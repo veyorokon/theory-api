@@ -37,25 +37,20 @@ jobs:
           terraform_version: "1.10.5"
 
       - name: Terraform Init
-        working-directory: terraform
+        working-directory: terraform/environments/dev
         run: terraform init
 
-      - name: Terraform Workspace
-        working-directory: terraform
-        run: |
-          terraform workspace select dev || terraform workspace new dev
-
       - name: Terraform Plan
-        working-directory: terraform
+        working-directory: terraform/environments/dev
         run: terraform plan -out=tfplan
 
       - name: Terraform Apply
-        working-directory: terraform
+        working-directory: terraform/environments/dev
         run: terraform apply -auto-approve tfplan
 
       - name: Get Spaces Bucket
         id: spaces_bucket
-        working-directory: terraform
+        working-directory: terraform/environments/dev
         run: |
           BUCKET=$(terraform output -raw spaces_bucket)
           echo "bucket=$BUCKET" >> $GITHUB_OUTPUT
