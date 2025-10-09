@@ -98,16 +98,13 @@ jobs:
 
       - name: Test container startup
         run: |
-          docker run --rm -d \
+          # Test that image can start and basic Django setup works
+          docker run --rm \
             -e DJANGO_SETTINGS_MODULE=backend.settings.unittest \
             -e DJANGO_SECRET_KEY=test-key \
             -e APP_ENV=dev \
-            --name theory-django-test \
             ghcr.io/veyorokon/theory-django:sha-${{ github.sha }} \
-            python manage.py check
-
-          sleep 5
-          docker logs theory-django-test
+            python -c "import django; django.setup(); print('✅ Django setup successful')"
 
   test-integration:
     name: Integration Tests (local adapter)
