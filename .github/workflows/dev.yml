@@ -6,7 +6,6 @@ on:
     paths:
       - "code/**"
       - "tests/**"
-      - "tools/**/registry.yaml"
       - ".github/workflows/dev.yml"
       - "Makefile"
       - "Dockerfile"
