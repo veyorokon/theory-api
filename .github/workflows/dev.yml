@@ -93,7 +93,7 @@ jobs:
     needs: build-tools
     runs-on: ubuntu-latest
     env:
-      DJANGO_SETTINGS_MODULE: backend.settings.production
+      DJANGO_SETTINGS_MODULE: backend.settings.dev_local
       ADAPTER: modal
       PLATFORM: amd64
       APP_ENV: dev
