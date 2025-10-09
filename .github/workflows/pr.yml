@@ -75,19 +75,26 @@ jobs:
   build-django:
     name: Build Django Container
     runs-on: ubuntu-latest
+    permissions:
+      packages: write
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Django image
+      - name: Build and push Django image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: Dockerfile
-          push: false
-          tags: theory-django:pr-test
+          push: true
+          tags: ghcr.io/veyorokon/theory-django:sha-${{ github.sha }}
           cache-from: type=registry,ref=ghcr.io/veyorokon/theory-django:dev
-          load: true
+          cache-to: type=inline
 
       - name: Test container startup
         run: |
@@ -96,7 +103,7 @@ jobs:
             -e DJANGO_SECRET_KEY=test-key \
             -e APP_ENV=dev \
             --name theory-django-test \
-            theory-django:pr-test \
+            ghcr.io/veyorokon/theory-django:sha-${{ github.sha }} \
             python manage.py check
 
           sleep 5

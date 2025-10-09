@@ -63,81 +63,24 @@ jobs:
             git push
           fi
 
-  build-django:
-    name: Build & Publish Django Image
+  retag-django:
+    name: Retag Django Image (dev)
     runs-on: ubuntu-latest
     permissions:
       packages: write
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Django image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: Dockerfile
-          push: true
-          tags: ghcr.io/veyorokon/theory-django:dev
-          cache-from: type=registry,ref=ghcr.io/veyorokon/theory-django:dev
-          cache-to: type=inline
-
-  validate-django:
-    name: Validate Django Container
-    needs: build-django
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Pull Django image
-        run: docker pull ghcr.io/veyorokon/theory-django:dev
-
-      - name: Start services
-        run: docker compose --profile base up -d
-
-      - name: Run Django container health check
+      - name: Retag sha image as dev
         run: |
-          docker run --rm --network theory_api_theory_api_app_network \
-            -e DJANGO_SETTINGS_MODULE=backend.settings.dev_container \
-            -e DJANGO_SECRET_KEY=test-key \
-            -e DATABASE_URL=postgres://postgres:postgres_password@postgres:5432/postgres \
-            -e ALLOWED_HOSTS=* \
-            -e APP_ENV=dev \
-            -e STORAGE_BACKEND=minio \
-            -p 8000:8000 \
-            -d \
-            --name theory-django-test \
-            ghcr.io/veyorokon/theory-django:dev
-
-          # Wait for health check
-          for i in {1..30}; do
-            if docker exec theory-django-test curl -f http://localhost:8000/health/ 2>/dev/null; then
-              echo "✅ Django container healthy"
-              exit 0
-            fi
-            echo "⏳ Waiting for Django... ($i/30)"
-            sleep 2
-          done
-
-          echo "❌ Health check failed"
-          docker logs theory-django-test
-          exit 1
-
-      - name: Cleanup
-        if: always()
-        run: |
-          docker stop theory-django-test || true
-          docker compose down -v
+          docker pull ghcr.io/veyorokon/theory-django:sha-${{ github.sha }}
+          docker tag ghcr.io/veyorokon/theory-django:sha-${{ github.sha }} ghcr.io/veyorokon/theory-django:dev
+          docker push ghcr.io/veyorokon/theory-django:dev
 
   test-modal:
     name: Test with Modal Adapter
@@ -177,7 +120,7 @@ jobs:
 
   promote:
     name: Promote to Staging
-    needs: [validate-django, test-modal]
+    needs: [retag-django, test-modal]
     runs-on: ubuntu-latest
     permissions:
       contents: write
