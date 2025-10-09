@@ -185,7 +185,7 @@ help:
 	@echo "  services-down          Stop services"
 	@echo ""
 	@echo "Environment Variables:"
-	@echo "  DJANGO_SETTINGS_MODULE Backend settings module (unittest|dev_local|dev_remote)"
+	@echo "  DJANGO_SETTINGS_MODULE Backend settings module (unittest|dev_local|dev_container|production)"
 	@echo "  ADAPTER                Tool adapter (local|modal)"
 	@echo "  ENV                    Modal environment (dev|staging|prod)"
 	@echo "  PLATFORM               Build platform (amd64|arm64)"

@@ -51,7 +51,7 @@ services:
       - "8000:8000"
     environment:
       - PYTHONPATH=/app
-      - DJANGO_SETTINGS_MODULE=backend.settings.production
+      - DJANGO_SETTINGS_MODULE=backend.settings.dev_container
       - DJANGO_SECRET_KEY=test-key-only-for-local-testing
       - DATABASE_URL=postgres://postgres:postgres_password@postgres:5432/postgres
       - ALLOWED_HOSTS=localhost,127.0.0.1

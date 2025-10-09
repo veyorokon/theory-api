@@ -107,11 +107,10 @@ jobs:
       - name: Run Django container health check
         run: |
           docker run --rm --network theory_api_app_network \
-            -e DJANGO_SETTINGS_MODULE=backend.settings.production \
+            -e DJANGO_SETTINGS_MODULE=backend.settings.dev_container \
             -e DJANGO_SECRET_KEY=test-key \
             -e DATABASE_URL=postgres://postgres:postgres_password@postgres:5432/postgres \
             -e ALLOWED_HOSTS=* \
-            -e SECURE_SSL_REDIRECT=false \
             -e APP_ENV=dev \
             -e STORAGE_BACKEND=minio \
             -p 8000:8000 \
@@ -144,7 +143,7 @@ jobs:
     needs: build-tools
     runs-on: ubuntu-latest
     env:
-      DJANGO_SETTINGS_MODULE: backend.settings.dev_remote
+      DJANGO_SETTINGS_MODULE: backend.settings.production
       ADAPTER: modal
       PLATFORM: amd64
       APP_ENV: dev

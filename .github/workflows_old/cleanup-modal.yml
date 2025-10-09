@@ -1,23 +1,21 @@
-name: Cleanup Modal
+name: Cleanup Modal Deployments
 
 on:
   schedule:
-    - cron: '0 2 * * *'  # 2 AM UTC daily
+    - cron: '13 0 * * *'  # Temporary: runs at 00:13 UTC for testing (change to '0 2 * * *' after validation)
   workflow_dispatch: {}
 
 concurrency:
-  group: cleanup-modal
+  group: ${{ github.workflow }}
   cancel-in-progress: false
 
 jobs:
   cleanup:
-    name: Clean Stale Modal Deployments
+    name: Clean up stale Modal deployments
     runs-on: ubuntu-latest
     env:
-      DJANGO_SETTINGS_MODULE: backend.settings.production
+      DJANGO_SETTINGS_MODULE: backend.settings.dev_remote
       APP_ENV: dev
-      MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-      MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -31,32 +29,44 @@ jobs:
             requirements-dev.txt
       - run: pip install -r requirements.txt -r requirements-dev.txt
 
-      - name: Clean stale Modal deployments
+      - name: Clean up stale Modal deployments
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
         run: |
           echo "→ Scanning Modal deployments for stale branches..."
 
-          # Get all Modal app names
-          # Expected format: {branch}-{user}-{ref-slug}
+          # Get all Modal app names from Modal CLI
+          # Expected format: feat-websocket-standardization-veyorokon-llm-litellm-v1
+          # Pattern: {branch}-{user}-{ref-slug}
+
           modal app list --env dev --json | jq -r '.[].name' | while read -r app_name; do
-            # Skip if doesn't match branch pattern
+            # Extract branch name from deployment name
+            # Remove user suffix and ref suffix to get branch name
+            # Example: feat-websocket-standardization-veyorokon-llm-litellm-v1
+            #   -> extract: feat-websocket-standardization
+
+            # Skip if it doesn't match our pattern (branch-user-ref)
             if ! echo "$app_name" | grep -qE '^[^-]+-[^-]+-[^-]+'; then
-              echo "  ⊘ Skip: $app_name (doesn't match pattern)"
+              echo "  ⊘ Skip: $app_name (doesn't match branch pattern)"
               continue
             fi
 
             # Extract branch by removing last two segments (user and ref)
             branch=$(echo "$app_name" | rev | cut -d'-' -f3- | rev)
 
-            echo "  • $app_name → branch: $branch"
+            echo "  • $app_name -> branch: $branch"
 
-            # Check if branch exists
+            # Check if branch exists locally or remotely
             if git show-ref --verify --quiet "refs/heads/$branch" || \
                git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
               echo "    ✓ Branch exists, keeping deployment"
             else
               echo "    ✗ Branch deleted, stopping deployment"
 
-              # Extract ref from app name
+              # Extract ref from app name (last segment before user)
+              # Example: feat-websocket-standardization-veyorokon-llm-litellm-v1
+              #   -> llm/litellm@1 (reconstruct from llm-litellm-v1)
               ref_slug=$(echo "$app_name" | rev | cut -d'-' -f1-3 | rev)
               ref=$(echo "$ref_slug" | sed 's/-/\//; s/-v/@/')
 

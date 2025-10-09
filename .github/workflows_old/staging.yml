@@ -1,0 +1,73 @@
+name: Staging Lane
+
+on:
+  push:
+    branches: [ staging ]
+    paths-ignore:
+      - "tools/**/registry.yaml"  # Ignore pin commits
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_ENV: staging
+
+jobs:
+  deploy-and-test:
+    name: Deploy to Modal (staging) and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DJANGO_SETTINGS_MODULE: backend.settings.production
+      ADAPTER: modal
+      ENV: staging
+      PLATFORM: amd64
+      APP_ENV: staging
+      TEST_ADAPTER: modal
+      MOCK_MISSING_SECRETS: false
+      # Django secret key
+      DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
+      # Modal and tool secrets (available to all steps)
+      MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+      MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: cd code && python manage.py migrate --noinput
+      - run: cd code && python manage.py toolctl sync
+      - run: make start-tools
+      - run: make test-integration
+
+  promote-to-main:
+    name: Promote to main
+    needs: deploy-and-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: staging
+      - name: Push staging to main
+        env:
+          ADMIN_GITHUB_TOKEN: ${{ secrets.ADMIN_GITHUB_TOKEN }}
+        run: |
+          git config user.name "promotion-bot"
+          git config user.email "promotion-bot@users.noreply.github.com"
+          git config --unset http.https://github.com/.extraheader || true
+          git remote set-url origin https://x-access-token:${ADMIN_GITHUB_TOKEN}@github.com/veyorokon/theory-api.git
+          git push origin staging:main --force-with-lease
+          echo "✅ Promoted staging to main"
