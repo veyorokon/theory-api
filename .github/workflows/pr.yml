@@ -83,6 +83,7 @@ jobs:
       PLATFORM: amd64
       APP_ENV: dev
       MOCK_MISSING_SECRETS: "true"
+      TEST_ADAPTER: local
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
