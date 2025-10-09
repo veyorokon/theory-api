@@ -1,35 +1,115 @@
-name: Staging Lane
+name: Staging
 
 on:
   push:
-    branches: [ staging ]
+    branches: [staging]
     paths-ignore:
       - "tools/**/registry.yaml"  # Ignore pin commits
   workflow_dispatch: {}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: staging
   cancel-in-progress: true
 
 env:
   APP_ENV: staging
+  TF_WORKSPACE: staging
 
 jobs:
-  deploy-and-test:
-    name: Deploy to Modal (staging) and test
+  provision:
+    name: Provision Infrastructure
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    env:
+      TF_VAR_django_secret_key: ${{ secrets.DJANGO_SECRET_KEY }}
+      TF_VAR_storage_access_key: ${{ secrets.DO_SPACES_ACCESS_KEY }}
+      TF_VAR_storage_secret_key: ${{ secrets.DO_SPACES_SECRET_KEY }}
+      DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init
+
+      - name: Terraform Workspace
+        working-directory: terraform
+        run: |
+          terraform workspace select staging || terraform workspace new staging
+
+      - name: Terraform Plan
+        working-directory: terraform
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        working-directory: terraform
+        run: terraform apply -auto-approve tfplan
+
+      - name: Get App URL
+        id: app_url
+        working-directory: terraform
+        run: |
+          APP_URL=$(terraform output -raw app_url)
+          echo "url=$APP_URL" >> $GITHUB_OUTPUT
+          echo "🚀 App URL: $APP_URL"
+
+    outputs:
+      app_url: ${{ steps.app_url.outputs.url }}
+
+  test-deployment:
+    name: Test Deployed Application
+    needs: provision
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for deployment
+        run: |
+          echo "Waiting for App Platform to deploy..."
+          sleep 60
+
+      - name: Health check
+        run: |
+          APP_URL="${{ needs.provision.outputs.app_url }}"
+
+          for i in {1..20}; do
+            if curl -f "${APP_URL}/health/" 2>/dev/null; then
+              echo "✅ Health check passed"
+              exit 0
+            fi
+            echo "⏳ Waiting for app... ($i/20)"
+            sleep 10
+          done
+
+          echo "❌ Health check failed"
+          exit 1
+
+      - name: Smoke tests
+        run: |
+          APP_URL="${{ needs.provision.outputs.app_url }}"
+
+          # Test GraphQL endpoint
+          RESPONSE=$(curl -s -X POST "${APP_URL}/graphql/" \
+            -H "Content-Type: application/json" \
+            -d '{"query": "{ __schema { queryType { name } } }"}')
+
+          if echo "$RESPONSE" | grep -q "queryType"; then
+            echo "✅ GraphQL endpoint responding"
+          else
+            echo "❌ GraphQL endpoint failed"
+            echo "$RESPONSE"
+            exit 1
+          fi
+
+  test-modal:
+    name: Test Modal Tools
+    runs-on: ubuntu-latest
     env:
       DJANGO_SETTINGS_MODULE: backend.settings.production
       ADAPTER: modal
-      ENV: staging
       PLATFORM: amd64
       APP_ENV: staging
-      TEST_ADAPTER: modal
-      MOCK_MISSING_SECRETS: false
-      # Django secret key
-      DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
-      # Modal and tool secrets (available to all steps)
+      MOCK_MISSING_SECRETS: "false"
       MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
       MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -47,12 +127,16 @@ jobs:
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - run: cd code && python manage.py migrate --noinput
       - run: cd code && python manage.py toolctl sync
-      - run: make start-tools
-      - run: make test-integration
 
-  promote-to-main:
-    name: Promote to main
-    needs: deploy-and-test
+      - name: Deploy tools to Modal
+        run: make start-tools ADAPTER=modal
+
+      - name: Run integration tests
+        run: make test-integration
+
+  promote:
+    name: Promote to Main
+    needs: [test-deployment, test-modal]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -61,7 +145,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: staging
-      - name: Push staging to main
+      - name: Fast-forward main
         env:
           ADMIN_GITHUB_TOKEN: ${{ secrets.ADMIN_GITHUB_TOKEN }}
         run: |
@@ -70,4 +154,4 @@ jobs:
           git config --unset http.https://github.com/.extraheader || true
           git remote set-url origin https://x-access-token:${ADMIN_GITHUB_TOKEN}@github.com/veyorokon/theory-api.git
           git push origin staging:main --force-with-lease
-          echo "✅ Promoted staging to main"
+          echo "✅ Promoted staging → main"

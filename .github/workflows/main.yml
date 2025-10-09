@@ -1,38 +1,121 @@
-name: Main Lane
+name: Main
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
     paths:
       - "code/**"
-      - "code/apps/core/processors/**"  # NEW source of truth for pins
+      - "tools/**/registry.yaml"
       - ".github/workflows/main.yml"
+      - "terraform/**"
       - "Makefile"
+      - "Dockerfile"
   workflow_dispatch: {}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: main
   cancel-in-progress: true
 
 env:
   APP_ENV: main
+  TF_WORKSPACE: main
 
 jobs:
-  deploy-and-test:
-    name: Deploy to Modal (prod) and test
+  provision:
+    name: Provision Production Infrastructure
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
+      TF_VAR_django_secret_key: ${{ secrets.DJANGO_SECRET_KEY }}
+      TF_VAR_storage_access_key: ${{ secrets.DO_SPACES_ACCESS_KEY }}
+      TF_VAR_storage_secret_key: ${{ secrets.DO_SPACES_SECRET_KEY }}
+      DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init
+
+      - name: Terraform Workspace
+        working-directory: terraform
+        run: |
+          terraform workspace select main || terraform workspace new main
+
+      - name: Terraform Plan
+        working-directory: terraform
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        working-directory: terraform
+        run: terraform apply -auto-approve tfplan
+
+      - name: Get App URL
+        id: app_url
+        working-directory: terraform
+        run: |
+          APP_URL=$(terraform output -raw app_url)
+          echo "url=$APP_URL" >> $GITHUB_OUTPUT
+          echo "🚀 Production URL: $APP_URL"
+
+    outputs:
+      app_url: ${{ steps.app_url.outputs.url }}
+
+  test-deployment:
+    name: Test Production Deployment
+    needs: provision
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for deployment
+        run: |
+          echo "Waiting for App Platform to deploy production..."
+          sleep 90
+
+      - name: Health check
+        run: |
+          APP_URL="${{ needs.provision.outputs.app_url }}"
+
+          for i in {1..30}; do
+            if curl -f "${APP_URL}/health/" 2>/dev/null; then
+              echo "✅ Production health check passed"
+              exit 0
+            fi
+            echo "⏳ Waiting for production app... ($i/30)"
+            sleep 10
+          done
+
+          echo "❌ Production health check failed"
+          exit 1
+
+      - name: Smoke tests
+        run: |
+          APP_URL="${{ needs.provision.outputs.app_url }}"
+
+          # Test GraphQL endpoint
+          RESPONSE=$(curl -s -X POST "${APP_URL}/graphql/" \
+            -H "Content-Type: application/json" \
+            -d '{"query": "{ __schema { queryType { name } } }"}')
+
+          if echo "$RESPONSE" | grep -q "queryType"; then
+            echo "✅ GraphQL endpoint responding"
+          else
+            echo "❌ GraphQL endpoint failed"
+            echo "$RESPONSE"
+            exit 1
+          fi
+
+  test-modal:
+    name: Test Modal Tools (Production)
+    runs-on: ubuntu-latest
+    env:
       DJANGO_SETTINGS_MODULE: backend.settings.production
       ADAPTER: modal
-      ENV: main
       PLATFORM: amd64
       APP_ENV: main
-      TEST_ADAPTER: modal
-      MOCK_MISSING_SECRETS: false
-      # Django secret key
-      DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
-      # Modal and tool secrets (available to all steps)
+      MOCK_MISSING_SECRETS: "false"
       MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
       MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -50,5 +133,9 @@ jobs:
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - run: cd code && python manage.py migrate --noinput
       - run: cd code && python manage.py toolctl sync
-      - run: make start-tools
-      - run: make test-integration
+
+      - name: Deploy tools to Modal
+        run: make start-tools ADAPTER=modal
+
+      - name: Run integration tests
+        run: make test-integration

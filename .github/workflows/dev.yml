@@ -1,22 +1,25 @@
-name: Dev Lane
+name: Dev
 
 on:
   push:
-    branches: [ dev ]
+    branches: [dev]
     paths:
       - "code/**"
       - "tests/**"
+      - "tools/**/registry.yaml"
       - ".github/workflows/dev.yml"
       - "Makefile"
+      - "Dockerfile"
+      - "docker-compose.yml"
   workflow_dispatch: {}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: dev
   cancel-in-progress: true
 
 jobs:
-  build-and-publish:
-    name: Build & Publish (amd64)
+  build-tools:
+    name: Build & Publish Tool Images
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -26,7 +29,6 @@ jobs:
       PLATFORM: amd64
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -42,10 +44,10 @@ jobs:
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - run: cd code && python manage.py migrate --run-syncdb
 
-      - name: Build and publish all tools
-        run: make build-and-publish-all
+      - name: Build and publish tool images
+        run: make build-and-publish-all PLATFORM=amd64
 
-      - name: Commit pin updates to dev (if any)
+      - name: Commit pin updates
         env:
           ADMIN_GITHUB_TOKEN: ${{ secrets.ADMIN_GITHUB_TOKEN }}
         run: |
@@ -60,19 +62,93 @@ jobs:
             git push
           fi
 
-  deploy-and-test:
-    name: Deploy to Modal (dev) and test
-    needs: build-and-publish
+  build-django:
+    name: Build & Publish Django Image
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Django image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ghcr.io/veyorokon/theory-django:dev
+          cache-from: type=registry,ref=ghcr.io/veyorokon/theory-django:dev
+          cache-to: type=inline
+
+  validate-django:
+    name: Validate Django Container
+    needs: build-django
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull Django image
+        run: docker pull ghcr.io/veyorokon/theory-django:dev
+
+      - name: Start services
+        run: docker compose --profile base up -d
+
+      - name: Run Django container health check
+        run: |
+          docker run --rm --network theory_api_app_network \
+            -e DJANGO_SETTINGS_MODULE=backend.settings.production \
+            -e DJANGO_SECRET_KEY=test-key \
+            -e DATABASE_URL=postgres://postgres:postgres_password@postgres:5432/postgres \
+            -e ALLOWED_HOSTS=* \
+            -e SECURE_SSL_REDIRECT=false \
+            -e APP_ENV=dev \
+            -e STORAGE_BACKEND=minio \
+            -p 8000:8000 \
+            -d \
+            --name theory-django-test \
+            ghcr.io/veyorokon/theory-django:dev
+
+          # Wait for health check
+          for i in {1..30}; do
+            if docker exec theory-django-test curl -f http://localhost:8000/health/ 2>/dev/null; then
+              echo "✅ Django container healthy"
+              exit 0
+            fi
+            echo "⏳ Waiting for Django... ($i/30)"
+            sleep 2
+          done
+
+          echo "❌ Health check failed"
+          docker logs theory-django-test
+          exit 1
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker stop theory-django-test || true
+          docker compose down -v
+
+  test-modal:
+    name: Test with Modal Adapter
+    needs: build-tools
     runs-on: ubuntu-latest
     env:
       DJANGO_SETTINGS_MODULE: backend.settings.dev_remote
       ADAPTER: modal
-      ENV: dev
       PLATFORM: amd64
       APP_ENV: dev
-      TEST_ADAPTER: modal
-      MOCK_MISSING_SECRETS: false
-      # Modal and tool secrets (available to all steps)
+      MOCK_MISSING_SECRETS: "false"
       MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
       MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -92,12 +168,16 @@ jobs:
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - run: cd code && python manage.py migrate --noinput
       - run: cd code && python manage.py toolctl sync
-      - run: make start-tools
-      - run: make test-integration
 
-  promote-to-staging:
-    name: Promote to staging
-    needs: deploy-and-test
+      - name: Deploy tools to Modal
+        run: make start-tools ADAPTER=modal
+
+      - name: Run integration tests
+        run: make test-integration
+
+  promote:
+    name: Promote to Staging
+    needs: [validate-django, test-modal]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -106,7 +186,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: dev
-      - name: Push dev to staging
+      - name: Fast-forward staging
         env:
           ADMIN_GITHUB_TOKEN: ${{ secrets.ADMIN_GITHUB_TOKEN }}
         run: |
@@ -115,4 +195,4 @@ jobs:
           git config --unset http.https://github.com/.extraheader || true
           git remote set-url origin https://x-access-token:${ADMIN_GITHUB_TOKEN}@github.com/veyorokon/theory-api.git
           git push origin dev:staging --force-with-lease
-          echo "✅ Promoted dev to staging"
+          echo "✅ Promoted dev → staging"
