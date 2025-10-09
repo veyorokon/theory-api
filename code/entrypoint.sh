@@ -8,6 +8,8 @@ if [ $# -eq 0 ]; then
   python ./manage.py collectstatic --noinput
   echo "Running migrations..."
   python ./manage.py migrate
+  echo "Syncing tool registry..."
+  python ./manage.py toolctl sync
   echo "Starting gunicorn with uvicorn workers..."
   exec gunicorn backend.asgi:application \
     --bind=0.0.0.0:8000 \
