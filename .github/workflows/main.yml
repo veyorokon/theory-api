@@ -18,7 +18,6 @@ concurrency:
 
 env:
   APP_ENV: main
-  TF_WORKSPACE: main
 
 jobs:
   retag-django:
@@ -62,25 +61,32 @@ jobs:
           terraform_version: "1.10.5"
 
       - name: Terraform Init
-        working-directory: terraform
+        working-directory: terraform/environments/main
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_ACCESS_KEY }}
         run: terraform init
 
-      - name: Terraform Workspace
-        working-directory: terraform
-        run: |
-          terraform workspace select main || terraform workspace new main
-
       - name: Terraform Plan
-        working-directory: terraform
+        working-directory: terraform/environments/main
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_ACCESS_KEY }}
         run: terraform plan -out=tfplan
 
       - name: Terraform Apply
-        working-directory: terraform
+        working-directory: terraform/environments/main
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_ACCESS_KEY }}
         run: terraform apply -auto-approve tfplan
 
       - name: Get App URL
         id: app_url
-        working-directory: terraform
+        working-directory: terraform/environments/main
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_ACCESS_KEY }}
         run: |
           APP_URL=$(terraform output -raw app_url)
           echo "url=$APP_URL" >> $GITHUB_OUTPUT
@@ -135,9 +141,19 @@ jobs:
   test-modal:
     name: Test Modal Tools (Production)
     runs-on: ubuntu-latest
+    environment: main
     env:
       DJANGO_SETTINGS_MODULE: backend.settings.production
+      DJANGO_SECRET_KEY: test-key-for-ci
+      DATABASE_URL: sqlite:////home/runner/work/theory-api/theory-api/code/test.db
+      STORAGE_BACKEND: s3
+      STORAGE_ACCESS_KEY: ${{ secrets.SPACES_ACCESS_KEY_ID }}
+      STORAGE_SECRET_KEY: ${{ secrets.SPACES_SECRET_ACCESS_KEY }}
+      ARTIFACTS_REGION: nyc3
+      ARTIFACTS_ENDPOINT: https://nyc3.digitaloceanspaces.com
+      ARTIFACTS_BUCKET: theory-artifacts-main
       ADAPTER: modal
+      TEST_ADAPTER: modal
       PLATFORM: amd64
       APP_ENV: main
       MOCK_MISSING_SECRETS: "false"
