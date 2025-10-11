@@ -144,6 +144,7 @@ jobs:
       STORAGE_SECRET_KEY: ${{ secrets.SPACES_SECRET_ACCESS_KEY }}
       ARTIFACTS_REGION: nyc3
       ARTIFACTS_ENDPOINT: https://nyc3.digitaloceanspaces.com
+      ARTIFACTS_BUCKET: theory-artifacts-dev
       ADAPTER: modal
       TEST_ADAPTER: modal
       PLATFORM: amd64
