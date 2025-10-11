@@ -147,7 +147,7 @@ jobs:
 
   test-modal:
     name: Test with Modal Adapter
-    needs: build-tools
+    needs: [provision, build-tools]
     runs-on: ubuntu-latest
     environment: dev
     env:
