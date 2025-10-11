@@ -99,6 +99,7 @@ jobs:
         run: |
           git config user.name "pin-bot"
           git config user.email "pin-bot@users.noreply.github.com"
+          git config merge.ours.driver true
           if ! git diff --quiet tools/; then
             git add tools/
             git commit -m "pin: update tool digests (dev)"
