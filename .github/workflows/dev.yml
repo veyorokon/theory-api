@@ -135,6 +135,7 @@ jobs:
     name: Test with Modal Adapter
     needs: build-tools
     runs-on: ubuntu-latest
+    environment: dev
     env:
       DJANGO_SETTINGS_MODULE: backend.settings.production
       DJANGO_SECRET_KEY: test-key-for-ci
