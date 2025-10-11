@@ -61,6 +61,9 @@ jobs:
       - name: Get Spaces Bucket
         id: spaces_bucket
         working-directory: terraform/environments/dev
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_ACCESS_KEY }}
         run: |
           BUCKET=$(terraform output -raw spaces_bucket)
           echo "bucket=$BUCKET" >> $GITHUB_OUTPUT
